@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.spec
+
+# Release archives built locally
+*.7z
+*.zip
+*.rar
+
+# Design notes, not part of the release
+BRAINSTORM.md
+
+# Runtime state - each user's own
+state.json
+state.json.corrupt
+snapshots/
+logs/
+backups/
+*.db
+*.db.backup
+*.db.original

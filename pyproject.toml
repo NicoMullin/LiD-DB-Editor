@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lid-db-mod-manager"
+version = "0.1.0"
+description = "Apply JSON- and SQL-defined mods to LET IT DIE's masters.db"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "KSFA" }]
+keywords = ["let-it-die", "modding", "sqlite", "pyside6"]
+classifiers = [
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Games/Entertainment",
+]
+dependencies = ["PySide6>=6.5"]
+
+[project.scripts]
+lid-db-manager = "lid_db_manager.cli:main"
+
+[project.gui-scripts]
+lid-db-manager-gui = "lid_db_manager.ui.app:run"
+
+[tool.setuptools]
+packages = ["lid_db_manager", "lid_db_manager.ui"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

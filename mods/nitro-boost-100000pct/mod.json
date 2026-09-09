@@ -1,0 +1,29 @@
+{
+  "id": "nitro-boost-100000pct",
+  "name": "Nitro Boost EXP +100,000%",
+  "description": "Both Nitro Boost (EXPUP_02) and EXPUP_01 give 100,000% EXP instead of 40% / 10%.",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "requires": [],
+  "conflicts_with": [],
+  "patches": [
+    {
+      "type": "update_set",
+      "table": "master_skill",
+      "set": {
+        "val0": 100000
+      },
+      "where": "id = 'SKL_EXPUP_02'",
+      "expected_rows": 1
+    },
+    {
+      "type": "update_set",
+      "table": "master_skill",
+      "set": {
+        "val0": 100000
+      },
+      "where": "id = 'SKL_EXPUP_01'",
+      "expected_rows": 1
+    }
+  ]
+}

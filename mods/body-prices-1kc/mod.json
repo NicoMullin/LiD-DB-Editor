@@ -1,0 +1,20 @@
+{
+  "id": "body-prices-1kc",
+  "name": "Fighter Tier Prices 1 KC",
+  "description": "Every fighter (body) tier unlock price becomes 1 KC.",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "requires": [],
+  "conflicts_with": [],
+  "patches": [
+    {
+      "type": "update_set",
+      "table": "master_body_detail",
+      "set": {
+        "price": 1
+      },
+      "where": "price > 1",
+      "expected_rows": 118
+    }
+  ]
+}

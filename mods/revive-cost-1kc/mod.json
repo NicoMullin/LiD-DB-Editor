@@ -1,0 +1,20 @@
+{
+  "id": "revive-cost-1kc",
+  "name": "Revive Cost 1 Kill Coin (all grades)",
+  "description": "Every grade's revive cost becomes 1 KC, including the default revive. The sign held up in-game is a texture, so it still shows the old price - you pay 1 KC either way, but matching the picture means replacing that texture yourself.",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "requires": [],
+  "conflicts_with": [],
+  "patches": [
+    {
+      "type": "update_set",
+      "table": "master_shop_product_price",
+      "set": {
+        "price": 1
+      },
+      "where": "id LIKE 'PRD_CONTINUE%' AND price > 1",
+      "expected_rows": 8
+    }
+  ]
+}

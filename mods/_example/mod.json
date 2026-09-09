@@ -1,0 +1,46 @@
+{
+  "id": "example-mod",
+  "name": "Example Mod (copy this folder)",
+  "description": "Annotated template. Copy this folder, rename it, and edit the fields.",
+  "version": "0.1.0",
+  "author": "your-name-here",
+  "homepage": "https://github.com/you/your-mod-repo",
+  "requires": [],
+  "conflicts_with": [],
+  "raw_sql_files_do_not_touch": [],
+  "patches": [
+    {
+      "type": "update_set",
+      "table": "master_skill",
+      "set": {
+        "buy_money": 1
+      },
+      "where": "buy_money > 1",
+      "expected_rows": 320
+    },
+    {
+      "type": "text_replace",
+      "table": "master_text",
+      "match": {
+        "id": "TXT_BIBLE_19_NOTE_G",
+        "lang": "int"
+      },
+      "replace": [
+        {
+          "find": "5000 Kill Coins",
+          "with": "1 Kill Coin"
+        }
+      ]
+    },
+    {
+      "type": "raw_sql",
+      "sql": "UPDATE master_skillgacha_odds SET odds = 1.0",
+      "description": "Inline SQL escape hatch"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "patch.sql",
+      "description": "Runs patch.sql from this folder, in the same transaction"
+    }
+  ]
+}

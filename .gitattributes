@@ -1,0 +1,7 @@
+# Keep line endings consistent for everyone who clones this.
+* text=auto eol=lf
+
+# Mod files are read as UTF-8 by the manager; never let git mangle them.
+*.sql text eol=lf
+*.json text eol=lf
+*.md text eol=lf
