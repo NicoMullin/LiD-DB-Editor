@@ -40,6 +40,8 @@ integration — it reads and writes exactly one file, the one you point it at.
 
 ## Running it
 
+Note there is a release with a prebuilt exe if you do not want to instill python and the other requirements.
+
 ```bash
 pip install -r requirements.txt
 python run.py
