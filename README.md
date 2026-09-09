@@ -92,8 +92,6 @@ Six, in `mods/`. The JSON ones carry their own `readme.md`.
 | `body-prices-1kc`       | Every fighter tier unlock costs 1 Kill Coin              |
 | `nitro-boost-100000pct` | Nitro Boost and Turbo-charged Engine give 100,000% EXP   |
 | `nitro-boost-text`      | Makes those two skill descriptions say 100,000% to match |
-| `Floor Material Names`  | Adds each floor's material to its area name              |
-| `Shop Always Appears`   | Shop shows up immediately, on many more floors           |
 
 Two caveats worth knowing before you enable them:
 
