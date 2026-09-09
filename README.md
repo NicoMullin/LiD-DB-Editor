@@ -142,6 +142,8 @@ All created on first run. Set `LID_DB_MANAGER_HOME` to put them somewhere else.
 
 ## Building an .exe
 
+I have inculded a release with an exe compiled, if you are wanting to do it yourself for whatever reason, keep reading.
+
 ```bash
 pip install pyinstaller
 python build.py              # -> dist/LID DB Mod Manager/
