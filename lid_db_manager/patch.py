@@ -22,12 +22,14 @@ from .sqlutil import (
     compile_only,
     count_where,
     has_rowid,
+    if_not_exists,
     is_transaction_control,
     parse_row_scope,
     quote_ident,
     rows_matching,
     split_statements,
     table_exists,
+    tables_created_by,
     tables_written_by,
 )
 
@@ -48,8 +50,16 @@ PREVIEW_ROW_LIMIT = 50
 class SnapshotSpec:
     """What the snapshotter should capture before a patch runs.
 
-    ``kind`` is "rows" (specific columns of the rows a WHERE clause matches) or
-    "table" (every column of every row, for raw SQL we can't reason about).
+    ``kind`` is one of:
+
+        "rows"  - specific columns of the rows a WHERE clause matches
+        "keys"  - specific columns of named rows, addressed by primary key.
+                  Used when a diff against vanilla has told us exactly which
+                  rows a mod touches, so raw SQL no longer costs a whole-table
+                  copy.
+        "table" - every column of every row, for anything we cannot pin down
+        "absent"- the table does not exist yet. Nothing to copy; reverting
+                  means dropping whatever the mod created.
     """
 
     kind: str
@@ -57,6 +67,8 @@ class SnapshotSpec:
     columns: list[str] = field(default_factory=list)
     where: str | None = None
     params: tuple[Any, ...] = ()
+    key_columns: list[str] = field(default_factory=list)
+    keys: list[tuple] = field(default_factory=list)
 
 
 @dataclass
@@ -465,21 +477,67 @@ class RawSqlPatch(Patch):
     def tables(self) -> set[str]:
         return tables_written_by(self.sql_text())
 
+    def creates_tables(self) -> set[str]:
+        """Tables this patch brings into being, rather than writing to."""
+        return tables_created_by(self.sql_text())
+
     def targets(self) -> set[tuple[str, str]]:
         return {(table, "*") for table in self.tables()}
+
+    def _check_on_a_schema_copy(
+        self, con: sqlite3.Connection, mod_id: str, statements: list[str]
+    ) -> None:
+        """Run the script for real against an empty copy of the schema.
+
+        Statements are normally compiled one at a time, which cannot work when a
+        script builds on itself - an index over a table two lines above it has
+        nothing to resolve against yet. So for a script that creates tables, the
+        whole thing runs in memory over the database's schema with none of its
+        data: cheap, thrown away, and a stricter check than compiling, because
+        the statements really do execute.
+        """
+        scratch = sqlite3.connect(":memory:")
+        try:
+            for (definition,) in con.execute(
+                "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL "
+                "ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END"
+            ):
+                try:
+                    scratch.execute(definition)
+                except sqlite3.Error:
+                    continue  # a view or trigger over something we could not build
+            for statement in statements:
+                try:
+                    scratch.execute(if_not_exists(statement))
+                except sqlite3.Error as exc:
+                    short = " ".join(statement.split())[:90]
+                    raise ValidationError(
+                        mod_id, f"SQL is not valid ({exc}) in: {short}"
+                    ) from exc
+        finally:
+            scratch.close()
 
     def validate(self, con: sqlite3.Connection, mod_id: str) -> list[str]:
         statements = self.statements()
         if not statements:
             raise ValidationError(mod_id, f"{self.source_label()} contains no SQL statements")
-        for statement in statements:
-            try:
-                compile_only(con, statement)
-            except sqlite3.Error as exc:
-                short = " ".join(statement.split())[:90]
-                raise ValidationError(mod_id, f"SQL is not valid ({exc}) in: {short}") from exc
+        if any(not table_exists(con, t) for t in self.creates_tables()):
+            self._check_on_a_schema_copy(con, mod_id, statements)
+        else:
+            for statement in statements:
+                try:
+                    compile_only(con, if_not_exists(statement))
+                except sqlite3.Error as exc:
+                    short = " ".join(statement.split())[:90]
+                    raise ValidationError(mod_id, f"SQL is not valid ({exc}) in: {short}") from exc
 
         warnings: list[str] = []
+        relaxed = sum(1 for s in statements if if_not_exists(s) != s)
+        if relaxed:
+            warnings.append(
+                f"{self.source_label()}: {relaxed} CREATE statement(s) read as "
+                "CREATE ... IF NOT EXISTS, so the mod can be applied more than once"
+            )
         dropped = self.transaction_statements()
         if dropped:
             words = ", ".join(sorted({" ".join(d.split()).rstrip(";").upper() for d in dropped}))
@@ -494,7 +552,18 @@ class RawSqlPatch(Patch):
                 f"{self.source_label()}: could not work out which tables it writes to; "
                 "revert will fall back to the .db backup"
             )
+        # Only the ones that are genuinely new. A dump that opens with a
+        # CREATE TABLE IF NOT EXISTS for a table already in the database is
+        # creating nothing, and must not be described as if it were.
+        created = {t for t in self.creates_tables() if not table_exists(con, t)}
+        if created:
+            warnings.append(
+                f"{self.source_label()}: creates {len(created)} table(s) the database does "
+                f"not have ({', '.join(sorted(created))}) - reverting will drop them again"
+            )
         for table in sorted(tables):
+            if table in created:
+                continue  # it does not exist yet because this patch makes it
             if not table_exists(con, table):
                 raise ValidationError(mod_id, f"table {table!r} does not exist in this database")
             if not has_rowid(con, table):
@@ -510,7 +579,11 @@ class RawSqlPatch(Patch):
 
     def snapshot_specs(self, con: sqlite3.Connection) -> list[SnapshotSpec]:
         specs: list[SnapshotSpec] = []
+        created = self.creates_tables()
         for table in sorted(self.tables()):
+            if table in created and not table_exists(con, table):
+                specs.append(SnapshotSpec("absent", table))
+                continue
             if not table_exists(con, table) or not has_rowid(con, table):
                 continue
             if count_where(con, table, None) > FULL_TABLE_SNAPSHOT_LIMIT:
@@ -525,6 +598,13 @@ class RawSqlPatch(Patch):
             return {table: None for table in found}
 
         for statement in statements:
+            if tables_created_by(statement):
+                # A CREATE changes no existing row, so it tells us nothing about
+                # overlap. Shared dumps routinely open with a CREATE TABLE IF NOT
+                # EXISTS for a table that is already there; treating that as
+                # "unknown rows" would throw away the row-level precision that
+                # stops two mods being reported as clashing when they never meet.
+                continue
             scope = parse_row_scope(statement)
             if scope is None:
                 # Something we cannot reason about (an INSERT, a trigger, ...).
@@ -565,6 +645,9 @@ class RawSqlPatch(Patch):
     def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
         changed = 0
         for statement in self.statements():
+            # Every save re-runs the whole enabled list, so a bare CREATE would
+            # fail the second time round on a table the mod itself made.
+            statement = if_not_exists(statement)
             try:
                 cursor = con.execute(statement)
             except sqlite3.Error as exc:

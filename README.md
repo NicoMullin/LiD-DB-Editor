@@ -19,8 +19,9 @@ injected, nothing is installed into the game.
   read-only connection before a single byte is written: tables and columns must
   exist, SQL must compile. A mod written for a different game version is
   reported, not run.
-- **Backs up.** The first save writes `masters.db.original` and never touches it
-  again, so there is always a way back to stock without re-downloading.
+- **Backs up before it does anything.** The moment you point it at a database
+  it keeps `masters.db.original` and never touches that file again, so there is
+  always a way back to stock without re-downloading.
 - **Undoes individual mods.** Before each mod runs, the rows it is about to
   change are copied aside. Turning one mod off puts exactly those rows back and
   leaves your other mods alone.
@@ -28,6 +29,15 @@ injected, nothing is installed into the game.
   it, re-applies your enabled mods automatically.
 - **Shows you the change.** A diff panel lists the actual rows a mod will
   rewrite, before and after, before you commit to it.
+- **Takes mods however they arrive.** Drag a `.sql`, a mod folder or a `.zip`
+  onto the window. Hand it somebody else's already-modded `masters.db` and it
+  works out the difference and turns that into a mod you can switch off again.
+- **Lets you decide who wins.** Mods apply in a load order you control, so a
+  small tweak can override one value from a huge rework and leave the rest.
+- **Keeps blunt mods from trampling careful ones.** A mod marked
+  `"apply": "diff"` is run against an untouched copy of the database first, and
+  only the values it genuinely changes are written — so a whole-table dump stops
+  wiping out everything else, and re-applying it can never compound.
 
 It is fully offline: no network calls of any kind, no telemetry, and no Steam
 integration — it reads and writes exactly one file, the one you point it at.
@@ -40,7 +50,8 @@ integration — it reads and writes exactly one file, the one you point it at.
 
 ## Running it
 
-Note there is a release with a prebuilt exe if you do not want to instill python and the other requirements.
+Note there is a release with a prebuilt exe if you do not want to install Python
+and the other requirements.
 
 ```bash
 pip install -r requirements.txt
@@ -60,10 +71,10 @@ apply, all as one step you can undo.
 
 ## Point it at a clean `masters.db`
 
-The first time you save, whatever is in that file becomes `masters.db.original`
-— the copy the tool never overwrites and always restores from. If the database
-has **already** been edited, by hand or by another tool, then that "original" is
-a copy of the edited version and nothing can get you back to stock.
+The moment you pick it, that file is copied to `masters.db.original` — the copy
+the tool never overwrites and always restores from. If the database has
+**already** been edited, by hand or by another tool, then that "original" is a
+copy of the edited version and nothing can get you back to stock.
 
 If you are not certain yours is untouched, replace it **before** pointing this
 tool at it: delete `masters.db` and let Steam re-download it (Properties →
@@ -81,12 +92,14 @@ Two independent levels:
   `.original` first, then the rolling `masters.db.backup` from your most recent
   save, then the dated copies in `backups/` (newest five kept).
 
-Only **Save Mod List** takes backups. Re-apply, automatic or manual, never does
-— so an automatic re-apply can't quietly rotate your good backups away.
+`.original` is taken when you choose the database; the rolling and dated
+backups are taken by **Save Mod List**. Re-apply, automatic or manual, never
+takes one — so an automatic re-apply can't quietly rotate your good backups
+away.
 
 ## Mods included
 
-Six, in `mods/`. The JSON ones carry their own `readme.md`.
+Four, in `mods/`, each with its own `readme.md`.
 
 | Mod                     | What it does                                             |
 |-------------------------|----------------------------------------------------------|
@@ -103,10 +116,62 @@ Two caveats worth knowing before you enable them:
 - `nitro-boost-text` — covers English, German, Spanish, French, Italian and
   Portuguese. Japanese, Chinese and Korean keep the stock wording.
 
+## Adding mods
+
+**Drag it onto the window.** A `.sql` patch, a mod folder, or a `.zip` — you
+get a small dialog to name it and describe it, and it appears in the list
+switched off so you can read its diff before committing. Same thing via
+**Tools → Add a mod from a file**.
+
+**Someone posted a whole reworked `masters.db`?** **Tools → Create a mod from a
+modded masters.db** compares it against your untouched copy and writes the
+difference out as an ordinary mod — so a rework becomes something you can
+toggle rather than a file you have to swap by hand. It refuses outright if the
+file came from a different game version, because that diff would silently undo
+the developers' own changes.
+
+That comparison is not limited to retuned numbers. Changed values, added rows,
+removed rows and whole tables the game shipped without all come across, with
+their indexes — modders keep finding more they can do to `masters.db`, and a
+manager that quietly drops the parts it does not recognise is worse than one
+that refuses them outright. Reverting such a mod drops the tables it added and
+puts everything else back.
+
+Or just put a folder in `mods/` and press F5.
+
+## Load order
+
+Enabled mods sit at the top of the list, numbered. **Top applies first, bottom
+wins** — so if a big rework sets a hundred values and you want one of them
+different, put your small mod below it and only that value changes. Move things
+with the buttons under the list or Ctrl+Up / Ctrl+Down.
+
+The conflict warnings name the mods and the rows they share, so you can see who
+is overriding what and reorder accordingly.
+
+## When a change doesn't show up in game
+
+The manager tells you what it wrote to `masters.db`, and the Diff preview shows
+you the rows. If the game still looks unchanged, the mod probably applied fine
+and the game simply has not re-read it yet.
+
+The clearest case is **shop and vending machine contents**. Those lineups are
+settled by the game's daily reset, so newly added items will not appear until
+the in-game day rolls over — no amount of re-applying will hurry it along.
+
+Before assuming a mod is broken:
+
+- Check the log and the Diff preview. If the rows are listed there, they are in
+  the database.
+- Restart the game. Some tables are read once at launch.
+- For anything shop-related, wait for the daily reset.
+- If you want to be certain, open `masters.db` in a SQLite browser and look at
+  the rows directly.
+
 ## Making your own mods
 
-Drop a folder into `mods/` and press F5. A mod is either a `mod.json` or just a
-`.sql` file — both work, and there are two templates to copy.
+A mod is either a `mod.json` or just a `.sql` file — both work, and there are
+two templates to copy.
 
 **[mods/README.md](mods/README.md) is the full guide**: every folder layout,
 every patch type, how revert and conflict detection see your mod, and the traps
@@ -144,7 +209,8 @@ All created on first run. Set `LID_DB_MANAGER_HOME` to put them somewhere else.
 
 ## Building an .exe
 
-I have inculded a release with an exe compiled, if you are wanting to do it yourself for whatever reason, keep reading.
+There is a release with an exe already compiled. If you want to build it
+yourself for whatever reason, keep reading.
 
 ```bash
 pip install pyinstaller
@@ -160,14 +226,18 @@ sits in as its home, so `mods/`, `logs/`, `snapshots/`, `backups/` and
 
 |                | Folder (default) | `--onefile`             |
 |----------------|------------------|-------------------------|
-| On disk        | 116 MB           | 46 MB                   |
+| On disk        | 117 MB           | 47 MB                   |
 | Startup        | 0.2 s            | 0.9 s (unpacks on load) |
-| Zipped release | 47 MB            | 46 MB                   |
+| Zipped release | 60 MB            | 46 MB                   |
 
-Either way you are shipping a zip, because `mods/` has to travel with the exe —
-so the single-file build buys tidiness rather than size. The folder build starts
-faster and is far easier to debug when someone reports it not launching. Pick
-`--onefile` if you would rather hand people one file.
+The folder build starts four times faster and is far easier to diagnose when
+someone reports it not launching, which is why it is the default. `--onefile`
+is a 14 MB smaller download. Either way you ship a zip, because `mods/` has to
+travel alongside the executable.
+
+**Do not run the app out of `dist/`.** That folder is build output — rebuilding
+wipes it, and the app keeps its `state.json`, `snapshots/` and database backups
+next to itself. Copy the build somewhere permanent and run it from there.
 
 Other flags: `--icon path.ico`, and `--console` if you want the command line to
 work from the `.exe` (a windowed build still writes to a redirected pipe, but

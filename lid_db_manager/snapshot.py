@@ -3,13 +3,15 @@
 Before a mod's patches run, every row they are about to touch is read back and
 written to ``snapshots/<mod-id>.json``. Reverting the mod replays that file.
 
-Two entry kinds:
+Three entry kinds:
 
     "rows"  - specific columns of the rows a WHERE clause matched. Restoring
               writes those columns back by rowid.
     "table" - every column of every row, used for raw-SQL patches where we
               cannot reason about what changed. Restoring deletes rows the SQL
               inserted and rewrites the rest.
+    "absent"- the table did not exist before the mod ran. There is nothing to
+              copy; restoring drops it.
 """
 
 from __future__ import annotations
@@ -27,6 +29,10 @@ from .patch import SnapshotSpec
 from .sqlutil import column_names, quote_ident, table_exists
 
 SNAPSHOT_FORMAT = 1
+
+# Rows per key-lookup query. SQLite refuses an expression tree deeper than
+# 1000 terms, and a mod can easily touch thousands of rows.
+KEY_BATCH = 200
 
 
 def _encode(value: Any) -> Any:
@@ -117,6 +123,13 @@ def capture(
     seen_full_tables: set[str] = set()
 
     for spec in specs:
+        if spec.kind == "absent":
+            # Recorded whether the table is there or not: the point is that it
+            # was NOT there before this mod ran, so revert should drop it. If
+            # something else created it first, leave it alone.
+            if not table_exists(con, spec.table):
+                entries.append(SnapshotEntry("absent", spec.table, [], []))
+            continue
         if not table_exists(con, spec.table):
             continue
         if spec.kind == "table":
@@ -130,14 +143,36 @@ def capture(
             continue
 
         selected = ", ".join(quote_ident(c) for c in columns)
-        sql = f"SELECT rowid AS _rowid, {selected} FROM {quote_ident(spec.table)}"
-        if spec.kind != "table" and spec.where:
-            sql += f" WHERE {spec.where}"
-        rows = [
-            [row["_rowid"]] + [row[column] for column in columns]
-            for row in con.execute(sql, spec.params if spec.kind != "table" else ())
-        ]
-        entries.append(SnapshotEntry(spec.kind, spec.table, columns, rows))
+        base = f"SELECT rowid AS _rowid, {selected} FROM {quote_ident(spec.table)}"
+
+        if spec.kind == "keys":
+            if not spec.keys:
+                continue
+            # One OR-group per row, in batches: SQLite caps expression depth at
+            # 1000, and a mod touching a couple of thousand rows sails past it.
+            rows = []
+            group = "(" + " AND ".join(f"{quote_ident(c)} = ?" for c in spec.key_columns) + ")"
+            for start in range(0, len(spec.keys), KEY_BATCH):
+                batch = spec.keys[start : start + KEY_BATCH]
+                sql = f"{base} WHERE " + " OR ".join(group for _ in batch)
+                params = tuple(value for key in batch for value in key)
+                rows.extend(
+                    [row["_rowid"]] + [row[column] for column in columns]
+                    for row in con.execute(sql, params)
+                )
+        else:
+            sql = base
+            params = ()
+            if spec.kind != "table" and spec.where:
+                sql += f" WHERE {spec.where}"
+                params = spec.params
+            rows = [
+                [row["_rowid"]] + [row[column] for column in columns]
+                for row in con.execute(sql, params)
+            ]
+        # Restoring is the same job either way: write these columns back by rowid.
+        kind = "rows" if spec.kind == "keys" else spec.kind
+        entries.append(SnapshotEntry(kind, spec.table, columns, rows))
 
     return Snapshot(
         mod_id=mod_id,
@@ -158,6 +193,15 @@ def restore(con: sqlite3.Connection, snapshot: Snapshot) -> tuple[int, list[str]
 
     # Reverse order so a mod that touched the same table twice unwinds cleanly.
     for entry in reversed(snapshot.entries):
+        if entry.kind == "absent":
+            # The mod created this table; putting the database back means
+            # taking it away again.
+            if table_exists(con, entry.table):
+                try:
+                    con.execute(f"DROP TABLE {quote_ident(entry.table)}")
+                except sqlite3.Error as exc:
+                    raise RevertError(f"could not drop table {entry.table!r}: {exc}") from exc
+            continue
         if not table_exists(con, entry.table):
             warnings.append(f"table {entry.table!r} no longer exists - skipped")
             continue

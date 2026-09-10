@@ -89,6 +89,131 @@ class SnapshotUnitTests(unittest.TestCase):
         self.assertIsNone(snapshot_module.load(self.root, "never-seen"))
 
 
+class DeltaScopedSnapshotTests(unittest.TestCase):
+    """Snapshots scoped by a vanilla diff, instead of copying whole tables."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.db = build_db(self.root / "masters.db")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _delta(self, **tables):
+        """Build a stand-in delta without running a mod."""
+        from lid_db_manager.dbdiff import DbDelta, RowUpdate, TableDelta
+
+        delta = DbDelta()
+        for name, spec in tables.items():
+            table = TableDelta(
+                name.replace("__", "_"),
+                spec.get("key_columns", ["id"]),
+                spec.get("columns", ["buy_money"]),
+                keyed_by_rowid=spec.get("keyed_by_rowid", False),
+            )
+            for key, changes in spec.get("updates", []):
+                table.updates.append(RowUpdate(key, changes, {}))
+            table.inserts = spec.get("inserts", [])
+            table.deletes = spec.get("deletes", [])
+            delta.tables.append(table)
+        return delta
+
+    def test_an_update_only_table_becomes_a_key_scoped_spec(self) -> None:
+        from lid_db_manager.runner import snapshot_specs_from_delta
+
+        delta = self._delta(master_skill={"updates": [(("SKL_EXPUP_01",), {"buy_money": 1})]})
+        specs = snapshot_specs_from_delta(delta)
+        self.assertEqual([s.kind for s in specs], ["keys"])
+        self.assertEqual(specs[0].keys, [("SKL_EXPUP_01",)])
+        self.assertEqual(specs[0].columns, ["buy_money"])
+
+    def test_inserts_or_deletes_force_a_whole_table_copy(self) -> None:
+        """Restoring by rowid cannot bring back a deleted row."""
+        from lid_db_manager.runner import snapshot_specs_from_delta
+
+        for extra in ({"inserts": [("X", "n", 1, 1)]}, {"deletes": [("SKL_FREE_01",)]}):
+            delta = self._delta(master_skill={"updates": [], **extra})
+            self.assertEqual([s.kind for s in snapshot_specs_from_delta(delta)], ["table"])
+
+    def test_a_table_without_a_primary_key_falls_back_entirely(self) -> None:
+        from lid_db_manager.runner import snapshot_specs_from_delta
+
+        delta = self._delta(master_skill={"updates": [], "keyed_by_rowid": True})
+        self.assertIsNone(snapshot_specs_from_delta(delta))
+
+    def test_no_delta_means_the_old_behaviour(self) -> None:
+        from lid_db_manager.runner import snapshot_specs_from_delta
+
+        self.assertIsNone(snapshot_specs_from_delta(None))
+
+    def test_capturing_thousands_of_keys_does_not_blow_the_expression_limit(self) -> None:
+        """SQLite refuses expression trees deeper than 1000 terms.
+
+        A mod touching a few thousand rows is ordinary, so the lookup has to be
+        batched - this failed against the real database before it was.
+        """
+        from lid_db_manager.patch import SnapshotSpec
+
+        con = connect(self.db)
+        try:
+            con.execute("CREATE TABLE many (id INTEGER PRIMARY KEY, v INTEGER)")
+            con.executemany(
+                "INSERT INTO many (id, v) VALUES (?, ?)", [(i, i) for i in range(3000)]
+            )
+            con.commit()
+
+            keys = [(i,) for i in range(3000)]
+            captured = snapshot_module.capture(
+                con, "big", [SnapshotSpec("keys", "many", ["v"], key_columns=["id"], keys=keys)]
+            )
+            self.assertEqual(len(captured.entries[0].rows), 3000)
+
+            con.execute("UPDATE many SET v = -1")
+            restored, warnings = snapshot_module.restore(con, captured)
+            con.commit()
+            self.assertEqual(restored, 3000)
+            self.assertEqual(warnings, [])
+            self.assertEqual(
+                query(self.db, "SELECT v FROM many WHERE id = 2999"), [(2999,)]
+            )
+        finally:
+            con.close()
+
+    def test_composite_primary_keys_are_matched_correctly(self) -> None:
+        from lid_db_manager.patch import SnapshotSpec
+
+        con = connect(self.db)
+        try:
+            captured = snapshot_module.capture(
+                con,
+                "text",
+                [
+                    SnapshotSpec(
+                        "keys",
+                        "master_text",
+                        ["txt"],
+                        key_columns=["sct", "id", "snd", "lang"],
+                        keys=[("AREA_NAME", "TXT_AMS_0000", "", "int")],
+                    )
+                ],
+            )
+            self.assertEqual(len(captured.entries[0].rows), 1)
+            con.execute("UPDATE master_text SET txt = 'WRONG'")
+            snapshot_module.restore(con, captured)
+            con.commit()
+            self.assertEqual(
+                query(
+                    self.db,
+                    "SELECT txt FROM master_text WHERE sct='AREA_NAME' "
+                    "AND id='TXT_AMS_0000' AND lang='int'",
+                ),
+                [("AKAMI",)],
+            )
+        finally:
+            con.close()
+
+
 class SnapshotThroughRunnerTests(unittest.TestCase):
     """The layered case: two mods on the same table, unwound one at a time."""
 

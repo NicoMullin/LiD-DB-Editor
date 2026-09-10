@@ -14,6 +14,15 @@ dist/
 # Design notes, not part of the release
 BRAINSTORM.md
 
+# Mods by other authors - kept locally, not redistributed from this repo
+mods/Floor Material Names/
+mods/Shop Always Appears/
+
+# Throwaway mods that exist to demonstrate a feature, not to be shipped
+mods/overlap-test/
+mods/diff-demo-blunt/
+mods/diff-demo-tweak/
+
 # Runtime state - each user's own
 state.json
 state.json.corrupt

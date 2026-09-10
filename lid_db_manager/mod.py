@@ -19,6 +19,11 @@ SOURCE_JSON = "mod.json"
 SOURCE_SQL = "mod.sql"
 SOURCE_SQL_PAIR = "mod.sql + inverse.sql"
 
+# How a mod reaches the database.
+APPLY_DIRECT = "direct"  # run its SQL against your database (the default)
+APPLY_DIFF = "diff"      # run it against vanilla, write only what differs
+APPLY_MODES = (APPLY_DIRECT, APPLY_DIFF)
+
 
 @dataclass
 class Mod:
@@ -36,6 +41,7 @@ class Mod:
     conflicts_with: list[str] = field(default_factory=list)
     raw_sql_files_do_not_touch: list[str] = field(default_factory=list)
     source: str = SOURCE_JSON
+    apply_mode: str = APPLY_DIRECT
     inverse_sql: Path | None = None
     load_warnings: list[str] = field(default_factory=list)
 
@@ -135,6 +141,13 @@ def load_mod_json(mod_dir: Path) -> Mod:
 
     patches = [Patch.from_dict(entry, mod_dir, i) for i, entry in enumerate(patch_data)]
 
+    apply_mode = str(data.get("apply", APPLY_DIRECT)).strip().lower() or APPLY_DIRECT
+    if apply_mode not in APPLY_MODES:
+        raise ModLoadError(
+            mod_ref,
+            f"'apply' must be one of {', '.join(APPLY_MODES)}, not {apply_mode!r}",
+        )
+
     inverse = mod_dir / "inverse.sql"
     return Mod(
         id=mod_dir.name,
@@ -151,6 +164,7 @@ def load_mod_json(mod_dir: Path) -> Mod:
             data.get("raw_sql_files_do_not_touch"), mod_ref, "raw_sql_files_do_not_touch"
         ),
         source=SOURCE_JSON,
+        apply_mode=apply_mode,
         inverse_sql=inverse if inverse.is_file() else None,
         load_warnings=warnings,
     )

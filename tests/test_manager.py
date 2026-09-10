@@ -40,6 +40,46 @@ class ManagerTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
+    def test_choosing_a_database_keeps_an_untouched_copy_at_once(self) -> None:
+        """Not at first save - by then the file may already have moved on."""
+        original = self.db.parent / "masters.db.original"
+        self.assertTrue(original.is_file(), "picking the database should keep a copy")
+        self.assertEqual(original.read_bytes()[:16], self.db.read_bytes()[:16])
+        self.assertEqual(self.manager.vanilla_path, original)
+
+    def test_the_untouched_copy_is_never_replaced_by_a_later_pick(self) -> None:
+        original = self.db.parent / "masters.db.original"
+        before = original.stat().st_mtime_ns
+
+        # The database changes, then the user points at it again.
+        build_db(self.db)
+        self.manager.set_db_path(self.db)
+        self.assertEqual(original.stat().st_mtime_ns, before, "must not be rewritten")
+
+    def test_a_second_database_gets_its_own_untouched_copy(self) -> None:
+        other = build_db(self.root / "game" / "other.db")
+        self.manager.set_db_path(other)
+        self.assertTrue((self.root / "game" / "other.db.original").is_file())
+        self.assertTrue((self.root / "game" / "masters.db.original").is_file())
+
+    def test_pointing_at_a_missing_file_does_not_crash(self) -> None:
+        self.manager.set_db_path(self.root / "game" / "nope.db")
+        self.assertIsNone(self.manager.vanilla_path)
+
+    def test_a_read_only_folder_warns_instead_of_failing(self) -> None:
+        from unittest import mock
+
+        other = build_db(self.root / "game" / "locked.db")
+        with mock.patch(
+            "lid_db_manager.backup.copy_database", side_effect=OSError("access denied")
+        ):
+            self.manager.set_db_path(other)
+        self.assertFalse((self.root / "game" / "locked.db.original").exists())
+        self.assertTrue(
+            any("Could not keep an untouched copy" in line.message
+                for line in self.manager.log.lines)
+        )
+
     def test_save_mod_list_backs_up_applies_and_stamps(self) -> None:
         self.manager.set_enabled("cost", True)
         report = self.manager.save_mod_list()
@@ -91,6 +131,34 @@ class ManagerTests(unittest.TestCase):
         self.manager.reapply_all()
         self.assertEqual(len(self.manager.dated_backups()), 1)
 
+    def test_re_applying_does_not_destroy_the_ability_to_revert(self) -> None:
+        """A second apply must not snapshot the state the first one produced."""
+        self.manager.set_enabled("cost", True)
+        self.manager.save_mod_list()
+        self.manager.reapply_all()
+        self.manager.reapply_all()
+
+        self.assertTrue(self.manager.revert(["cost"])[0].ok)
+        self.assertEqual(
+            sorted(query(self.db, "SELECT buy_money FROM master_skill")),
+            [(1,), (500,), (1200,), (5000,)],
+            "revert should restore the original values, not the modded ones",
+        )
+
+    def test_a_replaced_database_does_get_a_fresh_snapshot(self) -> None:
+        """The other half: after a game update the old snapshot is the wrong one."""
+        self.manager.set_enabled("cost", True)
+        self.manager.save_mod_list()
+
+        build_db(self.db)  # the game ships a new database
+        self.manager.reapply_all()
+
+        self.assertTrue(self.manager.revert(["cost"])[0].ok)
+        self.assertEqual(
+            sorted(query(self.db, "SELECT buy_money FROM master_skill")),
+            [(1,), (500,), (1200,), (5000,)],
+        )
+
     def test_revert_disables_the_mod_and_restores_the_rows(self) -> None:
         self.manager.set_enabled("cost", True)
         self.manager.save_mod_list()
@@ -123,6 +191,67 @@ class ManagerTests(unittest.TestCase):
         self.manager.forget(["cost"])
         self.assertEqual(self.manager.deleted_mods(), [])
         self.assertEqual(query(self.db, "SELECT DISTINCT buy_money FROM master_skill"), [(1,)])
+
+    def test_load_order_decides_who_wins(self) -> None:
+        """The last mod in the load order overwrites the ones above it."""
+        write_mod(self.paths.mods_dir, "sets-5", {
+            "patches": [{"type": "update_set", "table": "master_skill",
+                         "set": {"buy_money": 5}, "where": "id = 'SKL_EXPUP_01'"}]})
+        write_mod(self.paths.mods_dir, "sets-9", {
+            "patches": [{"type": "update_set", "table": "master_skill",
+                         "set": {"buy_money": 9}, "where": "id = 'SKL_EXPUP_01'"}]})
+        self.manager.rescan()
+        self.manager.set_enabled("sets-5", True)
+        self.manager.set_enabled("sets-9", True)
+
+        self.assertTrue(self.manager.save_mod_list().ok)
+        value = dict(query(self.db, "SELECT id, buy_money FROM master_skill"))["SKL_EXPUP_01"]
+        self.assertEqual(value, 9, "the mod lower in the load order should win")
+
+        # Move it up and the other one wins - and nothing else had to change.
+        self.manager.move_mod("sets-9", -1)
+        self.assertEqual(self.manager.state.enabled_mods, ["sets-9", "sets-5"])
+        self.assertTrue(self.manager.save_mod_list().ok)
+        value = dict(query(self.db, "SELECT id, buy_money FROM master_skill"))["SKL_EXPUP_01"]
+        self.assertEqual(value, 5)
+
+    def test_re_ticking_a_mod_no_longer_silently_reorders_the_rest(self) -> None:
+        """Re-ticking still appends, but the order is now visible and movable."""
+        write_mod(self.paths.mods_dir, "other", COST_MOD)
+        self.manager.rescan()
+        self.manager.set_enabled("cost", True)
+        self.manager.set_enabled("other", True)
+        self.assertEqual(self.manager.state.enabled_mods, ["cost", "other"])
+
+        self.manager.set_enabled("cost", False)
+        self.manager.set_enabled("cost", True)
+        self.assertEqual(self.manager.state.enabled_mods, ["other", "cost"])
+        # ... and unlike before, the user can put it back.
+        self.manager.move_mod("cost", -1)
+        self.assertEqual(self.manager.state.enabled_mods, ["cost", "other"])
+
+    def test_listed_mods_puts_enabled_ones_first_in_load_order(self) -> None:
+        write_mod(self.paths.mods_dir, "aaa-disabled", COST_MOD)
+        write_mod(self.paths.mods_dir, "zzz-enabled", COST_MOD)
+        self.manager.rescan()
+        self.manager.set_enabled("zzz-enabled", True)
+        listed = [mod.id for mod in self.manager.listed_mods()]
+        self.assertEqual(listed[0], "zzz-enabled")
+        self.assertIn("aaa-disabled", listed[1:])
+
+    def test_a_mod_above_its_dependency_is_reported(self) -> None:
+        write_mod(self.paths.mods_dir, "base", COST_MOD)
+        write_mod(self.paths.mods_dir, "needs-base", {**COST_MOD, "requires": ["base"]})
+        self.manager.rescan()
+        self.manager.set_enabled("needs-base", True)
+        self.manager.set_enabled("base", True)
+
+        messages = [p.message() for p in self.manager.conflicts().order_problems]
+        self.assertEqual(len(messages), 1)
+        self.assertIn("applied before base", messages[0])
+
+        self.manager.move_mod("base", -1)
+        self.assertEqual(self.manager.conflicts().order_problems, [])
 
     def test_modpacks_round_trip(self) -> None:
         self.manager.set_enabled("cost", True)
@@ -185,17 +314,21 @@ class ShippedModTests(unittest.TestCase):
         "body-prices-1kc",
         "nitro-boost-100000pct",
         "nitro-boost-text",
+    }
+
+    # Mods that may sit in a working copy but are not part of the repo: the
+    # conflict demo, and anything by another author that is not ours to
+    # redistribute. Allowed to be there, never required.
+    LOCAL_ONLY = {
+        "overlap-test",
+        "diff-demo-blunt",
+        "diff-demo-tweak",
         "Floor Material Names",
         "Shop Always Appears",
     }
 
-    # Not a real mod: it exists to collide with Floor Material Names so the
-    # conflict warning can be seen. Excluded from the "nothing conflicts" check
-    # below, and given a test of its own.
-    DIAGNOSTIC = {"overlap-test"}
-
     def _real_mods(self):
-        return [m for m in scan_mods(PROJECT_ROOT / "mods").mods if m.id not in self.DIAGNOSTIC]
+        return [m for m in scan_mods(PROJECT_ROOT / "mods").mods if m.id not in self.LOCAL_ONLY]
 
     def test_every_shipped_mod_loads(self) -> None:
         result = scan_mods(PROJECT_ROOT / "mods")
@@ -204,7 +337,7 @@ class ShippedModTests(unittest.TestCase):
         self.assertEqual(self.SHIPPED - found, set(), "a documented mod is missing")
         # The diagnostic mod is optional - it is not published - but anything
         # else turning up here is a mod nobody has written a test for yet.
-        self.assertEqual(found - self.SHIPPED - self.DIAGNOSTIC, set(), "unexpected mod folder")
+        self.assertEqual(found - self.SHIPPED - self.LOCAL_ONLY, set(), "unexpected mod folder")
 
     def test_every_shipped_mod_validates_against_the_test_schema(self) -> None:
         from lid_db_manager.validator import validate
@@ -232,6 +365,10 @@ class ShippedModTests(unittest.TestCase):
         finally:
             con.close()
 
+    # The no-database fallback (whole-table granularity) is covered
+    # synthetically in test_conflict.py - it needs two mods sharing a table,
+    # which the shipped set deliberately does not have.
+
     def test_the_real_mods_do_not_conflict_with_each_other(self) -> None:
         """Floor Material Names and nitro-boost-text share a table, not a row."""
         report = self._analyze(self._real_mods())
@@ -247,23 +384,19 @@ class ShippedModTests(unittest.TestCase):
         same guarantee is covered synthetically in test_conflict.py.
         """
         mods = scan_mods(PROJECT_ROOT / "mods").mods
-        if not any(mod.id in self.DIAGNOSTIC for mod in mods):
-            self.skipTest("mods/overlap-test is not installed")
+        present = {mod.id for mod in mods}
+        if not {"overlap-test", "Floor Material Names"} <= present:
+            self.skipTest("the conflict demo pair is not installed in this working copy")
         report = self._analyze(mods)
-        messages = [c.message() for c in report.conflicts]
-        self.assertEqual(len(messages), 1, messages)
-        self.assertIn("overlap-test", messages[0])
-        self.assertIn("Floor Material Names", messages[0])
-        self.assertIn("1 shared row(s)", messages[0])
-
-    def test_without_a_connection_everything_on_one_table_warns(self) -> None:
-        """The coarse fallback is still there when there is no database."""
-        report = self._analyze(self._real_mods(), with_db=False)
-        self.assertTrue(
-            any("master_text" in c.detail for c in report.conflicts),
-            "table-level warning should survive when rows cannot be checked",
-        )
-
+        # Other local-only mods may conflict too, so look for this pair rather
+        # than assuming it is the only warning in the working copy.
+        pair = [
+            c.message()
+            for c in report.conflicts
+            if {c.first, c.second} == {"overlap-test", "Floor Material Names"}
+        ]
+        self.assertEqual(len(pair), 1, [c.message() for c in report.conflicts])
+        self.assertIn("1 shared row(s)", pair[0])
 
 if __name__ == "__main__":
     unittest.main()

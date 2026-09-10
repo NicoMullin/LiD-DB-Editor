@@ -3,6 +3,10 @@
 A mod is **a folder in here**. Drop one in, press F5 in the manager (or restart
 it), and it appears in the list. Nothing registers anything anywhere.
 
+You do not have to find this folder by hand: dragging a `.sql`, a mod folder or
+a `.zip` onto the manager's window does the same thing, and asks you to name the
+mod as it goes.
+
 Two starting points are already here — copy either and rename the copy:
 
 | Copy this       | If you want                                                 |
@@ -270,10 +274,83 @@ If you know your raw SQL leaves a table alone entirely, say so:
 "raw_sql_files_do_not_touch": ["master_text"]
 ```
 
-`requires` is separate: the manager applies dependencies first and warns if a
-required mod is not enabled. Use it for companion mods — `nitro-boost-text`
-requires `nitro-boost-100000pct` so the tooltip cannot claim something the
-skill does not do.
+## `"apply": "diff"` - only change what you really change
+
+By default a mod's SQL runs against the player's database exactly as written.
+That is fine for a precise mod, but a blanket `UPDATE master_text SET ...` also
+writes over rows it does not care about - wiping whatever another mod put
+there.
+
+Setting `"apply": "diff"` changes that. The mod runs against a throwaway copy
+of the player's untouched `masters.db.original`, the result is compared with it,
+and only the values that actually differ reach the real database:
+
+```json
+{ "id": "big-rework", "name": "Big Rework", "apply": "diff", ... }
+```
+
+Two things follow. A mod that rewrites a whole table stops clobbering other
+mods, because a row it rewrites to the same value it already had is not a
+change. And the mod becomes idempotent - `SET price = price / 2` applied twice
+halves once, because the mod is always "vanilla plus these exact values" rather
+than "run this again".
+
+It needs `masters.db.original` to exist, which it does from the moment the
+player picks their database. Without it the manager says so and runs the SQL
+directly instead. Genuine collisions are still resolved by load order.
+
+Worth turning on for: whole-table dumps, anything exported from a modded
+database, and any SQL that reads a value to compute the new one.
+
+## Adding tables of your own
+
+A mod is not limited to changing values that already exist. It can add rows to a
+table, and it can add a whole table the game shipped without:
+
+```sql
+CREATE TABLE IF NOT EXISTS master_custom_vending (
+    id TEXT PRIMARY KEY,
+    product TEXT NOT NULL,
+    price INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO master_custom_vending VALUES ('CV_0001', 'PRD_MUSHROOM', 100);
+```
+
+Reverting the mod drops the table again — the manager records that it was not
+there beforehand, so undoing means taking it away, not restoring an empty copy.
+Nothing else in the database is touched.
+
+Write `IF NOT EXISTS` if you can, because it says what you mean. If you forget,
+the manager reads your `CREATE` as though you had written it and says so in the
+log: every save re-runs the whole enabled list, and a bare `CREATE TABLE` would
+fail the second time round on the table the mod itself made.
+
+This works through the import flow too. Hand the manager a modded `masters.db`
+that has a table vanilla does not, and the generated mod recreates it — schema,
+indexes and rows. The one thing that is still refused is a database *missing* a
+vanilla table or with different columns in one: that is a different game
+version, and diffing against it would read as "undo the developers' changes".
+
+Worth knowing before you build on this: the game only reads tables and columns
+its own code knows about, so a brand-new table does nothing on its own. It is
+useful as data your mod's other SQL draws on. Adding **rows** to a table the
+game already reads is the thing that visibly works in-game.
+
+## Load order
+
+Enabled mods are numbered in the list. **Top applies first, bottom wins.** Two
+mods writing the same value are resolved by that order and nothing else, so the
+way to override one thing from a big mod is to sit below it and change only
+that thing.
+
+The order is yours - the manager never silently reorders it. `requires` is a
+declaration, not a constraint: if a mod ends up above something it requires you
+get a warning telling you to move it, rather than the manager quietly shuffling
+things behind your back.
+
+You also get a warning when a required mod is not enabled at all. Use `requires`
+for companion mods — `nitro-boost-text` requires `nitro-boost-100000pct` so the
+tooltip cannot claim something the skill does not do.
 
 ---
 
@@ -287,6 +364,12 @@ and the CJK characters may be unrecoverable rather than merely ugly.
 **Trailing whitespace matters.** Skill descriptions in `master_text` end with a
 newline and a space. In SQL that is `|| x'0a20'` on the end of the string;
 dropping it changes the tooltip layout.
+
+**Some tables will not take effect immediately.** Shop and vending machine
+lineups are settled by the game's daily reset, so rows you add there do not
+appear until the in-game day rolls over. Others are read once at launch. If your
+mod applies cleanly and the diff preview shows the rows, the database is right -
+say so in your readme so nobody reports it as broken.
 
 **Test against a copy first.** Point the manager at a duplicate of `masters.db`
 while you iterate. `python run.py preview <mod-id>` shows the exact rows your

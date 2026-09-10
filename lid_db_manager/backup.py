@@ -43,12 +43,43 @@ class BackupResult:
             self.removed = []
 
 
+def _is_intact(path: Path) -> bool:
+    """True when the file opens as a SQLite database and passes a quick check."""
+    try:
+        con = sqlite3.connect(f"file:{Path(path).as_posix()}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return False
+    try:
+        return con.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+    except sqlite3.Error:
+        return False
+    finally:
+        con.close()
+
+
 def copy_database(source: Path, destination: Path) -> None:
-    """Consistent copy of a SQLite database."""
+    """Consistent copy of a SQLite database, byte-for-byte where that is safe.
+
+    A plain file copy is preferred because it leaves the copy with the same
+    checksum as the original, so a backup can be compared against a known-good
+    vanilla hash. That is only sound when nothing is pending in a side journal -
+    with a -wal or -journal file present the on-disk file is not the whole
+    story, so the copy goes through SQLite's online-backup API instead.
+    """
     source, destination = Path(source), Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         destination.unlink()
+
+    sidecars = [source.with_name(source.name + s) for s in ("-wal", "-journal", "-shm")]
+    if not any(s.exists() for s in sidecars):
+        shutil.copy2(source, destination)
+        # Accept it if the copy is sound - or if the source was never a
+        # database, in which case copying the bytes was the right thing anyway.
+        if _is_intact(destination) or not _is_intact(source):
+            return
+        destination.unlink()
+
     source_con = destination_con = None
     try:
         source_con = sqlite3.connect(str(source))

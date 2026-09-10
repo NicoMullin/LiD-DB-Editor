@@ -16,12 +16,18 @@ from pathlib import Path
 
 from . import snapshot as snapshot_module
 from .errors import ApplyError, RevertError, ValidationError
-from .mod import Mod
-from .mod_loader import resolve_order
-from .patch import DiffPreview
+from .mod import APPLY_DIFF, Mod
+from .patch import PREVIEW_ROW_LIMIT, DiffPreview, DiffRow, PatchResult, SnapshotSpec
 from .session_log import SessionLog
 from .snapshot import Snapshot
-from .sqlutil import begin_immediate, connect, sha256_file, split_statements
+from .sqlutil import (
+    begin_immediate,
+    connect,
+    if_not_exists,
+    quote_ident,
+    sha256_file,
+    split_statements,
+)
 from .state import AppliedRecord, State
 from .validator import ValidationReport, validate
 
@@ -66,6 +72,104 @@ class ApplyReport:
         )
 
 
+def snapshot_specs_from_delta(delta) -> list[SnapshotSpec] | None:
+    """Turn a mod's delta into the smallest snapshot that can undo it.
+
+    Returns None when the delta cannot be trusted to describe every row that
+    will change - then the caller keeps the old, heavier behaviour.
+
+    A table the mod inserts into or deletes from still needs a whole-table
+    copy: restoring by rowid can put a changed value back, but it cannot bring
+    back a deleted row or remove an inserted one.
+    """
+    if delta is None:
+        return None
+    specs: list[SnapshotSpec] = []
+    for table_delta in delta.tables:
+        if table_delta.is_new_table:
+            # Nothing to copy: the table is not there yet, so undoing the mod
+            # means dropping it again. This is checked before the rowid rule,
+            # which is about addressing rows that already exist.
+            specs.append(SnapshotSpec("absent", table_delta.table))
+            continue
+        if table_delta.keyed_by_rowid:
+            return None  # no primary key: rowids are not a dependable address
+        if table_delta.inserts or table_delta.deletes:
+            specs.append(SnapshotSpec("table", table_delta.table))
+            continue
+        columns = sorted({c for u in table_delta.updates for c in u.changes})
+        if not columns:
+            continue
+        specs.append(
+            SnapshotSpec(
+                "keys",
+                table_delta.table,
+                columns=columns,
+                key_columns=list(table_delta.key_columns),
+                keys=[u.key for u in table_delta.updates],
+            )
+        )
+    return specs
+
+
+def apply_delta(con: sqlite3.Connection, delta, mod_id: str) -> PatchResult:
+    """Write only what a mod changes relative to vanilla.
+
+    This is what makes a whole-table mod behave itself: it contributes the
+    cells it actually alters and nothing else, so a mod applied earlier keeps
+    everything it set in rows this one does not care about. It also makes a mod
+    idempotent - re-applying writes the same cells to the same values, whatever
+    its SQL does.
+    """
+    changed = 0
+    for table_delta in delta.tables:
+        name = quote_ident(table_delta.table)
+        where = " AND ".join(f"{quote_ident(c)} = ?" for c in table_delta.key_columns)
+
+        if table_delta.is_new_table:
+            # Vanilla has no such table, so it has to exist before anything can
+            # go into it. IF NOT EXISTS keeps a re-apply harmless.
+            for statement in [table_delta.create_sql, *table_delta.index_sql]:
+                try:
+                    con.execute(if_not_exists(statement.strip().rstrip(";")))
+                except sqlite3.Error as exc:
+                    raise ApplyError(
+                        mod_id, f"{table_delta.table}: could not create table: {exc}"
+                    ) from exc
+
+        for update in table_delta.updates:
+            assignments = ", ".join(f"{quote_ident(c)} = ?" for c in update.changes)
+            try:
+                cursor = con.execute(
+                    f"UPDATE {name} SET {assignments} WHERE {where}",
+                    list(update.changes.values()) + list(update.key),
+                )
+            except sqlite3.Error as exc:
+                raise ApplyError(mod_id, f"{table_delta.table}: {exc}") from exc
+            changed += max(cursor.rowcount, 0)
+
+        if table_delta.inserts:
+            columns = ", ".join(quote_ident(c) for c in table_delta.columns)
+            placeholders = ", ".join("?" for _ in table_delta.columns)
+            try:
+                con.executemany(
+                    f"INSERT OR REPLACE INTO {name} ({columns}) VALUES ({placeholders})",
+                    [list(v) for v in table_delta.inserts],
+                )
+            except sqlite3.Error as exc:
+                raise ApplyError(mod_id, f"{table_delta.table}: {exc}") from exc
+            changed += len(table_delta.inserts)
+
+        for key in table_delta.deletes:
+            try:
+                cursor = con.execute(f"DELETE FROM {name} WHERE {where}", list(key))
+            except sqlite3.Error as exc:
+                raise ApplyError(mod_id, f"{table_delta.table}: {exc}") from exc
+            changed += max(cursor.rowcount, 0)
+
+    return PatchResult(rows_changed=changed)
+
+
 def apply_mods(
     db_path: Path,
     mods: list[Mod],
@@ -74,6 +178,8 @@ def apply_mods(
     log: SessionLog | None = None,
     skip_validation: bool = False,
     installed_ids: set[str] | None = None,
+    deltas: dict[str, object] | None = None,
+    keep_snapshots: set[str] | None = None,
 ) -> ApplyReport:
     """Validate, snapshot and apply every mod in ``mods`` as one transaction."""
     log = log or SessionLog()
@@ -81,7 +187,7 @@ def apply_mods(
     report = ApplyReport()
     started = time.monotonic()
 
-    ordered = resolve_order(mods)
+    ordered = list(mods)  # already in load order
 
     if not skip_validation:
         report.validation = validate(db_path, ordered, installed_ids)
@@ -125,9 +231,13 @@ def apply_mods(
             for mod in ordered:
                 result = ModApplyResult(mod_id=mod.id, tables=sorted(mod.tables()))
 
-                specs = []
-                for patch in mod.patches:
-                    specs.extend(patch.snapshot_specs(con))
+                # A delta says exactly which rows change, so raw SQL no
+                # longer costs a copy of every table it writes.
+                specs = snapshot_specs_from_delta((deltas or {}).get(mod.id))
+                if specs is None:
+                    specs = []
+                    for patch in mod.patches:
+                        specs.extend(patch.snapshot_specs(con))
                 pending_snapshots.append(
                     snapshot_module.capture(
                         con,
@@ -138,10 +248,22 @@ def apply_mods(
                     )
                 )
 
-                for patch in mod.patches:
-                    patch_result = patch.apply(con, mod.id)
+                delta = (deltas or {}).get(mod.id)
+                if mod.apply_mode == APPLY_DIFF and delta is not None:
+                    patch_result = apply_delta(con, delta, mod.id)
                     result.rows_changed += patch_result.rows_changed
                     result.warnings.extend(patch_result.warnings)
+                    log.info(f"{mod.id}: applied as a difference from vanilla")
+                else:
+                    if mod.apply_mode == APPLY_DIFF:
+                        result.warnings.append(
+                            "asked to apply as a difference from vanilla, but there is no "
+                            "vanilla copy to compare against - ran its SQL directly instead"
+                        )
+                    for patch in mod.patches:
+                        patch_result = patch.apply(con, mod.id)
+                        result.rows_changed += patch_result.rows_changed
+                        result.warnings.extend(patch_result.warnings)
                 result.ok = True
                 report.results.append(result)
                 for warning in result.warnings:
@@ -165,6 +287,13 @@ def apply_mods(
 
     # Only once the transaction is committed do the snapshots become the truth.
     for captured in pending_snapshots:
+        # Re-applying a mod that is already on this database would capture the
+        # state it produced, and reverting would then restore the modded values
+        # rather than the originals. Keep the snapshot taken the first time.
+        if captured.mod_id in (keep_snapshots or set()) and snapshot_module.snapshot_path(
+            snapshots_dir, captured.mod_id
+        ).is_file():
+            continue
         try:
             snapshot_module.save(snapshots_dir, captured)
         except OSError as exc:
@@ -186,6 +315,7 @@ def _validation_warnings(validation: ValidationReport) -> list[str]:
     messages.extend(
         requirement.message() for requirement in validation.conflicts.missing_requirements
     )
+    messages.extend(problem.message() for problem in validation.conflicts.order_problems)
     return messages
 
 
@@ -283,6 +413,48 @@ def revert_mods(
             for warning in result.warnings:
                 log.warn(f"{result.mod_id}: {warning}")
     return results
+
+
+def previews_from_delta(delta) -> list[DiffPreview]:
+    """Row-level preview built from a diff against vanilla.
+
+    Raw SQL used to preview as "rewritten by raw SQL" because nothing could be
+    told about it without running it. Having run it against a throwaway vanilla
+    copy, we can show precisely which values change.
+    """
+    previews: list[DiffPreview] = []
+    for table_delta in delta.tables:
+        rows: list[DiffRow] = []
+        for update in table_delta.updates[:PREVIEW_ROW_LIMIT]:
+            key = ", ".join(str(k) for k in update.key)
+            rows.append(
+                DiffRow(
+                    key=key,
+                    before=", ".join(f"{c}={update.before.get(c)!r}" for c in update.changes),
+                    after=", ".join(f"{c}={v!r}" for c, v in update.changes.items()),
+                )
+            )
+        notes = []
+        if len(table_delta.updates) > len(rows):
+            notes.append(f"... and {len(table_delta.updates) - len(rows)} more changed row(s)")
+        if table_delta.inserts:
+            notes.append(f"adds {len(table_delta.inserts)} new row(s)")
+        if table_delta.deletes:
+            notes.append(f"removes {len(table_delta.deletes)} row(s)")
+        previews.append(
+            DiffPreview(
+                patch_summary=f"{table_delta.table}: {table_delta.cell_count} value(s) changed",
+                table=table_delta.table,
+                total_rows=len(table_delta.updates),
+                rows=rows,
+                note="\n".join(notes),
+            )
+        )
+    if not previews:
+        previews.append(
+            DiffPreview("This mod changes nothing on the current database", "", 0)
+        )
+    return previews
 
 
 def preview_mods(db_path: Path, mods: list[Mod]) -> dict[str, list[DiffPreview]]:

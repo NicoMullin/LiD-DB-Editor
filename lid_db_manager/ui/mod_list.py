@@ -27,8 +27,9 @@ class ModListWidget(QTreeWidget):
         self._pending_toggles: dict[str, bool] = {}
         self._flush_scheduled = False
 
-        self.setColumnCount(3)
-        self.setHeaderLabels(["Mod", "Status", "Affects"])
+        # Column 0 carries the checkbox and the load-order number together.
+        self.setColumnCount(4)
+        self.setHeaderLabels(["#", "Mod", "Status", "Affects"])
         self.setRootIsDecorated(False)
         self.setAlternatingRowColors(True)
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -37,9 +38,10 @@ class ModListWidget(QTreeWidget):
         self.setExpandsOnDoubleClick(False)
 
         header = self.header()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
 
         self.itemChanged.connect(self._on_item_changed)
         self.itemSelectionChanged.connect(self._on_selection_changed)
@@ -55,8 +57,10 @@ class ModListWidget(QTreeWidget):
         conflicts = self.manager.conflicts()
         validation = self.manager.last_validation
 
-        for mod in self.manager.mods:
+        # Enabled mods first, in load order; then everything else.
+        for mod in self.manager.listed_mods():
             status = self.manager.mod_status(mod.id)
+            order = self.manager.state.order_of(mod.id)
             item = QTreeWidgetItem(self)
             item.setData(0, MOD_ID_ROLE, mod.id)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
@@ -66,18 +70,22 @@ class ModListWidget(QTreeWidget):
                 if self.manager.state.is_enabled(mod.id)
                 else Qt.CheckState.Unchecked,
             )
-            item.setText(0, f"{mod.id}  -  {mod.name}")
-            item.setText(1, f"{STATUS_GLYPH[status]} {STATUS_TEXT[status]}")
-            item.setText(2, ", ".join(sorted(mod.tables())) or "-")
+            item.setText(0, str(order) if order else "")
+            item.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            item.setText(1, f"{mod.id}  -  {mod.name}")
+            item.setText(2, f"{STATUS_GLYPH[status]} {STATUS_TEXT[status]}")
+            item.setText(3, ", ".join(sorted(mod.tables())) or "-")
 
             color = status_color(self.dark, STATUS_KEY[status])
-            item.setForeground(1, QBrush(color))
+            item.setForeground(2, QBrush(color))
             font = QFont()
             font.setBold(status == "failed")
-            item.setFont(1, font)
+            item.setFont(2, font)
 
             applied = self.manager.state.applied.get(mod.id)
             tooltip = [mod.name, mod.description, f"Affects: {mod.affects_label()}"]
+            if order:
+                tooltip.insert(1, f"Load order {order} - later mods overwrite earlier ones")
             if mod.version:
                 tooltip.append(f"Version {mod.version} by {mod.author}")
             if applied:
@@ -96,17 +104,31 @@ class ModListWidget(QTreeWidget):
 
         for failure in self.manager.scan.failures:
             item = QTreeWidgetItem(self)
-            item.setText(0, f"{failure.folder}  (not loaded)")
-            item.setText(1, "X Broken")
-            item.setText(2, "-")
-            item.setToolTip(0, failure.reason)
-            item.setForeground(1, QBrush(status_color(self.dark, "failed")))
+            item.setText(1, f"{failure.folder}  (not loaded)")
+            item.setText(2, "X Broken")
+            item.setText(3, "-")
+            item.setToolTip(1, failure.reason)
+            item.setForeground(2, QBrush(status_color(self.dark, "failed")))
             child = QTreeWidgetItem(item)
             child.setFirstColumnSpanned(True)
             child.setFlags(Qt.ItemFlag.ItemIsEnabled)
             child.setText(0, failure.reason)
             child.setForeground(0, QBrush(status_color(self.dark, "failed")))
             item.setExpanded(True)
+
+        if not self.manager.mods and not self.manager.scan.failures:
+            # The list itself answers "where do mod files go?".
+            hint = QTreeWidgetItem(self)
+            hint.setFirstColumnSpanned(True)
+            hint.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            hint.setText(
+                0,
+                "No mods yet.\n\n"
+                "Drag a .sql patch, a mod folder or a .zip onto this window to add one,\n"
+                "or use Tools > Add a mod from a file.\n\n"
+                f"They live in {self.manager.paths.mods_dir}",
+            )
+            hint.setForeground(0, QBrush(status_color(self.dark, "dim")))
 
         self._loading = False
         if selected:

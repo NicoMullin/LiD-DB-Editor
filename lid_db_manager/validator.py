@@ -14,7 +14,6 @@ from pathlib import Path
 from .conflict import ConflictReport, analyze
 from .errors import ValidationError
 from .mod import Mod
-from .mod_loader import resolve_order
 from .sqlutil import connect
 
 
@@ -93,7 +92,7 @@ def validate(db_path: Path, mods: list[Mod], installed_ids: set[str] | None = No
         report.fatal = f"database file not found: {db_path}"
         return report
 
-    ordered = resolve_order(mods)
+    ordered = list(mods)  # already in load order
 
     try:
         con = connect(db_path, read_only=True)

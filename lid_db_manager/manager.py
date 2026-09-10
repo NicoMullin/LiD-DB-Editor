@@ -12,9 +12,11 @@ from pathlib import Path
 import sqlite3
 
 from . import backup as backup_module
+from . import dbdiff
+from . import install as install_module
 from .conflict import ConflictReport, analyze
 from .mod import Mod
-from .mod_loader import ScanResult, resolve_order, scan_mods
+from .mod_loader import ScanResult, scan_mods
 from .paths import AppPaths
 from .patch import DiffPreview
 from .runner import (
@@ -23,6 +25,7 @@ from .runner import (
     apply_mods,
     orphaned_snapshots,
     preview_mods,
+    previews_from_delta,
     record_apply,
     revert_mods,
 )
@@ -54,6 +57,7 @@ class Manager:
         self.last_apply: ApplyReport | None = None
         self.last_validation: ValidationReport | None = None
         self._conflict_cache: tuple | None = None
+        self._delta_cache: dict[str, tuple] = {}
         self.rescan()
 
     # -- database selection ----------------------------------------------
@@ -75,6 +79,34 @@ class Manager:
         )
         self.state.save()
         self.log.info(f"Database set to {path}")
+        self.ensure_original_backup()
+
+    def ensure_original_backup(self) -> Path | None:
+        """Keep an untouched copy the moment a database is chosen.
+
+        Waiting until the first save meant anything that happened in between -
+        a game update, another tool, a hand edit - ended up baked into the
+        "original". Taking it now captures the file in the state the user was
+        just told to make sure it was in. Never overwrites an existing copy.
+        """
+        if not self.db_path or not self.db_path.is_file():
+            return None
+        original = backup_module.original_backup_path(self.db_path)
+        if original.exists():
+            return None
+        try:
+            backup_module.copy_database(self.db_path, original)
+        except (OSError, RuntimeError) as exc:
+            self.log.warn(
+                f"Could not keep an untouched copy as {original.name} ({exc}). "
+                "Check the folder is writable - without it there is no way back to stock."
+            )
+            return None
+        self.log.info(
+            f"Kept an untouched copy as {original.name} - this is your way back to "
+            "stock and it will never be overwritten"
+        )
+        return original
 
     def db_status(self) -> DbStatus:
         return self.watcher.check()
@@ -96,13 +128,27 @@ class Manager:
         return {mod.id for mod in self.scan.mods}
 
     def enabled_mods(self) -> list[Mod]:
+        """Enabled mods in load order - first applied first, last one wins."""
         by_id = self.scan.by_id
-        return resolve_order(
-            [by_id[mod_id] for mod_id in self.state.enabled_mods if mod_id in by_id]
-        )
+        return [by_id[mod_id] for mod_id in self.state.enabled_mods if mod_id in by_id]
+
+    def move_mod(self, mod_id: str, delta: int) -> bool:
+        """Move a mod up or down the load order. Returns True if it moved."""
+        moved = self.state.move(mod_id, delta)
+        if moved:
+            self._conflict_cache = None
+            self.state.save()
+        return moved
+
+    def listed_mods(self) -> list[Mod]:
+        """Every installed mod: enabled ones in load order, then the rest."""
+        enabled = self.enabled_mods()
+        enabled_ids = {mod.id for mod in enabled}
+        return enabled + [mod for mod in self.scan.mods if mod.id not in enabled_ids]
 
     def set_enabled(self, mod_id: str, enabled: bool) -> None:
         self.state.set_enabled(mod_id, enabled)
+        self._conflict_cache = None
 
     def mod_status(self, mod_id: str) -> str:
         if not self.state.is_enabled(mod_id):
@@ -156,9 +202,22 @@ class Manager:
         return (str(self.db_path), stat.st_size, stat.st_mtime)
 
     def previews(self, mods: list[Mod] | None = None) -> dict[str, list[DiffPreview]]:
+        """What each mod would change, exactly where that can be worked out."""
         if not self.db_path or not self.db_path.is_file():
             return {}
-        return preview_mods(self.db_path, mods if mods is not None else self.enabled_mods())
+        wanted = mods if mods is not None else self.enabled_mods()
+
+        result: dict[str, list[DiffPreview]] = {}
+        fallback: list[Mod] = []
+        for mod in wanted:
+            delta = self.mod_delta(mod)
+            if delta is None:
+                fallback.append(mod)
+            else:
+                result[mod.id] = previews_from_delta(delta)
+        if fallback:
+            result.update(preview_mods(self.db_path, fallback))
+        return result
 
     # -- validate / apply --------------------------------------------------
 
@@ -197,12 +256,28 @@ class Manager:
                 self.last_apply = report
                 return report
 
+        deltas = {}
+        for mod in mods:
+            delta = self.mod_delta(mod)
+            if delta is not None:
+                deltas[mod.id] = delta
+
+        # If the database is still the one these mods were applied to, their
+        # existing snapshots are the only record of the pre-mod values - a
+        # second apply must not overwrite them. When the database has been
+        # replaced, a fresh snapshot is the right one.
+        keep_snapshots = set()
+        if self.db_status().state != STATUS_STALE:
+            keep_snapshots = {mod.id for mod in mods if mod.id in self.state.applied}
+
         report = apply_mods(
             self.db_path,
             mods,
             snapshots_dir=self.paths.snapshots_dir,
             log=self.log,
             installed_ids=self.installed_ids(),
+            deltas=deltas,
+            keep_snapshots=keep_snapshots,
         )
         self.last_apply = report
         self.last_validation = report.validation
@@ -297,6 +372,73 @@ class Manager:
     def delete_modpack(self, name: str) -> None:
         self.state.delete_modpack(name)
         self.state.save()
+
+    # -- installing new mods ----------------------------------------------
+
+    @property
+    def vanilla_path(self) -> Path | None:
+        """The untouched copy of the database, if one has been kept."""
+        if not self.db_path:
+            return None
+        original = backup_module.original_backup_path(self.db_path)
+        return original if original.is_file() else None
+
+    def mod_delta(self, mod: Mod):
+        """Exactly what this mod changes, measured against the vanilla copy.
+
+        Costs a database copy plus a diff, so the answer is cached against the
+        mod's files and the vanilla database - repeat calls are free until one
+        of them changes. Returns None when there is no vanilla to compare with.
+        """
+        vanilla = self.vanilla_path
+        if vanilla is None:
+            return None
+
+        stamp = max(
+            (f.stat().st_mtime_ns for f in mod.folder.rglob("*") if f.is_file()), default=0
+        )
+        key = (stamp, vanilla.stat().st_size, vanilla.stat().st_mtime_ns)
+        cached = self._delta_cache.get(mod.id)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+
+        try:
+            delta = dbdiff.delta_for_mod(vanilla, mod)
+        except Exception as exc:
+            # Never let this break an apply - callers fall back to the old path.
+            self.log.warn(f"{mod.id}: could not work out its exact changes ({exc})")
+            return None
+        self._delta_cache[mod.id] = (key, delta)
+        return delta
+
+    def inspect_install(self, source: Path) -> "install_module.InstallCandidate":
+        """Work out what a dropped file is. Writes nothing."""
+        return install_module.inspect(Path(source), self.vanilla_path)
+
+    def install(
+        self,
+        candidate: "install_module.InstallCandidate",
+        name: str,
+        description: str = "",
+        author: str = "",
+        version: str = "1.0.0",
+        overwrite: bool = False,
+    ) -> Mod | None:
+        """Write the mod folder and rescan. The new mod arrives disabled."""
+        folder = install_module.install(
+            candidate,
+            self.paths.mods_dir,
+            name,
+            description=description,
+            author=author,
+            version=version,
+            vanilla=self.vanilla_path,
+            overwrite=overwrite,
+        )
+        self.log.info(f"Installed {folder.name} from {candidate.source.name}")
+        self._conflict_cache = None
+        self.rescan()
+        return self.scan.get(folder.name)
 
     # -- backups -----------------------------------------------------------
 

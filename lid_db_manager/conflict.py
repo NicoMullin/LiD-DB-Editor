@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 import sqlite3
 
 from .mod import Mod
+from .mod_loader import out_of_order_requirements
 from .patch import RawSqlPatch, TextReplacePatch, UpdateSetPatch
 
 KIND_COLUMN = "column"
@@ -51,13 +52,28 @@ class MissingRequirement:
 
 
 @dataclass
+class OrderProblem:
+    """A mod sits above something it requires in the load order."""
+
+    mod_id: str
+    required_id: str
+
+    def message(self) -> str:
+        return (
+            f"{self.mod_id} is applied before {self.required_id}, which it requires - "
+            f"move it below {self.required_id} in the load order"
+        )
+
+
+@dataclass
 class ConflictReport:
     conflicts: list[Conflict] = field(default_factory=list)
     missing_requirements: list[MissingRequirement] = field(default_factory=list)
+    order_problems: list[OrderProblem] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
-        return not self.conflicts and not self.missing_requirements
+        return not self.conflicts and not self.missing_requirements and not self.order_problems
 
     def for_mod(self, mod_id: str) -> list[str]:
         """Every message that mentions this mod, for the inline UI warning."""
@@ -70,6 +86,9 @@ class ConflictReport:
             requirement.message()
             for requirement in self.missing_requirements
             if requirement.mod_id == mod_id
+        ]
+        messages += [
+            problem.message() for problem in self.order_problems if problem.mod_id == mod_id
         ]
         return messages
 
@@ -168,6 +187,11 @@ def analyze(
                 report.missing_requirements.append(
                     MissingRequirement(mod.id, required_id, required_id in installed_ids)
                 )
+
+    report.order_problems = [
+        OrderProblem(mod_id, required_id)
+        for mod_id, required_id in out_of_order_requirements(enabled)
+    ]
 
     footprints = {mod.id: footprint(mod, con) for mod in enabled}
 

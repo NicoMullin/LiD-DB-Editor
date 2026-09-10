@@ -100,6 +100,8 @@ def _print_validation(report) -> None:
         print(f"  warn  conflict: {conflict.message()}")
     for requirement in report.conflicts.missing_requirements:
         print(f"  warn  {requirement.message()}")
+    for problem in report.conflicts.order_problems:
+        print(f"  warn  {problem.message()}")
 
 
 def cmd_validate(manager: Manager, args: argparse.Namespace) -> int:
@@ -172,10 +174,10 @@ def cmd_set_db(manager: Manager, args: argparse.Namespace) -> int:
         print()
         print("Point this at a CLEAN, unmodified masters.db.")
         print(
-            f"  The first 'apply' saves it as {path.name}{backup_module.ORIGINAL_SUFFIX} and never"
+            f"  A copy has just been kept as {path.name}{backup_module.ORIGINAL_SUFFIX}, and it"
         )
-        print("  overwrites that file - it is your permanent way back to vanilla.")
-        print("  If the database has already been edited, so is that copy.")
+        print("  is never overwritten - it is your permanent way back to vanilla.")
+        print("  If the database had already been edited, so is that copy.")
         print("  Replace it now (delete it and verify the game files) rather than later.")
     return 0
 

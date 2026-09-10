@@ -16,8 +16,18 @@ _WRITE_STMT_RE = re.compile(
             replace\s+into\s+                  |
             delete\s+from\s+                   |
             drop\s+table\s+(?:if\s+exists\s+)? |
-            alter\s+table\s+
+            alter\s+table\s+                   |
+            create\s+(?:temp(?:orary)?\s+)?table\s+(?:if\s+not\s+exists\s+)?
         )
+        ["'`\[]?(?P<table>[A-Za-z_][A-Za-z0-9_]*)["'`\]]?
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+# Tables a script brings into being. These are the one kind of table that may
+# legitimately not exist yet when a mod is validated.
+_CREATE_TABLE_RE = re.compile(
+    r"""\bcreate\s+(?:temp(?:orary)?\s+)?table\s+(?:if\s+not\s+exists\s+)?
         ["'`\[]?(?P<table>[A-Za-z_][A-Za-z0-9_]*)["'`\]]?
     """,
     re.IGNORECASE | re.VERBOSE,
@@ -278,6 +288,39 @@ def tables_written_by(sql: str) -> set[str]:
     detection. Over-snapshotting is safe; missing a table is not.
     """
     return {match.group("table") for match in _WRITE_STMT_RE.finditer(strip_comments(sql))}
+
+
+_CREATE_HEAD_RE = re.compile(
+    r"^\s*create\s+(?:temp(?:orary)?\s+)?(?:table|(?:unique\s+)?index)\s+", re.IGNORECASE
+)
+_IF_NOT_EXISTS_RE = re.compile(r"\bif\s+not\s+exists\b", re.IGNORECASE)
+
+
+def if_not_exists(statement: str) -> str:
+    """Make a CREATE safe to run a second time.
+
+    Mods get applied more than once - every save re-runs the whole enabled list
+    against a database that already has last time's changes. A bare CREATE TABLE
+    fails on the second pass, which is a needless way for a working mod to break,
+    so it is given an IF NOT EXISTS. Statements that already have one, and
+    anything that is not a CREATE, come back untouched.
+    """
+    if _IF_NOT_EXISTS_RE.search(statement):
+        return statement
+    match = _CREATE_HEAD_RE.match(statement)
+    if not match:
+        return statement
+    return statement[: match.end()] + "IF NOT EXISTS " + statement[match.end() :]
+
+
+def tables_created_by(sql: str) -> set[str]:
+    """Tables a raw SQL script creates for itself.
+
+    Everything else a mod writes to has to exist already - that check is what
+    catches a typo'd table name. A CREATE is the exception, so validation has to
+    know which names to let through.
+    """
+    return {match.group("table") for match in _CREATE_TABLE_RE.finditer(strip_comments(sql))}
 
 
 def compile_only(con: sqlite3.Connection, statement: str) -> None:

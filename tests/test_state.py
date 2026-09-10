@@ -63,6 +63,44 @@ class StateTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             state.load_modpack("nope")
 
+    def test_the_enabled_list_is_the_load_order(self) -> None:
+        state = State.load(self.path)
+        for mod_id in ("first", "second", "third"):
+            state.set_enabled(mod_id, True)
+        self.assertEqual([state.order_of(m) for m in ("first", "second", "third")], [1, 2, 3])
+        self.assertIsNone(state.order_of("not-enabled"))
+
+    def test_moving_up_and_down(self) -> None:
+        state = State.load(self.path)
+        for mod_id in ("a", "b", "c"):
+            state.set_enabled(mod_id, True)
+        self.assertTrue(state.move("c", -1))
+        self.assertEqual(state.enabled_mods, ["a", "c", "b"])
+        self.assertTrue(state.move("a", +1))
+        self.assertEqual(state.enabled_mods, ["c", "a", "b"])
+
+    def test_you_cannot_move_off_either_end(self) -> None:
+        state = State.load(self.path)
+        state.set_enabled("only", True)
+        self.assertFalse(state.move("only", -1))
+        self.assertFalse(state.move("only", +1))
+        self.assertFalse(state.move("disabled", -1))
+        self.assertEqual(state.enabled_mods, ["only"])
+
+    def test_set_order_keeps_anything_it_was_not_told_about(self) -> None:
+        state = State.load(self.path)
+        for mod_id in ("a", "b", "c"):
+            state.set_enabled(mod_id, True)
+        state.set_order(["c", "a"])
+        self.assertEqual(state.enabled_mods, ["c", "a", "b"])
+
+    def test_the_load_order_survives_a_save(self) -> None:
+        state = State.load(self.path)
+        for mod_id in ("z", "y", "x"):
+            state.set_enabled(mod_id, True)
+        state.save()
+        self.assertEqual(State.load(self.path).enabled_mods, ["z", "y", "x"])
+
     def test_prune_missing_drops_uninstalled_ids(self) -> None:
         state = State.load(self.path)
         state.enabled_mods = ["here", "gone"]
@@ -117,6 +155,36 @@ class BackupTests(unittest.TestCase):
         self.assertTrue(result.original.is_file())
         self.assertTrue(result.rolling.is_file())
         self.assertTrue(result.dated.is_file())
+
+    def test_the_copy_is_byte_identical_so_it_can_be_checked_against_a_hash(self) -> None:
+        import hashlib
+
+        result = backup_module.take_backups(self.db, self.backups)
+        digest = hashlib.sha256(self.db.read_bytes()).hexdigest()
+        for copy in (result.original, result.rolling, result.dated):
+            self.assertEqual(
+                hashlib.sha256(copy.read_bytes()).hexdigest(),
+                digest,
+                f"{copy.name} should be a byte-for-byte copy",
+            )
+
+    def test_a_wal_journal_forces_the_consistent_snapshot_instead(self) -> None:
+        """With a side journal the file alone is not the whole database."""
+        wal = self.db.with_name(self.db.name + "-wal")
+        wal.write_bytes(b"pretend pending pages")
+        try:
+            copy = self.root / "viawal.db"
+            backup_module.copy_database(self.db, copy)
+        finally:
+            # SQLite tidies the stray journal away itself when it opens the file.
+            wal.unlink(missing_ok=True)
+        # It still has to be a working database, however it was produced.
+        self.assertEqual(self._skill_count(), 4)
+        import sqlite3
+
+        con = sqlite3.connect(str(copy))
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM master_skill").fetchone()[0], 4)
+        con.close()
 
     def test_the_original_is_written_once_and_never_overwritten(self) -> None:
         first = backup_module.take_backups(self.db, self.backups)

@@ -25,9 +25,8 @@ CREATE TABLE master_shop_product_price (
     price INTEGER,
     medal INTEGER
 );
--- Mirrors the real master_text, whose DDL the Floor Material Names mod carries:
--- the section tag, the sound key and the type column all matter to mods that
--- filter on them.
+-- Mirrors the real master_text: the section tag, the sound key and the type
+-- column all matter to mods that filter on them.
 CREATE TABLE master_text (
     "sct" CHARACTER(32) NOT NULL DEFAULT '',
     "id" CHARACTER(64) NOT NULL DEFAULT '',

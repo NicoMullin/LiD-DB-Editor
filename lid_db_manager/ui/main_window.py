@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -27,10 +28,13 @@ from PySide6.QtWidgets import (
 )
 
 from .. import APP_NAME, DB_FILENAME, DEFAULT_DB_HINT, __version__
+from .. import backup as backup_module
 from ..backup import BACKUP_SUFFIX, ORIGINAL_SUFFIX
+from ..install import InstallError
 from ..manager import Manager
 from ..watchdog import STATUS_OK, STATUS_STALE, DbStatus
 from .diff_view import DiffView
+from .install_dialog import InstallDialog
 from .log_panel import LogPanel
 from .mod_list import ModListWidget
 from .theme import apply_theme, colors
@@ -47,6 +51,9 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(APP_NAME)
         self.resize(1180, 780)
+        # Dropping a mod on the window is how most people will install one.
+        self.setAcceptDrops(True)
+        self._install_queue: list[Path] = []
 
         self._build_header()
         self._build_body()
@@ -118,8 +125,31 @@ class MainWindow(QMainWindow):
         self.diff_view = DiffView(self.manager, self.dark)
         self.log_panel = LogPanel(self.manager.log, self.dark)
 
+        # The list plus its load-order controls, as one panel.
+        self.move_up_button = QPushButton("Move up")
+        self.move_up_button.setToolTip("Apply this mod earlier, so later mods can overwrite it")
+        self.move_up_button.clicked.connect(lambda: self.move_selected(-1))
+        self.move_down_button = QPushButton("Move down")
+        self.move_down_button.setToolTip("Apply this mod later, so it overwrites the ones above")
+        self.move_down_button.clicked.connect(lambda: self.move_selected(+1))
+
+        order_hint = QLabel("Load order: top applies first, bottom wins")
+        order_hint.setObjectName("dim")
+
+        order_row = QHBoxLayout()
+        order_row.addWidget(self.move_up_button)
+        order_row.addWidget(self.move_down_button)
+        order_row.addWidget(order_hint, 1)
+
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(4)
+        left_layout.addWidget(self.mod_list, 1)
+        left_layout.addLayout(order_row)
+
         self.center_split = QSplitter(Qt.Orientation.Horizontal)
-        self.center_split.addWidget(self.mod_list)
+        self.center_split.addWidget(left_panel)
         self.center_split.addWidget(self.diff_view)
         self.center_split.setStretchFactor(0, 3)
         self.center_split.setStretchFactor(1, 2)
@@ -211,6 +241,14 @@ class MainWindow(QMainWindow):
         self._add_action(tools, "Enable all mods", lambda: self.mod_list.set_all_checked(True))
         self._add_action(tools, "Disable all mods", lambda: self.mod_list.set_all_checked(False))
         tools.addSeparator()
+        self._add_action(tools, "Move up the load order", lambda: self.move_selected(-1), "Ctrl+Up")
+        self._add_action(tools, "Move down the load order", lambda: self.move_selected(+1), "Ctrl+Down")
+        tools.addSeparator()
+        self._add_action(
+            tools, "Create a mod from a modded masters.db...", self.import_database
+        )
+        self._add_action(tools, "Add a mod from a file...", self.add_mod_from_file)
+        tools.addSeparator()
         self._add_action(tools, "Restore a backup...", self.restore_backup)
 
         help_menu = self.menuBar().addMenu("&Help")
@@ -299,6 +337,12 @@ class MainWindow(QMainWindow):
         self.manager.set_db_path(path)
         self._sync_watcher()
         self.refresh()
+        kept = backup_module.original_backup_path(Path(path))
+        if kept.is_file():
+            self.statusBar().showMessage(
+                f"Keeping {kept.name} as your way back to stock - it is never overwritten.",
+                12000,
+            )
 
     # -- mod list ----------------------------------------------------------
 
@@ -315,6 +359,26 @@ class MainWindow(QMainWindow):
 
     def _on_mod_selected(self, mod_id: str) -> None:
         self.diff_view.show_mod(mod_id)
+
+    def move_selected(self, delta: int) -> None:
+        """Shift the selected mods up or down the load order."""
+        selected = self.mod_list.selected_mod_ids()
+        enabled = [m for m in selected if self.manager.state.is_enabled(m)]
+        if not enabled:
+            self.statusBar().showMessage(
+                "Select an enabled mod to move - the load order only covers enabled mods.", 6000
+            )
+            return
+        # Moving down means starting from the bottom, or the mods trip over
+        # each other on the way.
+        order = self.manager.state.enabled_mods
+        enabled.sort(key=order.index, reverse=delta > 0)
+        if not any(self.manager.move_mod(mod_id, delta) for mod_id in enabled):
+            return
+        self.unsaved = True
+        self.mod_list.refresh()
+        self.mod_list.select_mods(selected)
+        self._refresh_header()
 
     # -- long-running actions ----------------------------------------------
 
@@ -349,8 +413,12 @@ class MainWindow(QMainWindow):
         self._busy(False)
         self.task = None
         if trace:
-            self.manager.log.error(trace.strip().splitlines()[-1])
-            QMessageBox.critical(self, "Something went wrong", trace)
+            last = trace.strip().splitlines()[-1]
+            self.manager.log.error(last)
+            if "InstallError" in trace or "IncompatibleDatabase" in trace:
+                QMessageBox.warning(self, "Cannot use that file", last.split(": ", 1)[-1])
+            else:
+                QMessageBox.critical(self, "Something went wrong", trace)
             self.refresh()
             return
         on_done(result)
@@ -503,6 +571,127 @@ class MainWindow(QMainWindow):
         self._sync_watcher()
         self.refresh()
 
+    # -- installing mods ---------------------------------------------------
+
+    ACCEPTED_SUFFIXES = (".sql", ".zip", ".db", ".sqlite", ".sqlite3")
+
+    def _droppable(self, path: Path) -> bool:
+        return path.is_dir() or path.suffix.lower() in self.ACCEPTED_SUFFIXES
+
+    def dragEnterEvent(self, event) -> None:
+        data = event.mimeData()
+        if not data.hasUrls():
+            return
+        paths = [Path(u.toLocalFile()) for u in data.urls() if u.isLocalFile()]
+        if any(self._droppable(p) for p in paths):
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event) -> None:
+        self.dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:
+        paths = [Path(u.toLocalFile()) for u in event.mimeData().urls() if u.isLocalFile()]
+        event.acceptProposedAction()
+        # Get out of the drop handler before opening a modal dialog - Qt is
+        # still holding the drag when this returns.
+        self._install_queue.extend(p for p in paths if self._droppable(p))
+        QTimer.singleShot(0, self._drain_install_queue)
+
+    def add_mod_from_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Add a mod",
+            "",
+            "Mods (*.sql *.zip *.db *.sqlite *.sqlite3);;All files (*)",
+        )
+        if path:
+            self._install_queue.append(Path(path))
+            self._drain_install_queue()
+
+    def import_database(self) -> None:
+        """Tools entry: turn somebody else's modded masters.db into a mod."""
+        if not self.manager.vanilla_path:
+            QMessageBox.information(
+                self,
+                "No vanilla copy yet",
+                "Comparing a modded database needs an untouched copy to compare "
+                "against.\n\n"
+                f"Click Save Mod List once and the manager keeps {DB_FILENAME}"
+                f"{ORIGINAL_SUFFIX} next to your database - that becomes the reference.",
+            )
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Pick the modded masters.db", "", f"{DB_FILENAME} (*.db);;All files (*)"
+        )
+        if path:
+            self._install_queue.append(Path(path))
+            self._drain_install_queue()
+
+    def _drain_install_queue(self) -> None:
+        if not self._install_queue or (self.task is not None and self.task.isRunning()):
+            return
+        source = self._install_queue.pop(0)
+        # Inspecting a database means diffing it, which takes a second or two.
+        self._run(lambda: self.manager.inspect_install(source), self._after_inspect)
+
+    def _after_inspect(self, candidate) -> None:
+        if candidate is None:
+            self._install_queue.clear()
+            return
+        dialog = InstallDialog(candidate, self.dark, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            QTimer.singleShot(0, self._drain_install_queue)
+            return
+        details = dialog.details()
+        try:
+            mod = self.manager.install(
+                candidate,
+                details.name,
+                description=details.description,
+                author=details.author,
+                version=details.version,
+            )
+        except InstallError as exc:
+            if "already exists" in str(exc):
+                replace = QMessageBox.question(
+                    self,
+                    "Already installed",
+                    f"{exc}\n\nReplace it?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if replace == QMessageBox.StandardButton.Yes:
+                    mod = self.manager.install(
+                        candidate,
+                        details.name,
+                        description=details.description,
+                        author=details.author,
+                        version=details.version,
+                        overwrite=True,
+                    )
+                else:
+                    QTimer.singleShot(0, self._drain_install_queue)
+                    return
+            else:
+                QMessageBox.warning(self, "Could not add the mod", str(exc))
+                QTimer.singleShot(0, self._drain_install_queue)
+                return
+        except Exception as exc:  # pragma: no cover - unexpected, still must not crash
+            QMessageBox.critical(self, "Could not add the mod", str(exc))
+            QTimer.singleShot(0, self._drain_install_queue)
+            return
+
+        self.refresh()
+        if mod is not None:
+            self.mod_list.select_mods([mod.id])
+            self.diff_view.show_mod(mod.id)
+            self.statusBar().showMessage(
+                f"Added {mod.name} - it is switched off; tick it when you have "
+                "looked at the diff.",
+                10000,
+            )
+        QTimer.singleShot(0, self._drain_install_queue)
+
     # -- settings ----------------------------------------------------------
 
     def _on_dark_toggled(self, dark: bool) -> None:
@@ -560,9 +749,9 @@ class MainWindow(QMainWindow):
             box.setText(f"{APP_NAME} needs to know where {DB_FILENAME} lives.")
             box.setInformativeText(
                 "<b>Use a clean, unmodified copy.</b><br><br>"
-                "The first time you click Save Mod List, this tool saves the file "
-                f"as <code>{DB_FILENAME}{ORIGINAL_SUFFIX}</code> and never overwrites "
-                "it again — that is your permanent way back to vanilla. If the file "
+                "The moment you pick it, this tool keeps a copy as "
+                f"<code>{DB_FILENAME}{ORIGINAL_SUFFIX}</code> and never overwrites it "
+                "again — that is your permanent way back to vanilla. If the file "
                 "has already been edited by hand or by another tool, that "
                 "\"original\" is a copy of the edited version, and no amount of "
                 "reverting will get you back to stock.<br><br>"

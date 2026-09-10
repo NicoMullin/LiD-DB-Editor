@@ -144,6 +144,28 @@ class State:
         elif not enabled and mod_id in self.enabled_mods:
             self.enabled_mods.remove(mod_id)
 
+    def order_of(self, mod_id: str) -> int | None:
+        """1-based position in the load order, or None when disabled."""
+        if mod_id not in self.enabled_mods:
+            return None
+        return self.enabled_mods.index(mod_id) + 1
+
+    def move(self, mod_id: str, delta: int) -> bool:
+        """Shift a mod up (-1) or down (+1) the load order. False if it cannot."""
+        if mod_id not in self.enabled_mods:
+            return False
+        old = self.enabled_mods.index(mod_id)
+        new = old + delta
+        if not 0 <= new < len(self.enabled_mods):
+            return False
+        self.enabled_mods.insert(new, self.enabled_mods.pop(old))
+        return True
+
+    def set_order(self, mod_ids: list[str]) -> None:
+        """Replace the load order, keeping any enabled mod not mentioned."""
+        wanted = [m for m in mod_ids if m in self.enabled_mods]
+        self.enabled_mods = wanted + [m for m in self.enabled_mods if m not in wanted]
+
     def prune_missing(self, installed_ids: set[str]) -> list[str]:
         """Drop enabled ids whose folder is gone. Returns the dropped ids."""
         gone = [mod_id for mod_id in self.enabled_mods if mod_id not in installed_ids]

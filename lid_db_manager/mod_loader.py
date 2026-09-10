@@ -98,30 +98,18 @@ def scan_mods(mods_dir: Path) -> ScanResult:
     return result
 
 
-def resolve_order(mods: list[Mod]) -> list[Mod]:
-    """Order mods so every mod comes after the ones it 'requires'.
+def out_of_order_requirements(mods: list[Mod]) -> list[tuple[str, str]]:
+    """(mod, dependency) pairs where the mod is applied before what it requires.
 
-    Dependencies that are absent from the list are ignored here - the validator
-    is what reports them. A dependency cycle falls back to the input order for
-    the mods caught in it, so a bad 'requires' can't hang the apply.
+    The load order is the user's to set, so nothing is reordered behind their
+    back - this only reports the problem so the UI can point at it. A mod
+    applied before its dependency is usually harmless (they tend to write
+    different tables) but it is never what the author intended.
     """
-    by_id = {mod.id: mod for mod in mods}
-    ordered: list[Mod] = []
-    placed: set[str] = set()
-    visiting: set[str] = set()
-
-    def visit(mod: Mod) -> None:
-        if mod.id in placed or mod.id in visiting:
-            return
-        visiting.add(mod.id)
-        for dependency_id in mod.requires:
-            dependency = by_id.get(dependency_id)
-            if dependency is not None:
-                visit(dependency)
-        visiting.discard(mod.id)
-        placed.add(mod.id)
-        ordered.append(mod)
-
+    position = {mod.id: index for index, mod in enumerate(mods)}
+    problems = []
     for mod in mods:
-        visit(mod)
-    return ordered
+        for dependency_id in mod.requires:
+            if dependency_id in position and position[dependency_id] > position[mod.id]:
+                problems.append((mod.id, dependency_id))
+    return problems

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lid-db-mod-manager"
-version = "0.1.0"
+version = "0.2.0"
 description = "Apply JSON- and SQL-defined mods to LET IT DIE's masters.db"
 readme = "README.md"
 requires-python = ">=3.11"

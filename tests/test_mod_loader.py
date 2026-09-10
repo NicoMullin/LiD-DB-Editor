@@ -9,7 +9,7 @@ from pathlib import Path
 from fixtures import write_mod, write_sql_mod
 
 from lid_db_manager.mod import SOURCE_JSON, SOURCE_SQL, SOURCE_SQL_PAIR, Mod
-from lid_db_manager.mod_loader import resolve_order, scan_mods
+from lid_db_manager.mod_loader import out_of_order_requirements, scan_mods
 
 SIMPLE_PATCH = {"patches": [{"type": "raw_sql", "sql": "UPDATE t SET c = 1"}]}
 
@@ -92,23 +92,28 @@ class ScanTests(unittest.TestCase):
         self.assertIn("does not exist", result.failures[0].reason)
 
 
-class OrderTests(unittest.TestCase):
-    def test_dependencies_come_first(self) -> None:
-        mods = [stub("text", ["prices"]), stub("prices"), stub("other")]
-        self.assertEqual([m.id for m in resolve_order(mods)], ["prices", "text", "other"])
+class LoadOrderTests(unittest.TestCase):
+    """The load order belongs to the user; nothing reorders it silently."""
 
-    def test_transitive_dependencies(self) -> None:
-        mods = [stub("c", ["b"]), stub("b", ["a"]), stub("a")]
-        self.assertEqual([m.id for m in resolve_order(mods)], ["a", "b", "c"])
+    def test_a_mod_before_its_dependency_is_reported(self) -> None:
+        mods = [stub("text", ["prices"]), stub("prices")]
+        self.assertEqual(out_of_order_requirements(mods), [("text", "prices")])
 
-    def test_absent_dependency_is_ignored_here(self) -> None:
-        mods = [stub("only", ["missing"])]
-        self.assertEqual([m.id for m in resolve_order(mods)], ["only"])
+    def test_the_right_way_round_is_silent(self) -> None:
+        mods = [stub("prices"), stub("text", ["prices"])]
+        self.assertEqual(out_of_order_requirements(mods), [])
 
-    def test_a_dependency_cycle_does_not_hang(self) -> None:
-        mods = [stub("a", ["b"]), stub("b", ["a"])]
-        ordered = resolve_order(mods)
-        self.assertEqual(sorted(m.id for m in ordered), ["a", "b"])
+    def test_a_dependency_not_in_the_list_is_not_an_order_problem(self) -> None:
+        # That case is "missing requirement", reported separately.
+        self.assertEqual(out_of_order_requirements([stub("only", ["missing"])]), [])
+
+    def test_a_cycle_does_not_hang(self) -> None:
+        problems = out_of_order_requirements([stub("a", ["b"]), stub("b", ["a"])])
+        self.assertEqual(problems, [("a", "b")])
+
+    def test_transitive_chain_in_order(self) -> None:
+        mods = [stub("a"), stub("b", ["a"]), stub("c", ["b"])]
+        self.assertEqual(out_of_order_requirements(mods), [])
 
 
 if __name__ == "__main__":

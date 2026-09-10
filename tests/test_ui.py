@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -129,6 +130,60 @@ class ModListToggleTests(unittest.TestCase):
         self._tick("c-third")
         self.assertEqual(State.load(self.paths.state_file).enabled_mods, ["c-third"])
 
+    def _order_column(self):
+        out = []
+        for i in range(self.window.mod_list.topLevelItemCount()):
+            item = self.window.mod_list.topLevelItem(i)
+            mod_id = item.data(0, Qt.ItemDataRole.UserRole)
+            if mod_id:
+                out.append((item.text(0), mod_id))
+        return out
+
+    def test_the_list_numbers_enabled_mods_in_load_order(self) -> None:
+        self._tick("c-third")
+        self._tick("a-first")
+        # Enabled mods sit at the top, numbered in the order they apply.
+        self.assertEqual(self._order_column()[:2], [("1", "c-third"), ("2", "a-first")])
+        # Disabled ones follow, unnumbered.
+        self.assertEqual([n for n, _ in self._order_column()[2:]], [""])
+
+    def test_move_down_makes_a_mod_win(self) -> None:
+        self._tick("a-first")
+        self._tick("b-second")
+        self.assertEqual(self.manager.state.enabled_mods, ["a-first", "b-second"])
+
+        self.window.mod_list.select_mods(["a-first"])
+        self._settle()
+        self.window.move_selected(+1)
+        self._settle()
+
+        self.assertEqual(self.manager.state.enabled_mods, ["b-second", "a-first"])
+        self.assertEqual(self._order_column()[:2], [("1", "b-second"), ("2", "a-first")])
+
+    def test_moving_off_the_end_does_nothing(self) -> None:
+        self._tick("a-first")
+        self.window.mod_list.select_mods(["a-first"])
+        self._settle()
+        self.window.move_selected(-1)
+        self._settle()
+        self.assertEqual(self.manager.state.enabled_mods, ["a-first"])
+
+    def test_moving_a_disabled_mod_is_refused_with_a_message(self) -> None:
+        self.window.mod_list.select_mods(["a-first"])   # not ticked
+        self._settle()
+        self.window.move_selected(+1)
+        self._settle()
+        self.assertEqual(self.manager.state.enabled_mods, [])
+
+    def test_the_moved_mod_stays_selected(self) -> None:
+        self._tick("a-first")
+        self._tick("b-second")
+        self.window.mod_list.select_mods(["a-first"])
+        self._settle()
+        self.window.move_selected(+1)
+        self._settle()
+        self.assertEqual(self.window.mod_list.selected_mod_ids(), ["a-first"])
+
     def test_enabling_everything_at_once_rebuilds_the_list_only_once(self) -> None:
         rebuilds = []
         original = self.window.mod_list.refresh
@@ -146,6 +201,178 @@ class ModListToggleTests(unittest.TestCase):
         self.window.mod_list.set_all_checked(False)
         self._settle()
         self.assertEqual(self.manager.state.enabled_mods, [])
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 is not installed")
+class DropInstallTests(unittest.TestCase):
+    """Dropping a file on the window installs it, switched off."""
+
+    app = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        from lid_db_manager.manager import Manager
+        from lid_db_manager.paths import AppPaths
+        from lid_db_manager.ui.main_window import MainWindow
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.paths = AppPaths(self.root).ensure()
+        self.db = build_db(self.root / "game" / "masters.db")
+        self.manager = Manager(self.paths)
+        self.manager.set_db_path(self.db)
+        self.window = MainWindow(self.manager)
+        self.window.show()
+        self._settle()
+
+        # A modal dialog in a test blocks the run for ever, and hides whatever
+        # error opened it. Record them instead.
+        self.messages = []
+        self.install_details = ("Dropped Mod", "from a drop", "someone", "2.0.0")
+        self.last_candidate = None
+        self._patch_dialogs()
+
+    def _patch_dialogs(self) -> None:
+        """No modal may ever open: one would block the run for ever."""
+        from lid_db_manager.ui import main_window as mw
+        from lid_db_manager.ui.install_dialog import InstallDetails
+        from PySide6.QtWidgets import QDialog
+
+        test = self
+
+        class FakeInstallDialog:
+            def __init__(self, candidate, dark, parent):
+                test.last_candidate = candidate
+
+            def exec(self):
+                return QDialog.DialogCode.Accepted
+
+            def details(self):
+                return InstallDetails(*test.install_details)
+
+        self._real_dialog = mw.InstallDialog
+        mw.InstallDialog = FakeInstallDialog
+        self._patch_message_boxes()
+
+    def _patch_message_boxes(self) -> None:
+        from PySide6.QtWidgets import QMessageBox
+
+        from lid_db_manager.ui import main_window as mw
+
+        self._real_box = mw.QMessageBox
+        messages = self.messages
+
+        class RecordingBox:
+            StandardButton = QMessageBox.StandardButton
+            Icon = QMessageBox.Icon
+
+            @staticmethod
+            def warning(parent, title, text, *args, **kwargs):
+                messages.append(("warning", title, text))
+                return QMessageBox.StandardButton.Ok
+
+            @staticmethod
+            def critical(parent, title, text, *args, **kwargs):
+                messages.append(("critical", title, text))
+                return QMessageBox.StandardButton.Ok
+
+            @staticmethod
+            def information(parent, title, text, *args, **kwargs):
+                messages.append(("information", title, text))
+                return QMessageBox.StandardButton.Ok
+
+            @staticmethod
+            def question(parent, title, text, *args, **kwargs):
+                messages.append(("question", title, text))
+                return QMessageBox.StandardButton.No
+
+        mw.QMessageBox = RecordingBox
+
+    def tearDown(self) -> None:
+        from lid_db_manager.ui import main_window as mw
+
+        self._wait_for_idle()
+        mw.QMessageBox = self._real_box
+        mw.InstallDialog = self._real_dialog
+        self.window.close()
+        self._settle()
+        self._tmp.cleanup()
+
+    def _settle(self) -> None:
+        for _ in range(6):
+            QCoreApplication.processEvents()
+
+    def _wait_for_idle(self, seconds: float = 30.0) -> None:
+        """Pump the event loop until the background task is done.
+
+        Diffing a database takes a moment, and the result arrives as a queued
+        signal - so a fixed number of processEvents calls is not enough.
+        """
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            QCoreApplication.processEvents()
+            if self.window.task is None and not self.window._install_queue:
+                break
+            time.sleep(0.01)
+        self._settle()
+
+    def _drop(self, path: Path):
+        """Simulate a drop and wait for the install to finish."""
+        self.window._install_queue.append(path)
+        self.window._drain_install_queue()
+        self._wait_for_idle()
+        return self.last_candidate
+
+    def test_the_window_accepts_the_drag(self) -> None:
+        self.assertTrue(self.window.acceptDrops())
+        self.assertTrue(self.window._droppable(Path("x.sql")))
+        self.assertTrue(self.window._droppable(Path("x.zip")))
+        self.assertTrue(self.window._droppable(Path("masters.db")))
+        self.assertFalse(self.window._droppable(Path("notes.txt")))
+
+    def test_dropping_a_sql_file_installs_it_switched_off(self) -> None:
+        sql = self.root / "MyPatch.sql"
+        sql.write_text("UPDATE master_skill SET buy_money = 1;", encoding="utf-8")
+
+        candidate = self._drop(sql)
+        self.assertEqual(candidate.suggested_name, "My Patch")
+
+        mod = self.manager.scan.get("Dropped Mod")
+        self.assertIsNotNone(mod, [m.id for m in self.manager.mods])
+        self.assertEqual(mod.description, "from a drop")
+        self.assertEqual(mod.author, "someone")
+        self.assertFalse(self.manager.state.is_enabled(mod.id), "must arrive disabled")
+
+    def test_the_new_mod_is_selected_so_its_diff_can_be_read(self) -> None:
+        sql = self.root / "Another.sql"
+        sql.write_text("UPDATE master_skill SET val0 = 3;", encoding="utf-8")
+        self._drop(sql)
+        self.assertEqual(self.window.mod_list.selected_mod_ids(), ["Dropped Mod"])
+
+    def test_dropping_junk_reports_instead_of_crashing(self) -> None:
+        junk = self.root / "notes.txt"
+        junk.write_text("hello", encoding="utf-8")
+        # _droppable filters it out before anything happens.
+        self.assertFalse(self.window._droppable(junk))
+
+    def test_dropping_a_modded_database_makes_a_mod(self) -> None:
+        import sqlite3
+
+        self.manager.save_mod_list()  # writes masters.db.original
+        rework = build_db(self.root / "rework" / "masters.db")
+        con = sqlite3.connect(str(rework))
+        con.execute("UPDATE master_body_detail SET price = 3")
+        con.commit()
+        con.close()
+
+        candidate = self._drop(rework)
+        self.assertEqual(candidate.kind, "database")
+        mod = self.manager.scan.get("Dropped Mod")
+        self.assertIsNotNone(mod)
+        self.assertTrue((mod.folder / "changes.sql").is_file())
 
 
 @unittest.skipUnless(HAVE_QT, "PySide6 is not installed")
