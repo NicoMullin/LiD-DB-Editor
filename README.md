@@ -118,36 +118,108 @@ Two caveats worth knowing before you enable them:
 
 ## Adding mods
 
-**Drag it onto the window.** A `.sql` patch, a mod folder, or a `.zip` — you
-get a small dialog to name it and describe it, and it appears in the list
-switched off so you can read its diff before committing. Same thing via
-**Tools → Add a mod from a file**.
+You do not have to find the `mods/` folder any more. **Drop the file on the
+window** — anywhere on it, while the manager is running — and it installs
+itself. Four things are accepted:
 
-**Someone posted a whole reworked `masters.db`?** **Tools → Create a mod from a
-modded masters.db** compares it against your untouched copy and writes the
-difference out as an ordinary mod — so a rework becomes something you can
-toggle rather than a file you have to swap by hand. It refuses outright if the
-file came from a different game version, because that diff would silently undo
-the developers' own changes.
+| What you drop            | What happens                                                 |
+|--------------------------|--------------------------------------------------------------|
+| A `.sql` patch           | Becomes a new mod folder built around that file              |
+| A folder with SQL in it  | Installed as-is, `mod.json` or not                           |
+| A `.zip`                 | Unpacked and installed, refusing any path that escapes it    |
+| An edited `masters.db`   | Compared against vanilla and turned into a mod (below)       |
 
-That comparison is not limited to retuned numbers. Changed values, added rows,
+A small dialog asks for a name — prefilled from the filename — and optionally a
+description, author and version. That writes a real `mod.json`, so the entry
+reads properly in the list instead of showing up as an unnamed `.sql`.
+
+Drop several at once and you get one dialog each, in turn. `.sqlite` and
+`.sqlite3` count as databases too.
+
+**Whatever you drop arrives switched off.** Nothing is applied by the act of
+adding it. Enable it when you have read its diff, then Save Mod List.
+
+If you would rather use a menu, **Tools → Add a mod from a file** does exactly
+the same thing. And putting a folder in `mods/` by hand and pressing **F5**
+still works.
+
+### Someone posted a whole reworked `masters.db`
+
+Drop it on the window, or use **Tools → Create a mod from a modded
+masters.db**. The manager compares it against your untouched `masters.db.original`
+and writes out **just the differences as an ordinary mod** — one that sits in
+your list with everything else and can be **switched on and off**.
+
+That matters because the usual way to share a rework is the whole database
+file, which you install by overwriting yours. Doing that throws away every
+other mod you had, and the only way back is another file swap. As a mod it is
+just another row in the list: toggle it, put things above or below it, revert
+it.
+
+The comparison is not limited to retuned numbers. Changed values, added rows,
 removed rows and whole tables the game shipped without all come across, with
 their indexes — modders keep finding more they can do to `masters.db`, and a
 manager that quietly drops the parts it does not recognise is worse than one
 that refuses them outright. Reverting such a mod drops the tables it added and
 puts everything else back.
 
-Or just put a folder in `mods/` and press F5.
+It refuses outright if the file came from a different game version — a database
+missing a vanilla table, or with different columns in one. That difference
+would read as "undo the developers' changes", and applying it would quietly
+roll the game back.
 
 ## Load order
 
-Enabled mods sit at the top of the list, numbered. **Top applies first, bottom
-wins** — so if a big rework sets a hundred values and you want one of them
-different, put your small mod below it and only that value changes. Move things
-with the buttons under the list or Ctrl+Up / Ctrl+Down.
+Enabled mods sit at the top of the list, **numbered**. That number is the order
+they are applied in: **top applies first, bottom wins.** Move things with the
+buttons under the list, or Ctrl+Up / Ctrl+Down.
 
-The conflict warnings name the mods and the rows they share, so you can see who
-is overriding what and reorder accordingly.
+So if a big rework sets a hundred values and you want one of them different,
+put your small mod **below** it. It applies last, so its value is the one that
+survives, and the other ninety-nine are untouched.
+
+The order is yours. The manager never silently reorders it — if a mod ends up
+above something it declares it `requires`, you get a warning telling you to
+move it rather than having things shuffled behind your back. You also get a
+warning when a required mod is not enabled at all.
+
+Conflict warnings name the two mods and **the rows they share**, not just the
+table. Two mods that both write `master_text` but never touch the same row are
+not a conflict and are not reported — which is what makes the warnings worth
+reading when they do appear.
+
+Before this existed, mods applied in whatever order their checkboxes happened to
+get ticked. That order was invisible, and unticking a mod and ticking it again
+silently changed who won.
+
+## Saving your mod list
+
+**Save Mod List** (the button at the bottom, or Ctrl+S) is the only thing that
+writes to your database. Everything else — enabling, reordering, dropping files
+in — only changes the list. In order, it:
+
+1. **Backs up.** A rolling `masters.db.backup`, plus a dated copy in
+   `backups/` (newest five kept).
+2. **Validates every enabled mod** against your actual database on a read-only
+   connection. Tables and columns must exist, SQL must compile. A mod written
+   for a different game version is reported, not run.
+3. **Snapshots the rows each mod is about to change**, so that mod alone can be
+   undone later.
+4. **Applies the whole list in load order, in one transaction.** If any mod
+   fails, *none* of them are applied — the database is left exactly as it was.
+   You never end up half-modded.
+5. **Records the result**, so the manager can tell later whether the game has
+   replaced the file behind your back.
+
+The log reports how many rows each mod changed and how long the whole thing
+took. Those row counts are worth a glance: a mod claiming far more rows than
+you expected is usually a whole-table dump, and the note under *Making your own
+mods* about `"apply": "diff"` explains what to do about it.
+
+**Re-apply All** (Ctrl+R) runs the same list again without taking a fresh
+backup — it is what the watchdog calls when the game replaces `masters.db`
+after an update. Skipping the backup is deliberate: an automatic re-apply must
+never quietly rotate your good backups away.
 
 ## When a change doesn't show up in game
 
