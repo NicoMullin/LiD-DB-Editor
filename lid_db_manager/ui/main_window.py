@@ -30,10 +30,12 @@ from PySide6.QtWidgets import (
 from .. import APP_NAME, DB_FILENAME, DEFAULT_DB_HINT, __version__
 from .. import backup as backup_module
 from ..backup import BACKUP_SUFFIX, ORIGINAL_SUFFIX
-from ..install import InstallError
+from ..install import KIND_ASSET_FOLDER, InstallError
+from ..modedit import ModEditError
 from ..manager import Manager
 from ..watchdog import STATUS_OK, STATUS_STALE, DbStatus
 from .diff_view import DiffView
+from .edit_dialog import EditModDialog
 from .install_dialog import InstallDialog
 from .log_panel import LogPanel
 from .mod_list import ModListWidget
@@ -119,6 +121,7 @@ class MainWindow(QMainWindow):
     def _build_body(self) -> None:
         self.mod_list = ModListWidget(self.manager, self.dark)
         self.mod_list.enabledChanged.connect(self._on_mod_toggled)
+        self.mod_list.partToggled.connect(self._on_part_toggled)
         self.mod_list.togglesApplied.connect(self._after_mods_toggled)
         self.mod_list.selectionChangedTo.connect(self._on_mod_selected)
 
@@ -248,7 +251,11 @@ class MainWindow(QMainWindow):
             tools, "Create a mod from a modded masters.db...", self.import_database
         )
         self._add_action(tools, "Add a mod from a file...", self.add_mod_from_file)
+        self._add_action(tools, "Add a mod from a folder...", self.add_mod_from_folder)
+        self._add_action(tools, "Edit mod details...", self.edit_selected_mod, "F2")
         tools.addSeparator()
+        self._add_action(tools, "Set game folder...", self.set_game_folder)
+        self._add_action(tools, "Restore game files...", self.restore_game_files)
         self._add_action(tools, "Restore a backup...", self.restore_backup)
 
         help_menu = self.menuBar().addMenu("&Help")
@@ -349,6 +356,11 @@ class MainWindow(QMainWindow):
     def _on_mod_toggled(self, mod_id: str, enabled: bool) -> None:
         # State only. Rebuilding the list happens once, in _after_mods_toggled.
         self.manager.set_enabled(mod_id, enabled)
+        self.unsaved = True
+
+    def _on_part_toggled(self, mod_id: str, patch_key: str, enabled: bool) -> None:
+        # State only, same as a whole mod - the rebuild happens once afterwards.
+        self.manager.set_part_enabled(mod_id, patch_key, enabled)
         self.unsaved = True
 
     def _after_mods_toggled(self) -> None:
@@ -571,6 +583,55 @@ class MainWindow(QMainWindow):
         self._sync_watcher()
         self.refresh()
 
+    def set_game_folder(self) -> None:
+        """Point asset_file mods at the folder that holds BrgGame."""
+        current = self.manager.asset_game_root
+        start = str(current or (self.manager.db_path.parent if self.manager.db_path else ""))
+        path = QFileDialog.getExistingDirectory(
+            self, "Choose the LET IT DIE folder (the one containing BrgGame)", start
+        )
+        if not path:
+            return
+        if not (Path(path) / "BrgGame" / "CookedPCConsole").is_dir():
+            QMessageBox.warning(
+                self,
+                "Set game folder",
+                f"{path}\n\ndoes not look like the game folder - it has no "
+                "BrgGame\\CookedPCConsole inside it.",
+            )
+            return
+        self.manager.set_game_root_override(path)
+        self.refresh()
+        QMessageBox.information(self, "Set game folder", f"Game folder set to:\n  {path}")
+
+    def restore_game_files(self) -> None:
+        entries = self.manager.asset_backups()
+        if not entries:
+            QMessageBox.information(
+                self,
+                "Restore game files",
+                "No game files have been changed by a mod, so there is nothing to restore.",
+            )
+            return
+        confirmed = QMessageBox.question(
+            self,
+            "Restore game files",
+            f"Put back {len(entries)} game file(s) that mods have changed?\n\n"
+            "Files a mod added will be deleted; files a mod replaced will be restored "
+            "from the copy taken before any mod touched them.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmed != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            report = self.manager.restore_all_asset_backups()
+        except RuntimeError as exc:
+            QMessageBox.warning(self, "Restore game files", str(exc))
+            return
+        self.refresh()
+        self.statusBar().showMessage(report.summary_line(), 8000)
+
     # -- installing mods ---------------------------------------------------
 
     ACCEPTED_SUFFIXES = (".sql", ".zip", ".db", ".sqlite", ".sqlite3")
@@ -608,6 +669,13 @@ class MainWindow(QMainWindow):
             self._install_queue.append(Path(path))
             self._drain_install_queue()
 
+    def add_mod_from_folder(self) -> None:
+        """A mod folder, or a folder of game files (.upk) / a content pack."""
+        path = QFileDialog.getExistingDirectory(self, "Choose a mod or content-pack folder", "")
+        if path:
+            self._install_queue.append(Path(path))
+            self._drain_install_queue()
+
     def import_database(self) -> None:
         """Tools entry: turn somebody else's modded masters.db into a mod."""
         if not self.manager.vanilla_path:
@@ -627,6 +695,44 @@ class MainWindow(QMainWindow):
             self._install_queue.append(Path(path))
             self._drain_install_queue()
 
+    def edit_selected_mod(self) -> None:
+        """Rename a mod, fix its description, write its readme - all in here."""
+        selected = self.mod_list.selected_mod_ids()
+        if not selected:
+            QMessageBox.information(
+                self, "Edit mod details", "Pick a mod in the list first."
+            )
+            return
+        mod = self.manager.scan.get(selected[0])
+        if mod is None:
+            return
+
+        dialog = EditModDialog(mod, self.dark, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        details = dialog.details()
+        try:
+            updated = self.manager.edit_mod(
+                mod.id,
+                details.name,
+                description=details.description,
+                author=details.author,
+                version=details.version,
+                readme=details.readme,
+            )
+        except ModEditError as exc:
+            QMessageBox.warning(self, "Could not save the changes", str(exc))
+            return
+        except Exception as exc:  # pragma: no cover - unexpected, still must not crash
+            QMessageBox.critical(self, "Could not save the changes", str(exc))
+            return
+
+        self.refresh()
+        if updated is not None:
+            self.mod_list.select_mods([updated.id])
+            self.diff_view.show_mod(updated.id)
+            self.statusBar().showMessage(f"Saved {updated.name}", 6000)
+
     def _drain_install_queue(self) -> None:
         if not self._install_queue or (self.task is not None and self.task.isRunning()):
             return
@@ -638,19 +744,38 @@ class MainWindow(QMainWindow):
         if candidate is None:
             self._install_queue.clear()
             return
-        dialog = InstallDialog(candidate, self.dark, self)
+        asset_mods = [(m.id, m.name) for m in self.manager.mods if m.asset_targets()]
+        dialog = InstallDialog(candidate, self.dark, self, asset_mods=asset_mods)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             QTimer.singleShot(0, self._drain_install_queue)
             return
         details = dialog.details()
-        try:
+
+        def do_install(overwrite: bool) -> list:
+            if candidate.delta is not None:
+                return self.manager.install_database(
+                    candidate,
+                    details.name,
+                    description=details.description,
+                    author=details.author,
+                    version=details.version,
+                    overwrite=overwrite,
+                    selection=details.selection,
+                    split_by_table=details.split_by_table,
+                    requires=[details.companion_of] if details.companion_of else None,
+                )
             mod = self.manager.install(
                 candidate,
                 details.name,
                 description=details.description,
                 author=details.author,
                 version=details.version,
+                overwrite=overwrite,
             )
+            return [mod] if mod is not None else []
+
+        try:
+            mods = do_install(False)
         except InstallError as exc:
             if "already exists" in str(exc):
                 replace = QMessageBox.question(
@@ -661,14 +786,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.StandardButton.No,
                 )
                 if replace == QMessageBox.StandardButton.Yes:
-                    mod = self.manager.install(
-                        candidate,
-                        details.name,
-                        description=details.description,
-                        author=details.author,
-                        version=details.version,
-                        overwrite=True,
-                    )
+                    mods = do_install(True)
                 else:
                     QTimer.singleShot(0, self._drain_install_queue)
                     return
@@ -682,13 +800,45 @@ class MainWindow(QMainWindow):
             return
 
         self.refresh()
-        if mod is not None:
-            self.mod_list.select_mods([mod.id])
-            self.diff_view.show_mod(mod.id)
-            self.statusBar().showMessage(
-                f"Added {mod.name} - it is switched off; tick it when you have "
-                "looked at the diff.",
-                10000,
+        if mods:
+            self.mod_list.select_mods([mod.id for mod in mods])
+            self.diff_view.show_mod(mods[0].id)
+            if len(mods) == 1:
+                message = (
+                    f"Added {mods[0].name} - it is switched off; tick it when you "
+                    "have looked at the diff."
+                )
+            else:
+                message = (
+                    f"Added {len(mods)} mods from {candidate.source.name}, one per "
+                    "table - all switched off, so you can enable just the parts "
+                    "you want."
+                )
+            self.statusBar().showMessage(message, 10000)
+
+        if candidate.kind == KIND_ASSET_FOLDER and (
+            (candidate.source / "catalog.json").is_file()
+            or (candidate.source / "installer.py").is_file()
+        ):
+            QMessageBox.information(
+                self,
+                "This pack also changes the database",
+                "The game files have been added as a mod.\n\n"
+                "This pack also changes masters.db (items, quests, drop pools). "
+                "That part is done by the pack's own installer, which this "
+                "manager cannot read.\n\n"
+                "First: tick the files mod you just added and Save Mod List - "
+                "before running the pack's installer, so the manager keeps track "
+                "of the model files.\n\n"
+                "Then, with the game closed:\n"
+                "  1. Untick your other database mods and save, so masters.db is vanilla.\n"
+                "  2. Close this manager and copy masters.db somewhere safe.\n"
+                "  3. Run the pack's installer on your game folder.\n"
+                "  4. Copy the edited masters.db out, then put the vanilla one back.\n"
+                "  5. Reopen the manager and drag the edited copy onto this window.\n"
+                "     Pick this files mod as its companion.\n\n"
+                "The README has the full step-by-step under \"The Crossover "
+                "Content pack\".",
             )
         QTimer.singleShot(0, self._drain_install_queue)
 

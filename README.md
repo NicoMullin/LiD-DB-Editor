@@ -5,8 +5,9 @@ to the game's `masters.db` — the SQLite file holding prices, skill values, cra
 costs and every other tuning number — and puts them back when the game replaces
 that file.
 
-Mods are plain JSON or SQL in a folder. Nothing is compiled, nothing is
-injected, nothing is installed into the game.
+Mods are plain JSON or SQL in a folder, plus `.upk` game files for mods that
+add models and artwork. Nothing is compiled and nothing is injected — no
+program file is ever added to the game.
 
 > **Status: beta.** It has been used against a live install, but treat your
 > `masters.db` as precious anyway — which is what most of the tool is about.
@@ -32,6 +33,10 @@ injected, nothing is installed into the game.
 - **Takes mods however they arrive.** Drag a `.sql`, a mod folder or a `.zip`
   onto the window. Hand it somebody else's already-modded `masters.db` and it
   works out the difference and turns that into a mod you can switch off again.
+- **Handles game files too.** Mods that ship new models and artwork as `.upk`
+  files are copied into the game while switched on and taken back out when
+  switched off — including packs like Crossover Content that have their own
+  installer.
 - **Lets you decide who wins.** Mods apply in a load order you control, so a
   small tweak can override one value from a huge rework and leave the rest.
 - **Keeps blunt mods from trampling careful ones.** A mod marked
@@ -40,7 +45,9 @@ injected, nothing is installed into the game.
   wiping out everything else, and re-applying it can never compound.
 
 It is fully offline: no network calls of any kind, no telemetry, and no Steam
-integration — it reads and writes exactly one file, the one you point it at.
+integration. It writes the `masters.db` you point it at, plus any game files a
+mod ships — normally `.upk` files in `BrgGame\CookedPCConsole\`. It never
+writes program files (`.exe`, `.dll` and the like) anywhere.
 
 ## Requirements
 
@@ -82,6 +89,30 @@ Installed Files → Verify integrity of game files). Doing that afterwards means
 downloading it all over again, which is exactly what the `.original` exists to
 spare you.
 
+## Switching a mod off
+
+Untick it and press **Save Mod List**. The values it wrote go back — but not
+blindly to vanilla. They go back to *whatever they would be without it*:
+
+| The value                              | What it becomes               |
+|----------------------------------------|-------------------------------|
+| Only the switched-off mod wrote it     | Vanilla                       |
+| Another enabled mod writes it too      | That mod's value              |
+| The switched-off mod was overriding it | The mod underneath takes over |
+
+That falls out of how snapshots work rather than any clever reasoning: before a
+mod runs, the rows it is about to change are copied aside, and what was there
+at that moment already *was* the other mod's value. Switching one part of a mod
+off works the same way.
+
+Nothing happens to the database until you save — unticking on its own only
+changes the list.
+
+The one time it declines: if the game has replaced `masters.db` since those
+mods were applied, the saved rows describe values that are no longer there, and
+writing them back would put an old version's numbers over a new one's. The
+manager says so in the log and leaves them alone.
+
 ## Undoing things
 
 Two independent levels:
@@ -120,14 +151,15 @@ Two caveats worth knowing before you enable them:
 
 You do not have to find the `mods/` folder any more. **Drop the file on the
 window** — anywhere on it, while the manager is running — and it installs
-itself. Four things are accepted:
+itself. Five things are accepted:
 
-| What you drop            | What happens                                                 |
-|--------------------------|--------------------------------------------------------------|
-| A `.sql` patch           | Becomes a new mod folder built around that file              |
-| A folder with SQL in it  | Installed as-is, `mod.json` or not                           |
-| A `.zip`                 | Unpacked and installed, refusing any path that escapes it    |
-| An edited `masters.db`   | Compared against vanilla and turned into a mod (below)       |
+| What you drop                              | What happens                                                                                                         |
+|--------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
+| A `.sql` patch                             | Becomes a new mod folder built around that file                                                                      |
+| A folder with SQL in it                    | Installed as-is, `mod.json` or not                                                                                   |
+| A folder with an `assets` folder of `.upk` | Becomes a mod that copies them into the game — see [Mods that replace game files](#mods-that-replace-game-files-upk) |
+| A `.zip` with a `mod.json` or `.sql` in it | Unpacked and installed, refusing any path that escapes it                                                            |
+| An edited `masters.db`                     | Compared against vanilla; you pick which changes to keep (below)                                                     |
 
 A small dialog asks for a name — prefilled from the filename — and optionally a
 description, author and version. That writes a real `mod.json`, so the entry
@@ -147,14 +179,227 @@ still works.
 
 Drop it on the window, or use **Tools → Create a mod from a modded
 masters.db**. The manager compares it against your untouched `masters.db.original`
-and writes out **just the differences as an ordinary mod** — one that sits in
-your list with everything else and can be **switched on and off**.
+and writes out **just the differences as ordinary mods** that sit in your list
+with everything else and can be **switched on and off**.
 
 That matters because the usual way to share a rework is the whole database
 file, which you install by overwriting yours. Doing that throws away every
-other mod you had, and the only way back is another file swap. As a mod it is
-just another row in the list: toggle it, put things above or below it, revert
-it.
+other mod you had, and the only way back is another file swap.
+
+**You choose what to take.** The dialog shows every change it found, grouped by
+table:
+
+```
+  [x] master_shop_product_price     130 changed
+  [ ] master_automaticshop_lineup   315 changed
+  [x] master_tdm_rank                14 changed
+        [x] TDM_RANK_01     point_min: 1200 → 0
+        [ ] TDM_RANK_02     point_min: 2400 → 0
+        [x] TDM_RANK_03     point_min: 3600 → 0
+
+  Taking 113 of 661 change(s), across 3 table(s).
+```
+
+Untick a table to leave that part of the rework out entirely, or expand it and
+untick individual edits. There is a filter box for finding things in a long
+list, and All / None buttons.
+
+**The choice is not a one-off.** What you install is a single mod with one name
+and one readme, holding a switch for each table. Expand it in the list and tick
+the parts you want — the ones you turn off simply are not applied next time you
+save, and you can change your mind whenever you like:
+
+```
+  [x]  1   Big Rework
+             master_shop_product_price   130 changed
+       [x]  master_tdm_rank              14 changed
+       [ ]  master_automaticshop_lineup  315 changed
+```
+
+Tick *Install each table as a separate mod* in the import dialog if you would
+rather have one mod per table — useful when you want to slot other mods
+*between* parts of a rework in the load order, since a single mod's parts all
+apply together.
+
+The catch is worth knowing: taking part of a rework creates a combination its
+author never tested. Keep an added vending item but drop the product it refers
+to and you get a mod that half-works. Each part's `.sql` records where it came
+from.
+
+Switching a part off and saving puts that part's values back, the same as
+unticking a whole mod — see below.
+
+## Mods that replace game files (`.upk`)
+
+Some mods are not database edits at all — they are new models, outfits and
+artwork, shipped as `.upk` files. The manager handles those too. The files
+live in their mod folder, and are copied into the game only while the mod is
+switched on.
+
+### How the folder has to look
+
+A folder, with a folder called **`assets`** inside it, holding the `.upk` files:
+
+```
+My Outfit Mod/            <- drag THIS folder onto the window
+└── assets/               <- must be called exactly "assets"
+    ├── CH_Kat_Head_SF.upk
+    └── CH_Kat_Body_SF.upk
+```
+
+**Drag the outer folder onto the DB editor window.** The info window opens:
+
+| Field           | What to put                                                      |
+|-----------------|------------------------------------------------------------------|
+| **Name**        | Filled in from the folder name — change it to something readable |
+| **Description** | Optional. One line saying what the mod does                      |
+| **Author**      | Optional. Whoever made the mod                                   |
+| **Version**     | Optional. The mod's version, if it has one                       |
+
+Click **Add mod**. It arrives switched off; tick it and **Save Mod List**, and
+the files are copied into `BrgGame\CookedPCConsole\`. Untick it and save again
+and they are taken back out.
+
+If it says there are no game files to copy, the folder is not quite right:
+
+| What you dragged                                                     | Fix                                               |
+|----------------------------------------------------------------------|---------------------------------------------------|
+| The inner folder is called something other than `assets`             | Rename it to `assets`                             |
+| A folder inside a folder inside a folder — unzipping often does this | Drag the one that has `assets` directly inside it |
+| A `.zip`                                                             | Unzip it first, then drag the folder              |
+
+(Loose `.upk` files sitting straight in the folder, with no `assets` folder,
+also work.)
+
+**Close the game first.** A running game holds its files open; the manager
+refuses to copy anything until LET IT DIE is closed.
+
+**Backups stay small.** Only a vanilla file a mod actually replaces is backed
+up — one copy, kept only while that mod is on. A mod that only *adds* new
+files needs no backup at all.
+
+**Program files are refused.** A mod may never copy `.exe`, `.dll` or similar
+into the game, since Windows would run them. Real content packs never contain
+them; if one does, it shows in the list as broken, with the reason.
+
+## The Crossover Content pack
+
+The community **LET IT DIE Crossover Content** pack restores cut crossover
+content — decals in the Mushroom Club pool, blueprint quests, and the models
+and artwork that go with them. It has **two halves**, and the manager handles
+each one differently:
+
+- **Model files** — the `.upk` in its `assets` folder. The manager reads these
+  straight from the folder.
+- **Database changes** — new items, quests and drop pool entries. These are
+  made by the pack's own installer, which the manager cannot read. So you let
+  the installer make them once, keep the result, and turn *that* into a mod.
+
+You end up with two mods: one for the files, one for the database. Two
+checkboxes also make it easy to see that each half really loaded.
+
+### Which download you need
+
+The pack comes as two downloads:
+
+| You have                 | Download                                                                                                                               |
+|--------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| **Python 3.11 or newer** | Just the **No-EXE** version (its folder ends in `Source-NoEXE`). It does both jobs.                                                    |
+| **No Python**            | **Both.** The No-EXE version, for its files — dragging them in needs no Python — and the **EXE** version, to run the pack's installer. |
+
+Unzip whichever you downloaded before going on.
+
+### Part 1 — the model files
+
+1. Drag the **No-EXE folder** onto the DB editor window — the folder that has
+   `assets` and `catalog.json` directly inside it.
+2. In the info window:
+
+   | Field           | What to put                                                  |
+   |-----------------|--------------------------------------------------------------|
+   | **Name**        | `Crossover Content Files` — it fills in the long folder name |
+   | **Description** | `Models and artwork for the Crossover Content pack`          |
+   | **Author**      | Optional — whoever made the pack                             |
+   | **Version**     | The pack's version, e.g. `3.74`                              |
+
+3. Click **Add mod**. A message pops up saying this pack also changes the
+   database — that is Part 2, below.
+4. **Tick `Crossover Content Files` and click Save Mod List.**
+
+Do step 4 before Part 2. The pack's installer copies these same model files
+into the game, and if it gets there first, the manager finds them already in
+place and never keeps track of them — so turning the mod off later would leave
+them behind. Saving first means the manager put them there, so it can take
+them away again.
+
+### Part 2 — the database changes
+
+The pack's installer does not work on a loose file: you point it at the game
+folder, and it edits the real `masters.db` in place. So the trick is to back
+up the vanilla database, let the installer edit the real one, keep a copy of
+the edited file, and then put the vanilla one back.
+
+**Close LET IT DIE** before you start.
+
+1. **Make sure `masters.db` is vanilla.** In the DB editor, untick every
+   *database* mod you have switched on — leave `Crossover Content Files`
+   ticked — and click **Save Mod List**. Any mod left applied here would get
+   baked into the Crossover mod you are about to make.
+2. **Close the DB editor**, so it does not react while you swap files.
+3. **Back up the vanilla database.** Open
+   `...\steamapps\common\LET IT DIE\BrgGame\Content\`, copy `masters.db`,
+   paste it on your Desktop and rename it `masters-vanilla.db`.
+4. **Run the pack's installer.**
+   - No-EXE: double-click `Launch-Source.cmd` in the No-EXE folder.
+   - EXE: run the EXE download.
+
+   It looks for the game on its own. If it cannot find it, pick the
+   `LET IT DIE` folder — the one containing `BrgGame`, not `CookedPCConsole`.
+   Click **Install / update**, then **Check installation**, then close it.
+5. **Keep the edited database.** Back in `BrgGame\Content\`, copy the
+   now-edited `masters.db`, paste it on your Desktop and rename it
+   `masters-crossover.db`.
+6. **Put the vanilla one back.** Copy `masters-vanilla.db` from your Desktop
+   into `BrgGame\Content\`, rename it to `masters.db`, and say yes to replacing
+   the file that is there.
+7. **Open the DB editor** and drag `masters-crossover.db` onto its window.
+8. In the info window:
+
+   | Field                                    | What to put                                                         |
+   |------------------------------------------|---------------------------------------------------------------------|
+   | **Name**                                 | `Crossover Content Database` — it fills in "Masters Crossover"      |
+   | **Description**                          | `Decals, blueprint quests and items for the Crossover Content pack` |
+   | **Author**                               | Optional — whoever made the pack                                    |
+   | **Version**                              | The pack's version, e.g. `3.74`                                     |
+   | **Companion to game-files mod**          | Pick **`Crossover Content Files`**                                  |
+   | **What to take from it**                 | Leave everything ticked                                             |
+   | **Install each table as a separate mod** | Leave unticked                                                      |
+
+   Picking the companion makes the database mod require the files mod, so you
+   get a warning if you ever switch the database half on without the models it
+   points at.
+9. Click **Add mods**, tick **`Crossover Content Database`**, and click
+   **Save Mod List**.
+
+Start the game. Decals come through the **Mushroom Club** draw pool — they are
+not handed to you — and the blueprint quests show up at the normal quest
+interface. You can delete the two copies on your Desktop afterwards; the
+manager keeps its own untouched copy as `masters.db.original`.
+
+**From now on, switch it on and off in the DB editor**, not with the pack's
+own installer. Untick both mods and save, and the database goes back to how it
+was and the model files are taken out of the game.
+
+## Editing a mod
+
+**Tools → Edit mod details**, or F2 with a mod selected. Name, description,
+author, version and the readme, all in the window — no hunting for the folder
+and no text editor.
+
+Renaming moves the mod's folder, and takes its place in the load order and its
+undo history with it, so nothing breaks. A mod that is only a bare `.sql` file
+gets a proper `mod.json` written the first time you give it a name, which is
+how it stops showing as *(unknown — .sql only)*.
 
 The comparison is not limited to retuned numbers. Changed values, added rows,
 removed rows and whole tables the game shipped without all come across, with

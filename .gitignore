@@ -32,3 +32,17 @@ backups/
 *.db
 *.db.backup
 *.db.original
+
+# Store-page copy for other sites, not part of the release
+nexus-description.txt
+
+# Local working notes and session transcript - never published
+claude-session/
+
+# Personal game saves - player name and account id inside, never published
+Save file json/
+*.bak-*
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/

@@ -1,12 +1,16 @@
-"""The four patch types a mod can be built from.
+"""The five patch types a mod can be built from.
 
     update_set     - set columns on rows matching a WHERE clause
     text_replace   - find/replace inside a text row (master_text and friends)
     raw_sql        - inline SQL escape hatch
     raw_sql_file   - SQL read from a file next to mod.json
+    asset_file     - copy game files (whole .upk packages) into the game folder
 
 Every patch knows how to validate itself, describe what it will change, say
 what needs snapshotting before it runs, and apply itself to an open connection.
+The first four write the database; ``asset_file`` writes files on disk and is a
+deliberate no-op against the connection - the real copy happens in a separate
+step (see asset_runner) once the database transaction has committed.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .asset_runner import forbidden_target_reason
 from .errors import ApplyError, ModLoadError, ValidationError
 from .sqlutil import (
     column_names,
@@ -105,6 +110,16 @@ class Patch:
         self.mod_dir = mod_dir
         self.index = index
         self.description: str = str(data.get("description", "") or "")
+        # What a player's decision to switch this part off is remembered
+        # against. An explicit "id" survives the author reordering or inserting
+        # patches; the positional fallback does not, so anything meant to be
+        # toggled - an imported rework's tables, say - is given one.
+        self.key: str = str(data.get("id") or "").strip() or f"#{index + 1}"
+
+    @property
+    def part_label(self) -> str:
+        """How this part is named in the list when it can be switched off."""
+        return self.description.strip() or self.key
 
     # -- construction ----------------------------------------------------
 
@@ -153,6 +168,15 @@ class Patch:
         table in places that never overlap.
         """
         return {table: None for table in self.tables()}
+
+    def asset_targets(self) -> set[str]:
+        """Game files this patch writes, as forward-slash paths under the game root.
+
+        Empty for every patch that only touches the database. Conflict detection
+        and ``Mod.asset_targets()`` read this uniformly, so nothing needs an
+        isinstance check to notice an asset patch.
+        """
+        return set()
 
     def preview(self, con: sqlite3.Connection) -> DiffPreview:
         raise NotImplementedError
@@ -708,11 +732,161 @@ class RawSqlFilePatch(RawSqlPatch):
         return super().apply(con, mod_id)
 
 
+def _clean_game_relative(raw: str, label: str, mod_ref: str) -> str:
+    """Validate a game-root-relative path from mod.json without a game folder.
+
+    The real resolve()/relative_to() containment check happens in asset_runner
+    once the game root is known; this catches the obvious escapes at load time -
+    an absolute path, a drive letter, a ``..`` segment - and normalises
+    separators to forward slashes.
+    """
+    text = str(raw or "").strip().replace("\\", "/")
+    if not text:
+        raise ModLoadError(mod_ref, f"{label} needs a non-empty 'target'")
+    if text.startswith("/") or (len(text) > 1 and text[1] == ":"):
+        raise ModLoadError(
+            mod_ref, f"{label} 'target' must be relative to the game folder: {raw!r}"
+        )
+    parts = [p for p in text.split("/") if p and p != "."]
+    if any(p == ".." for p in parts):
+        raise ModLoadError(mod_ref, f"{label} 'target' may not contain '..': {raw!r}")
+    if not parts:
+        raise ModLoadError(mod_ref, f"{label} needs a non-empty 'target'")
+    return "/".join(parts)
+
+
+class AssetFilePatch(Patch):
+    """Copy whole game files - .upk packages - into the game folder.
+
+    ``source`` is a file or a directory inside the mod folder (default
+    ``assets``). ``target`` is where it goes, relative to the game root (the
+    folder that holds ``BrgGame``). A directory source mirrors every file under
+    it into ``target/<relative path>``.
+
+    This patch never touches the database: ``apply`` is a no-op. The manager
+    copies the files in a separate step after the DB transaction commits.
+    """
+
+    type = "asset_file"
+
+    def __init__(self, data: dict, mod_dir: Path, index: int):
+        super().__init__(data, mod_dir, index)
+        label = f"patch #{index + 1} (asset_file)"
+        self.source_rel = str(data.get("source") or "assets").strip().replace("\\", "/")
+        self.target = _clean_game_relative(data.get("target"), label, mod_dir.name)
+
+        candidate = (mod_dir / self.source_rel).resolve()
+        try:
+            candidate.relative_to(mod_dir.resolve())
+        except ValueError:
+            raise ModLoadError(
+                mod_dir.name, f"{label} 'source' points outside the mod folder: {self.source_rel!r}"
+            ) from None
+        self.source_path = candidate
+
+        # Refused at load, so the mod shows in the list as broken with the
+        # reason beside it rather than looking installable until Save.
+        reason = self.forbidden_reason()
+        if reason:
+            raise ModLoadError(mod_dir.name, f"{label} {reason}")
+
+    def forbidden_reason(self) -> str:
+        """The first file this patch would place that no mod may write, if any."""
+        for target in [self.target, *(t for _, t in self.pairs())]:
+            reason = forbidden_target_reason(target)
+            if reason:
+                return reason
+        return ""
+
+    # -- file list -----------------------------------------------------------
+
+    def pairs(self) -> list[tuple[Path, str]]:
+        """(file on disk, game-root-relative destination), read at call time.
+
+        A missing source reads as an empty list here - validate() and the asset
+        runner turn that into an error, so conflict analysis and the mod list
+        keep working on a half-built mod folder.
+        """
+        if self.source_path.is_dir():
+            out: list[tuple[Path, str]] = []
+            for found in sorted(self.source_path.rglob("*")):
+                if found.is_file():
+                    rel = found.relative_to(self.source_path).as_posix()
+                    out.append((found, f"{self.target}/{rel}"))
+            return out
+        if self.source_path.is_file():
+            return [(self.source_path, self.target)]
+        return []
+
+    def asset_targets(self) -> set[str]:
+        return {target for _, target in self.pairs()}
+
+    # -- hooks -------------------------------------------------------------
+
+    def summary(self) -> str:
+        files = self.pairs()
+        if self.description:
+            return f"{self.description} [{len(files)} game file(s)]"
+        if len(files) == 1:
+            return f"game file {files[0][1]}"
+        return f"{len(files)} game file(s) -> {self.target}"
+
+    def tables(self) -> set[str]:
+        return set()
+
+    def targets(self) -> set[tuple[str, str]]:
+        return set()
+
+    def validate(self, con: sqlite3.Connection, mod_id: str) -> list[str]:
+        if not self.source_path.exists():
+            raise ValidationError(
+                mod_id, f"asset source {self.source_rel!r} is missing from the mod folder"
+            )
+        files = self.pairs()
+        if not files:
+            raise ValidationError(
+                mod_id, f"asset source {self.source_rel!r} contains no files to copy"
+            )
+        # Again here: a file dropped into the mod folder after it was loaded
+        # would otherwise slip past the load-time check.
+        reason = self.forbidden_reason()
+        if reason:
+            raise ValidationError(mod_id, f"refused - {reason}")
+        warnings: list[str] = []
+        non_upk = sorted({t for _, t in files if not t.lower().endswith(".upk")})
+        if non_upk:
+            shown = ", ".join(non_upk[:3]) + (" ..." if len(non_upk) > 3 else "")
+            warnings.append(
+                f"{len(non_upk)} target(s) are not .upk files ({shown}) - copied as-is anyway"
+            )
+        return warnings
+
+    def snapshot_specs(self, con: sqlite3.Connection) -> list[SnapshotSpec]:
+        return []
+
+    def preview(self, con: sqlite3.Connection) -> DiffPreview:
+        files = self.pairs()
+        rows = [
+            DiffRow(key=target, before="(game file)", after="replaced by this mod")
+            for _, target in files[:PREVIEW_ROW_LIMIT]
+        ]
+        note = ""
+        if len(files) > len(rows):
+            note = f"... and {len(files) - len(rows)} more file(s)"
+        return DiffPreview(self.summary(), self.target, len(files), rows, note)
+
+    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+        # Files are copied by asset_runner after the DB transaction commits;
+        # nothing happens against the connection.
+        return PatchResult(rows_changed=0)
+
+
 _PATCH_TYPES: dict[str, type[Patch]] = {
     UpdateSetPatch.type: UpdateSetPatch,
     TextReplacePatch.type: TextReplacePatch,
     RawSqlPatch.type: RawSqlPatch,
     RawSqlFilePatch.type: RawSqlFilePatch,
+    AssetFilePatch.type: AssetFilePatch,
 }
 
 PATCH_TYPE_NAMES = tuple(sorted(_PATCH_TYPES))

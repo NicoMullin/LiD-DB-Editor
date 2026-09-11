@@ -244,8 +244,9 @@ class DropInstallTests(unittest.TestCase):
         test = self
 
         class FakeInstallDialog:
-            def __init__(self, candidate, dark, parent):
+            def __init__(self, candidate, dark, parent, asset_mods=None):
                 test.last_candidate = candidate
+                test.last_asset_mods = asset_mods
 
             def exec(self):
                 return QDialog.DialogCode.Accepted
@@ -358,21 +359,33 @@ class DropInstallTests(unittest.TestCase):
         # _droppable filters it out before anything happens.
         self.assertFalse(self.window._droppable(junk))
 
-    def test_dropping_a_modded_database_makes_a_mod(self) -> None:
+    def test_dropping_a_modded_database_makes_a_mod_with_a_part_per_table(self) -> None:
+        """One mod, but switchable table by table - that is the point of parts."""
         import sqlite3
 
         self.manager.save_mod_list()  # writes masters.db.original
         rework = build_db(self.root / "rework" / "masters.db")
         con = sqlite3.connect(str(rework))
         con.execute("UPDATE master_body_detail SET price = 3")
+        con.execute("UPDATE master_skill SET buy_money = 9")
         con.commit()
         con.close()
 
         candidate = self._drop(rework)
         self.assertEqual(candidate.kind, "database")
+
         mod = self.manager.scan.get("Dropped Mod")
-        self.assertIsNotNone(mod)
-        self.assertTrue((mod.folder / "changes.sql").is_file())
+        self.assertIsNotNone(mod, [m.id for m in self.manager.mods])
+        self.assertEqual(
+            sorted(p.key for p in mod.patches),
+            ["master_body_detail", "master_skill"],
+            "one switchable part per table",
+        )
+        for patch in mod.patches:
+            self.assertTrue((mod.folder / patch.path.name).is_file())
+        self.assertFalse(
+            self.manager.state.is_enabled(mod.id), "must arrive disabled"
+        )
 
 
 @unittest.skipUnless(HAVE_QT, "PySide6 is not installed")

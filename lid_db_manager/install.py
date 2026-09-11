@@ -4,8 +4,14 @@ Covers everything a user might drop on the window or pick from the Tools menu:
 
     a .sql file        -> a new mod folder built around it
     a mod folder       -> copied in as-is
+    an asset folder    -> a mod folder with one asset_file patch, mod.json written
     a .zip             -> extracted (a single top-level folder is unwrapped)
     a modded masters.db -> diffed against vanilla, the difference written as SQL
+
+An "asset folder" is one with no mod.json but game files to copy - a bare pile
+of .upk, or an ``assets/`` subfolder of them (with or without the pack's own
+``catalog.json`` alongside). Only the files are taken; a catalog's database
+changes, if any, are its installer's own logic and do not come across.
 
 Installing never enables or applies anything. The mod turns up in the list
 unticked so its diff can be looked at first.
@@ -29,6 +35,11 @@ KIND_SQL = "sql"
 KIND_FOLDER = "folder"
 KIND_ZIP = "zip"
 KIND_DATABASE = "database"
+KIND_ASSET_FOLDER = "asset_folder"
+
+# Where LET IT DIE keeps the loose packages an asset mod replaces.
+ASSET_TARGET_DIR = "BrgGame/CookedPCConsole"
+ASSET_EXTENSIONS = (".upk",)
 
 
 class InstallError(ModManagerError):
@@ -63,6 +74,28 @@ def safe_folder_name(name: str) -> str:
     return cleaned[:80]
 
 
+def _asset_root(folder: Path) -> Path | None:
+    """The directory to mirror when a folder is an asset drop, or None.
+
+    Prefers an ``assets/`` subfolder of game files; falls back to loose game
+    files sitting directly in the dropped folder.
+    """
+    assets = folder / "assets"
+    if assets.is_dir() and any(
+        p.suffix.lower() in ASSET_EXTENSIONS for p in assets.rglob("*") if p.is_file()
+    ):
+        return assets
+    if any(p.suffix.lower() in ASSET_EXTENSIONS for p in folder.glob("*") if p.is_file()):
+        return folder
+    return None
+
+
+def _asset_files(root: Path) -> list[Path]:
+    return sorted(
+        p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in ASSET_EXTENSIONS
+    )
+
+
 def inspect(source: Path, vanilla: Path | None = None) -> InstallCandidate:
     """Work out what a path is, without writing anything.
 
@@ -74,12 +107,19 @@ def inspect(source: Path, vanilla: Path | None = None) -> InstallCandidate:
         raise InstallError(f"{source} does not exist")
 
     if source.is_dir():
-        has_mod = (source / "mod.json").is_file() or any(source.glob("*.sql"))
-        if not has_mod:
-            raise InstallError(
-                f"{source.name} has no mod.json and no .sql file, so it is not a mod folder"
-            )
-        return InstallCandidate(source, KIND_FOLDER, source.name, "folder copied as-is")
+        if (source / "mod.json").is_file() or any(source.glob("*.sql")):
+            return InstallCandidate(source, KIND_FOLDER, source.name, "folder copied as-is")
+        asset_root = _asset_root(source)
+        if asset_root is not None:
+            count = len(_asset_files(asset_root))
+            note = f"{count} game file(s) -> {ASSET_TARGET_DIR}"
+            if (source / "catalog.json").is_file():
+                note += "  (catalog.json database changes are not imported - files only)"
+            return InstallCandidate(source, KIND_ASSET_FOLDER, source.name, note)
+        raise InstallError(
+            f"{source.name} has no mod.json, no .sql file and no game files to copy, "
+            "so it is not a mod folder"
+        )
 
     suffix = source.suffix.lower()
     if suffix == ".zip":
@@ -113,6 +153,24 @@ def inspect(source: Path, vanilla: Path | None = None) -> InstallCandidate:
     )
 
 
+def _write_mod_json_patches(folder: Path, name: str, description: str, author: str,
+                            version: str, patches: list[dict],
+                            requires: list[str] | None = None) -> None:
+    payload = {
+        "id": folder.name,
+        "name": name,
+        "description": description.strip() or f"Imported from {folder.name}",
+        "version": version.strip() or "1.0.0",
+        "author": author.strip() or "unknown",
+        "requires": [r for r in (requires or []) if r],
+        "conflicts_with": [],
+        "patches": patches,
+    }
+    (folder / "mod.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
 def _write_mod_json(folder: Path, name: str, description: str, author: str,
                     version: str, sql_file: str | None) -> None:
     payload = {
@@ -138,6 +196,139 @@ def _write_mod_json(folder: Path, name: str, description: str, author: str,
     )
 
 
+def _write_delta_mod(
+    folder: Path,
+    delta,
+    *,
+    name: str,
+    description: str,
+    author: str,
+    version: str,
+    source_name: str,
+    vanilla: Path | None,
+    part_of: str = "",
+    requires: list[str] | None = None,
+) -> Path:
+    """Write one delta out as a self-contained mod folder."""
+    folder.mkdir(parents=True)
+    try:
+        stamp = datetime.now().isoformat(timespec="seconds")
+        fingerprint = sha256_file(Path(vanilla)) if vanilla else "unknown"
+
+        def header_for(what, summary: str) -> str:
+            text = (
+                f"{what}\n"
+                f"Generated from {source_name} on {stamp}.\n"
+                f"Every value below differs from the vanilla database it was compared\n"
+                f"against - vanilla sha256 {fingerprint}.\n"
+                f"{summary}"
+            )
+            if part_of:
+                text += (
+                    f"\n\nOne piece of {part_of}, split so it can be switched on and off\n"
+                    f"on its own. Turning pieces off can produce a combination the\n"
+                    f"original author never tried."
+                )
+            return text
+
+        # One file - and so one switch - per table. That is what lets a whole
+        # rework stay a single mod the player can still take pieces of. Done
+        # even for a lone table, so the switch is always keyed by the table name
+        # and never by a position that shifts when the mod is edited.
+        patches = []
+        for table_delta in delta.tables:
+            piece = dbdiff.DbDelta(tables=[table_delta])
+            sql_name = f"{safe_folder_name(table_delta.table)}.sql"
+            (folder / sql_name).write_text(
+                dbdiff.to_sql(piece, header_for(table_delta.table, piece.summary())),
+                encoding="utf-8",
+            )
+            patches.append(
+                {
+                    "type": "raw_sql_file",
+                    "path": sql_name,
+                    # The table name is what the player's choice is remembered
+                    # against, so it must not drift.
+                    "id": table_delta.table,
+                    "description": f"{table_delta.table} - {piece.summary()}",
+                }
+            )
+        _write_mod_json_patches(folder, name, description, author, version, patches, requires)
+    except Exception:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return folder
+
+
+def install_database(
+    candidate: InstallCandidate,
+    mods_dir: Path,
+    name: str,
+    description: str = "",
+    author: str = "",
+    version: str = "1.0.0",
+    vanilla: Path | None = None,
+    overwrite: bool = False,
+    selection: dict | None = None,
+    split_by_table: bool = False,
+    requires: list[str] | None = None,
+) -> list[Path]:
+    """Turn a modded database into one mod per table, or one mod for the lot.
+
+    Splitting is the point: each table's changes become an ordinary mod, so the
+    player can switch off the part of a rework they do not want and keep the
+    rest - later, not only at import time.
+    """
+    if candidate.delta is None:
+        raise InstallError("this file was not compared against vanilla, so it has no changes")
+
+    delta = candidate.delta.filtered(selection) if selection is not None else candidate.delta
+    if delta.empty:
+        raise InstallError("nothing was selected, so there is no mod to write")
+
+    pieces = delta.split_by_table() if split_by_table else [delta]
+    part_of = name if len(pieces) > 1 else ""
+
+    planned: list[tuple[Path, object, str]] = []
+    for piece in pieces:
+        # The table always goes in the name when splitting, even for a lone
+        # piece: importing the same rework twice for two different tables must
+        # not collide, and the name should say what the mod covers.
+        table = piece.tables[0].table if split_by_table else ""
+        piece_name = f"{name} - {table}" if table else name
+        folder = Path(mods_dir) / safe_folder_name(piece_name)
+        if folder.exists():
+            if not overwrite:
+                raise InstallError(f"A mod folder called {folder.name!r} already exists.")
+            shutil.rmtree(folder)
+        planned.append((folder, piece, piece_name))
+
+    written: list[Path] = []
+    try:
+        for folder, piece, piece_name in planned:
+            summary = piece.summary()
+            written.append(
+                _write_delta_mod(
+                    folder,
+                    piece,
+                    name=piece_name,
+                    description=description.strip() or summary,
+                    author=author,
+                    version=version,
+                    source_name=candidate.source.name,
+                    vanilla=vanilla,
+                    part_of=part_of,
+                    requires=requires,
+                )
+            )
+    except Exception:
+        # All or none: a half-written pack is worse than a clear failure.
+        for folder in written:
+            shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return written
+
+
 def install(
     candidate: InstallCandidate,
     mods_dir: Path,
@@ -159,6 +350,37 @@ def install(
     if candidate.kind == KIND_FOLDER:
         shutil.copytree(candidate.source, folder,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        return folder
+
+    if candidate.kind == KIND_ASSET_FOLDER:
+        asset_root = _asset_root(candidate.source)
+        if asset_root is None:
+            raise InstallError(f"{candidate.source.name} has no game files to copy")
+        folder.mkdir(parents=True)
+        try:
+            files = _asset_files(asset_root)
+            if not files:
+                raise InstallError("no game files found to copy")
+            for src in files:
+                dest = folder / "assets" / src.relative_to(asset_root)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+            # Bring any provenance docs along so the Readme tab has something.
+            for doc in candidate.source.glob("*"):
+                if doc.is_file() and doc.suffix.lower() in (".txt", ".md"):
+                    shutil.copy2(doc, folder / doc.name)
+            _write_mod_json_patches(
+                folder, name, description, author, version,
+                [{
+                    "type": "asset_file",
+                    "source": "assets",
+                    "target": ASSET_TARGET_DIR,
+                    "description": f"{len(files)} replacement game file(s)",
+                }],
+            )
+        except Exception:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise
         return folder
 
     if candidate.kind == KIND_ZIP:

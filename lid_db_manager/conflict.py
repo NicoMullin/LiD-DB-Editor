@@ -24,6 +24,7 @@ KIND_COLUMN = "column"
 KIND_TEXT = "text"
 KIND_RAW_SQL = "raw_sql"
 KIND_DECLARED = "declared"
+KIND_ASSET = "asset"
 
 
 @dataclass
@@ -108,6 +109,7 @@ class _ModFootprint:
     texts: set[tuple] = field(default_factory=set)
     raw_tables: set[str] = field(default_factory=set)
     rows: dict[str, set[int] | None] = field(default_factory=dict)
+    asset_targets: set[str] = field(default_factory=set)
 
     def all_tables(self) -> set[str]:
         return {table for table, _ in self.columns} | {key[0] for key in self.texts} | self.raw_tables
@@ -131,6 +133,8 @@ def footprint(mod: Mod, con: sqlite3.Connection | None = None) -> _ModFootprint:
             result.texts |= patch.text_keys()
         elif isinstance(patch, RawSqlPatch):
             result.raw_tables |= patch.tables() - excluded
+
+        result.asset_targets |= patch.asset_targets()
 
         if con is None:
             for table in patch.tables() - excluded:
@@ -240,5 +244,12 @@ def analyze(
                     continue
                 detail = f"table {table} (raw SQL){_row_detail(shared)}"
                 report.conflicts.append(Conflict(KIND_RAW_SQL, first.id, second.id, detail))
+
+            # Two mods copying the same game file: last in load order wins,
+            # same as a whole-table SQL dump.
+            for target in sorted(left.asset_targets & right.asset_targets):
+                report.conflicts.append(
+                    Conflict(KIND_ASSET, first.id, second.id, f"game file {target}")
+                )
 
     return report

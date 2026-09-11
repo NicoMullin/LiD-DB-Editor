@@ -7,14 +7,15 @@ You do not have to find this folder by hand: dragging a `.sql`, a mod folder or
 a `.zip` onto the manager's window does the same thing, and asks you to name the
 mod as it goes.
 
-Two starting points are already here — copy either and rename the copy:
+Three starting points are already here — copy one and rename the copy:
 
-| Copy this       | If you want                                                 |
-|-----------------|-------------------------------------------------------------|
-| `_example/`     | The full form: metadata, dependencies, all four patch types |
-| `_example-sql/` | Just SQL, no metadata                                       |
+| Copy this         | If you want                                                    |
+|-------------------|----------------------------------------------------------------|
+| `_example/`       | The full form: metadata, dependencies, all four DB patch types |
+| `_example-sql/`   | Just SQL, no metadata                                          |
+| `_example-asset/` | A mod that replaces game files (`.upk`), not database rows     |
 
-Folders whose name starts with `_` or `.` are skipped, which is why those two
+Folders whose name starts with `_` or `.` are skipped, which is why those three
 never show up in the mod list. Your copy must not start with `_`.
 
 ---
@@ -131,7 +132,35 @@ must be inside the mod folder; `../` is rejected.
 
 ---
 
-## The four patch types
+## Patches as switchable parts
+
+A mod with more than one patch shows each of them in the list with its own
+checkbox, so a player can take the half of your mod they want. Give every patch
+an `"id"` and a `"description"` and those switches are labelled and stable:
+
+```json
+"patches": [
+  { "type": "update_set", "id": "prices", "description": "Shop prices",
+    "table": "master_shop_product_price", "set": { "price": 1 }, "where": "1=1" },
+  { "type": "update_set", "id": "revive", "description": "Revive costs",
+    "table": "master_shop_product_price", "set": { "medal": 0 },
+    "where": "id LIKE 'PRD_CONTINUE%'" }
+]
+```
+
+Without an `"id"` a patch is remembered by position — `#1`, `#2` — so inserting
+a patch at the top of the list silently moves everyone's choices onto the wrong
+parts. Set one on anything you expect people to switch off. Ids only have to be
+unique inside the mod.
+
+A single-patch mod gets no extra rows; there is nothing to choose between.
+
+## The patch types
+
+Four write the database — `update_set`, `text_replace`, `raw_sql`,
+`raw_sql_file` — and `asset_file` copies game files. A single mod can mix them:
+a content pack that ships `.upk` files *and* the `master_*` rows that make the
+game use them is one folder with both kinds of patch.
 
 ### `update_set` — set columns on matching rows
 
@@ -204,6 +233,88 @@ truncated copy of the SQL.
 
 Read **at apply time**, so editing the `.sql` takes effect without a rescan.
 
+### `asset_file` — copy whole game files into the game folder
+
+For texture/model swaps and content packs that ship replacement `.upk`
+packages. This patch does **not** touch the database — it copies files.
+
+```
+my-asset-mod/
+├── mod.json
+└── assets/
+    ├── CH_Equip_NF_SPE_Head0063_SF.upk
+    └── CH_Equip_NM_SPE_Head0063_SF.upk
+```
+
+**You usually don't write this by hand.** Drop a folder of `.upk` files — or a
+whole content pack that has an `assets/` folder (a `catalog.json` next to it is
+fine, it's ignored) — onto the window, or use **Tools ▸ Add a mod from a
+folder**. The manager writes the `mod.json` below for you and asks for a name.
+
+**A pack that also changes `masters.db`** (items, quests, drop pools — the
+Crossover Content pack is one) needs a second step: those changes are the
+pack's own installer logic, not data the manager can read. Such installers
+usually work on the game folder and edit the real `masters.db` in place, so:
+enable and save the files mod first, back up the vanilla `masters.db`, let the
+pack's installer edit the real one, copy the edited file out, and put the
+vanilla one back. Then drag the edited copy onto the window. The manager diffs
+it against your vanilla copy and writes the database changes as a **companion
+mod** you enable next to the files mod. Two mods, two checkboxes — so you can
+see each half loaded. The main README walks through this step by step for the
+Crossover Content pack.
+
+```json
+{
+  "type": "asset_file",
+  "source": "assets",
+  "target": "BrgGame/CookedPCConsole"
+}
+```
+
+- `source` is a **file or a folder** inside the mod folder (default `assets`).
+  A folder mirrors every file under it into `target/<relative path>`; a single
+  file goes straight to `target`.
+- `target` is relative to the **game folder** — the one that holds `BrgGame`.
+  It may not be absolute or contain `..`; the manager also checks every
+  resolved path stays inside the game folder before writing.
+- One `asset_file` patch is one on/off unit, however many files it carries.
+  Split into several patches if you want them toggled separately.
+- Hashes are computed from the bundled files — there is nothing to keep in
+  sync in `mod.json`.
+
+**The game folder.** The manager finds it automatically when you have pointed
+it at the real `BrgGame/Content/masters.db`. If you are working against a loose
+copy, set it with **Tools ▸ Set game folder** (`python run.py game-root <path>`).
+
+**Backups and revert.** The first time any enabled mod claims a game file, the
+file that is there is copied into `backups/game_files/` and never touched
+again — the file-level `masters.db.original`. Reverting the mod restores that
+copy, or deletes the file if the mod created it. **Tools ▸ Restore game files**
+(`python run.py restore-game-files`) puts every mod-changed file back at once.
+
+**All-or-nothing.** If any file copy fails partway through, every file that run
+already changed is put back — and if the mod also changed the database, that is
+rolled back too, so the whole Save is undone.
+
+**The game must be closed.** A running game holds its `.upk` files and its
+database open; any Save or Revert that touches game files is refused until you
+close it.
+
+**What a mod can never copy.** Some files are refused outright, wherever they
+would go, and the mod shows in the list as broken with the reason:
+
+| Refused                                                                   | Why                                                                                                                     |
+|---------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| Program files — `.exe` `.dll` `.asi` `.bat` `.ps1` and similar            | Windows *runs* these. The game loads DLLs from its own folder at startup, so one dropped there would run on next launch |
+| `masters.db`, its `-wal`/`-journal`, and its `.original`/`.backup` copies | Database changes go through database patches, which snapshot and can be reverted. Replacing the file skips all of that  |
+| Any path containing `:`                                                   | Never a real game file, and on NTFS it writes a hidden stream                                                           |
+
+Game content — `.upk`, `.tfc`, config `.ini` — is unaffected. Files other than
+`.upk` still get a note in the log, since they are unusual, but they are
+copied. The check runs when the mod loads, again at validation, and once more
+just before anything is copied, so a file slipped into a mod folder afterwards
+is caught too.
+
 ---
 
 ## What happens when you press Save Mod List
@@ -216,6 +327,9 @@ Read **at apply time**, so editing the `.sql` takes effect without a rescan.
    Then the rolling `masters.db.backup` and a dated copy in `backups/`.
 3. **Snapshot**, per mod, of exactly the rows that mod is about to change.
 4. **Apply**, all mods in one transaction. Any error rolls back everything.
+5. **Game files**, if any enabled mod has an `asset_file` patch: after the
+   database commit, the `.upk` files are copied in, hash-checked and swapped
+   atomically. A failure here rolls the database back too.
 
 Writing a mod that fails validation is cheap and safe. Test freely.
 
@@ -249,6 +363,7 @@ Warnings never block an apply - the later mod in apply order simply wins.
 | Two `text_replace` mods on the same matched row     | Warn                            |
 | `update_set` + `text_replace` on the same table     | No conflict - different layers  |
 | Raw SQL vs anything writing the same table          | Warn, if they hit the same rows |
+| Two `asset_file` mods copying the same game file    | Warn; the lower mod's copy wins |
 
 **Overlap is measured in rows, not tables.** Every `UPDATE` and `DELETE` in your
 SQL is resolved against the live database to work out exactly which rows it

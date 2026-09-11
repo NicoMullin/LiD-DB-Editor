@@ -10,12 +10,21 @@ from ..manager import Manager
 from .theme import STATUS_GLYPH, STATUS_KEY, STATUS_TEXT, status_color
 
 MOD_ID_ROLE = Qt.ItemDataRole.UserRole
+PATCH_KEY_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+def _affects(tables: list[str], asset_targets: list[str]) -> str:
+    """The 'Affects' column: table names, then any game files as 'file: X.upk'."""
+    bits = list(tables)
+    bits += [f"file: {target.rsplit('/', 1)[-1]}" for target in asset_targets]
+    return ", ".join(bits) or "-"
 
 
 class ModListWidget(QTreeWidget):
     """Two rows per mod: the mod itself, and a child line with the details."""
 
     enabledChanged = Signal(str, bool)  # one per mod, deferred - see _on_item_changed
+    partToggled = Signal(str, str, bool)  # mod id, patch key, on/off
     togglesApplied = Signal()  # once after a batch of enabledChanged
     selectionChangedTo = Signal(str)
 
@@ -25,6 +34,7 @@ class ModListWidget(QTreeWidget):
         self.dark = dark
         self._loading = False
         self._pending_toggles: dict[str, bool] = {}
+        self._pending_parts: dict[tuple[str, str], bool] = {}
         self._flush_scheduled = False
 
         # Column 0 carries the checkbox and the load-order number together.
@@ -74,7 +84,7 @@ class ModListWidget(QTreeWidget):
             item.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             item.setText(1, f"{mod.id}  -  {mod.name}")
             item.setText(2, f"{STATUS_GLYPH[status]} {STATUS_TEXT[status]}")
-            item.setText(3, ", ".join(sorted(mod.tables())) or "-")
+            item.setText(3, _affects(sorted(mod.tables()), mod.asset_targets()))
 
             color = status_color(self.dark, STATUS_KEY[status])
             item.setForeground(2, QBrush(color))
@@ -100,6 +110,8 @@ class ModListWidget(QTreeWidget):
             detail.setForeground(0, QBrush(status_color(self.dark, "dim")))
             if self._problem_messages(mod.id, conflicts, validation):
                 detail.setForeground(0, QBrush(status_color(self.dark, "pending")))
+
+            self._add_parts(item, mod)
             item.setExpanded(True)
 
         for failure in self.manager.scan.failures:
@@ -133,6 +145,33 @@ class ModListWidget(QTreeWidget):
         self._loading = False
         if selected:
             self.select_mods(selected)
+
+    def _add_parts(self, parent: QTreeWidgetItem, mod) -> None:
+        """A switch per part, for a mod built out of several.
+
+        A rework imported from someone's masters.db is one mod with a patch per
+        table, and the point of keeping it one mod is being able to take the
+        shop changes without the enemy tuning. A single-patch mod has nothing to
+        choose between, so it gets no extra rows.
+        """
+        if len(mod.patches) < 2:
+            return
+        for patch in mod.patches:
+            on = self.manager.state.is_part_enabled(mod.id, patch.key)
+            child = QTreeWidgetItem(parent)
+            child.setData(0, MOD_ID_ROLE, mod.id)
+            child.setData(0, PATCH_KEY_ROLE, patch.key)
+            child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            child.setCheckState(0, Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
+            child.setText(1, patch.part_label)
+            child.setText(3, _affects(sorted(patch.tables()), sorted(patch.asset_targets())))
+            if not on:
+                child.setForeground(1, QBrush(status_color(self.dark, "dim")))
+            child.setToolTip(
+                1,
+                f"{patch.summary()}\n\nUntick to leave this part out. Anything it "
+                "already applied stays until you Revert the mod.",
+            )
 
     def _problem_messages(self, mod_id: str, conflicts, validation) -> list[str]:
         messages = list(conflicts.for_mod(mod_id))
@@ -197,9 +236,16 @@ class ModListWidget(QTreeWidget):
         if self._loading or column != 0:
             return
         mod_id = item.data(0, MOD_ID_ROLE)
-        if not mod_id or item.parent() is not None:
+        if not mod_id:
             return
-        self._pending_toggles[mod_id] = item.checkState(0) == Qt.CheckState.Checked
+        checked = item.checkState(0) == Qt.CheckState.Checked
+        if item.parent() is not None:
+            patch_key = item.data(0, PATCH_KEY_ROLE)
+            if not patch_key:
+                return  # the detail line, which carries no switch
+            self._pending_parts[(mod_id, patch_key)] = checked
+        else:
+            self._pending_toggles[mod_id] = checked
         if not self._flush_scheduled:
             self._flush_scheduled = True
             QTimer.singleShot(0, self._flush_toggles)
@@ -211,10 +257,13 @@ class ModListWidget(QTreeWidget):
         """
         self._flush_scheduled = False
         pending, self._pending_toggles = self._pending_toggles, {}
-        if not pending:
+        parts, self._pending_parts = self._pending_parts, {}
+        if not pending and not parts:
             return
         for mod_id, checked in pending.items():
             self.enabledChanged.emit(mod_id, checked)
+        for (mod_id, patch_key), checked in parts.items():
+            self.partToggled.emit(mod_id, patch_key, checked)
         self.togglesApplied.emit()
 
     def _on_selection_changed(self) -> None:

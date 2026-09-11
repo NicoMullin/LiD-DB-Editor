@@ -182,6 +182,42 @@ def cmd_set_db(manager: Manager, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_game_root(manager: Manager, args: argparse.Namespace) -> int:
+    """Show, set or clear the game folder used by asset_file mods."""
+    if args.clear:
+        manager.set_game_root_override(None)
+        print("game folder override cleared")
+        return 0
+    if args.path:
+        path = Path(args.path).expanduser()
+        if not (path / "BrgGame" / "CookedPCConsole").is_dir():
+            print(f"not a game folder (no BrgGame/CookedPCConsole inside): {path}", file=sys.stderr)
+            return 1
+        manager.set_game_root_override(path)
+        print(f"game folder set to {path}")
+        return 0
+    root = manager.asset_game_root
+    source = "override" if manager.state.game_root_override else "derived from the database path"
+    print(f"game folder: {root or '(not found - set one with: game-root <path>)'}")
+    if root:
+        print(f"  ({source})")
+    return 0
+
+
+def cmd_restore_game_files(manager: Manager, args: argparse.Namespace) -> int:
+    entries = manager.asset_backups()
+    if not entries:
+        print("no game files have been changed by a mod")
+        return 0
+    try:
+        report = manager.restore_all_asset_backups()
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(report.summary_line())
+    return 0 if report.ok else 1
+
+
 def cmd_modpack(manager: Manager, args: argparse.Namespace) -> int:
     if args.action == "list":
         if not manager.state.modpacks:
@@ -315,6 +351,16 @@ def build_parser() -> argparse.ArgumentParser:
     set_db = subparsers.add_parser("set-db", help="point the manager at masters.db")
     set_db.add_argument("path")
 
+    game_root = subparsers.add_parser(
+        "game-root", help="show/set the game folder for asset_file mods (holds BrgGame)"
+    )
+    game_root.add_argument("path", nargs="?", help="set the game folder to this path")
+    game_root.add_argument("--clear", action="store_true", help="forget the override")
+
+    subparsers.add_parser(
+        "restore-game-files", help="put back every game file a mod has changed"
+    )
+
     modpack = subparsers.add_parser("modpack", help="save, load, list or delete modpacks")
     modpack.add_argument("action", choices=["save", "load", "list", "delete"])
     modpack.add_argument("name", nargs="?")
@@ -342,6 +388,8 @@ COMMANDS = {
     "revert": cmd_revert,
     "preview": cmd_preview,
     "set-db": cmd_set_db,
+    "game-root": cmd_game_root,
+    "restore-game-files": cmd_restore_game_files,
     "modpack": cmd_modpack,
     "backups": cmd_backups,
     "watch": cmd_watch,

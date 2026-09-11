@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -20,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..install import InstallCandidate
+from .change_picker import ChangePicker
 from .theme import colors
 
 
@@ -29,12 +32,22 @@ class InstallDetails:
     description: str
     author: str
     version: str
+    selection: dict | None = None
+    split_by_table: bool = False
+    companion_of: str | None = None
 
 
 class InstallDialog(QDialog):
-    def __init__(self, candidate: InstallCandidate, dark: bool = True, parent=None):
+    def __init__(
+        self,
+        candidate: InstallCandidate,
+        dark: bool = True,
+        parent=None,
+        asset_mods: list[tuple[str, str]] | None = None,
+    ):
         super().__init__(parent)
         self.candidate = candidate
+        self.asset_mods = list(asset_mods or [])
         self.setWindowTitle("Add a mod")
         self.setMinimumWidth(520)
         palette = colors(dark)
@@ -81,6 +94,42 @@ class InstallDialog(QDialog):
             layout.addWidget(label)
         layout.addLayout(form)
 
+        # A database import can be the other half of a game-files mod (a content
+        # pack whose .upk were already added). Link them so enabling this one
+        # without the files warns.
+        self.companion_box: QComboBox | None = None
+        if candidate.delta is not None and self.asset_mods:
+            self.companion_box = QComboBox()
+            self.companion_box.addItem("(none - stand-alone)", None)
+            for mod_id, mod_name in self.asset_mods:
+                self.companion_box.addItem(f"{mod_name}  ({mod_id})", mod_id)
+            companion_form = QFormLayout()
+            companion_form.addRow("Companion to game-files mod", self.companion_box)
+            layout.addLayout(companion_form)
+
+        # A database import is the one case with something to choose from: it
+        # arrives as a lump of changes across many tables, and the player will
+        # not want all of it.
+        self.picker: ChangePicker | None = None
+        self.split_box: QCheckBox | None = None
+        if candidate.delta is not None and not candidate.delta.empty:
+            self.setMinimumWidth(720)
+            chooser_label = QLabel("<b>What to take from it</b>")
+            layout.addWidget(chooser_label)
+            self.picker = ChangePicker(candidate.delta, self)
+            layout.addWidget(self.picker, 1)
+
+            self.split_box = QCheckBox("Install each table as a separate mod")
+            self.split_box.setChecked(False)
+            self.split_box.setToolTip(
+                "Off: one mod, with a switch for each table inside it - one name, one "
+                "readme, still switchable part by part.\n"
+                "On: a separate mod per table, which you can also reorder against "
+                "other mods individually."
+            )
+            layout.addWidget(self.split_box)
+            self.ok_button.setText("Add mods")
+
         self.footer = QLabel("It will be added switched off, so you can check the diff first.")
         self.footer.setWordWrap(True)
         self.footer.setStyleSheet(f"color: {palette['dim']};")
@@ -88,10 +137,16 @@ class InstallDialog(QDialog):
         layout.addWidget(buttons)
 
         self.name_edit.textChanged.connect(self._validate)
+        if self.picker is not None:
+            self.picker.tree.itemChanged.connect(lambda *_: self._validate())
         self._validate()
 
     def _validate(self) -> None:
-        self.ok_button.setEnabled(bool(self.name_edit.text().strip()))
+        named = bool(self.name_edit.text().strip())
+        # Nothing ticked means there is no mod to write, so say so with the
+        # button rather than with an error after the fact.
+        chose_something = self.picker is None or bool(self.picker.selection())
+        self.ok_button.setEnabled(named and chose_something)
 
     def details(self) -> InstallDetails:
         return InstallDetails(
@@ -99,4 +154,7 @@ class InstallDialog(QDialog):
             description=self.description_edit.toPlainText().strip(),
             author=self.author_edit.text().strip(),
             version=self.version_edit.text().strip() or "1.0.0",
+            selection=self.picker.selection() if self.picker else None,
+            split_by_table=bool(self.split_box.isChecked()) if self.split_box else True,
+            companion_of=self.companion_box.currentData() if self.companion_box else None,
         )

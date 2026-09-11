@@ -13,6 +13,10 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .asset_runner import AssetApplyReport
 
 from . import snapshot as snapshot_module
 from .errors import ApplyError, RevertError, ValidationError
@@ -51,6 +55,9 @@ class ApplyReport:
     failed_mod: str = ""
     duration_seconds: float = 0.0
     db_sha256_after: str = ""
+    # Set by the manager after the DB transaction commits, when any enabled mod
+    # copies game files. None means no asset mod was involved.
+    asset_report: "AssetApplyReport | None" = None
 
     @property
     def rows_changed(self) -> int:
@@ -66,10 +73,13 @@ class ApplyReport:
         if not self.ok:
             where = f" ({self.failed_mod})" if self.failed_mod else ""
             return f"Apply failed{where}: {self.error}"
-        return (
+        line = (
             f"Applied {len(self.results)} mod(s), {self.rows_changed} row(s) "
             f"in {self.duration_seconds:.2f}s"
         )
+        if self.asset_report is not None and self.asset_report.did_something():
+            line += f" ({self.asset_report.summary_line()})"
+        return line
 
 
 def snapshot_specs_from_delta(delta) -> list[SnapshotSpec] | None:
@@ -497,6 +507,7 @@ def record_apply(state: State, mods: list[Mod], report: ApplyReport) -> None:
                 tables=result.tables,
                 version=mod.version if mod else "",
                 name=mod.name if mod else result.mod_id,
+                parts=[patch.key for patch in mod.patches] if mod else [],
             ),
         )
 

@@ -18,33 +18,34 @@ but that is only a real way back to stock if the file was untouched when you
 started. If yours has already been edited, delete it and let Steam re-download
 it first (Properties → Installed Files → Verify integrity of game files).
 
-### What's new
+### What's new in 0.3.0
 
-**Load order.** Enabled mods are numbered. Top applies first, bottom wins, and
-the order is yours — the manager never silently reorders it. Move things with
-the buttons under the list or Ctrl+Up / Ctrl+Down.
+**Mods that replace game files.** New models, outfits and artwork shipped as
+`.upk` files now work too. Drag a folder with an `assets` folder of `.upk`
+inside it onto the window; the files are copied into the game while the mod is
+on and taken back out when it is off. Only a vanilla file a mod actually
+replaces is ever backed up, one copy, and only while that mod is on.
 
-**Drag a mod onto the window.** A `.sql` file, a mod folder or a `.zip`. You get
-a small dialog to name it, and it arrives switched off so you can read its diff
-first. Same thing under Tools → Add a mod from a file.
+**Crossover Content pack support.** The README walks through installing the
+community Crossover Content pack, including its own installer, as two mods you
+can switch on and off.
 
-**Turn a modded `masters.db` into a mod.** Tools → Create a mod from a modded
-masters.db compares someone's reworked database against your untouched copy and
-writes the difference out as an ordinary, toggleable mod. Changed values, added
-rows, removed rows and whole tables the game shipped without all come across.
-It refuses a file from a different game version rather than quietly undoing the
-developers' own changes.
+**Take only part of a modded `masters.db`.** Importing one now shows every
+change it found, table by table, expandable to single edits. Untick what you do
+not want.
 
-**`"apply": "diff"` for mod authors.** A mod set to this runs against a copy of
-vanilla and contributes only the values it genuinely alters — so a whole-table
-dump stops wiping out rows another mod set and never meant to fight over. See
-`mods/README.md`.
+**One mod, switchable parts.** An imported rework stays a single mod with one
+name, holding a switch for each table. Expand it in the list and turn parts on
+or off whenever you like.
 
-**Smaller, faster revert.** Snapshots now record only the rows a mod actually
-touches instead of copying whole tables, which took one real mod's snapshot
-from 20 MB to 170 KB.
+**Unticking a mod now undoes it.** Untick and Save Mod List, and its values go
+back to what they would be without it — vanilla, or whatever a mod underneath
+sets. Switching off one part of a mod works the same way.
 
-Fixed: re-applying a mod onto a database it was already applied to used to
-overwrite its snapshot with the modded values, quietly destroying revert. Also
-fixed a false conflict warning between two mods that write the same table in
-rows that never overlap.
+**Edit a mod in the program.** Tools → Edit mod details (or F2): rename it,
+change its description, write its readme. No text editor, no hunting for the
+folder.
+
+Safety: a mod can never copy program files (`.exe`, `.dll` and the like) or
+replace `masters.db` itself. Such a mod shows in the list as broken, with the
+reason.

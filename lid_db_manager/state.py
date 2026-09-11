@@ -27,6 +27,9 @@ class AppliedRecord:
     tables: list[str] = field(default_factory=list)
     version: str = ""
     name: str = ""
+    # The keys of the patches that actually ran. Switching a part off later has
+    # to undo what it wrote, and that means knowing what was in the mod then.
+    parts: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -39,6 +42,7 @@ class AppliedRecord:
             tables=list(data.get("tables", []) or []),
             version=data.get("version", ""),
             name=data.get("name", ""),
+            parts=list(data.get("parts", []) or []),
         )
 
 
@@ -72,9 +76,15 @@ class State:
     db_sha256_at_last_save: str = ""
     db_mtime_at_last_save: float = 0.0
     last_saved_at: str = ""
+    # Explicit game folder (the one holding BrgGame), used for asset_file mods
+    # when it cannot be derived from db_path - a loose masters.db, a test setup.
+    game_root_override: str = ""
     enabled_mods: list[str] = field(default_factory=list)
     modpacks: dict[str, list[str]] = field(default_factory=dict)
     applied: dict[str, AppliedRecord] = field(default_factory=dict)
+    # mod id -> the keys of that mod's patches the player has switched off.
+    # Lets one imported rework stay a single mod whose parts toggle.
+    disabled_patches: dict[str, list[str]] = field(default_factory=dict)
     settings: Settings = field(default_factory=Settings)
 
     # -- persistence -----------------------------------------------------
@@ -102,6 +112,7 @@ class State:
         state.db_sha256_at_last_save = str(data.get("db_sha256_at_last_save", "") or "")
         state.db_mtime_at_last_save = float(data.get("db_mtime_at_last_save", 0.0) or 0.0)
         state.last_saved_at = str(data.get("last_saved_at", "") or "")
+        state.game_root_override = str(data.get("game_root_override", "") or "")
         state.enabled_mods = [str(m) for m in data.get("enabled_mods", []) or []]
         state.modpacks = {
             str(name): [str(m) for m in mods]
@@ -113,6 +124,11 @@ class State:
             for mod_id, record in (data.get("applied") or {}).items()
             if isinstance(record, dict)
         }
+        state.disabled_patches = {
+            str(mod_id): [str(k) for k in keys]
+            for mod_id, keys in (data.get("disabled_patches") or {}).items()
+            if isinstance(keys, list)
+        }
         state.settings = Settings.from_dict(data.get("settings") or {})
         return state
 
@@ -123,9 +139,11 @@ class State:
             "db_sha256_at_last_save": self.db_sha256_at_last_save,
             "db_mtime_at_last_save": self.db_mtime_at_last_save,
             "last_saved_at": self.last_saved_at,
+            "game_root_override": self.game_root_override,
             "enabled_mods": self.enabled_mods,
             "modpacks": self.modpacks,
             "applied": {mod_id: record.to_dict() for mod_id, record in self.applied.items()},
+            "disabled_patches": {k: v for k, v in self.disabled_patches.items() if v},
             "settings": self.settings.to_dict(),
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -143,6 +161,21 @@ class State:
             self.enabled_mods.append(mod_id)
         elif not enabled and mod_id in self.enabled_mods:
             self.enabled_mods.remove(mod_id)
+
+    def is_part_enabled(self, mod_id: str, patch_key: str) -> bool:
+        """Parts are on unless switched off, so an ordinary mod needs no entry."""
+        return patch_key not in self.disabled_patches.get(mod_id, ())
+
+    def set_part_enabled(self, mod_id: str, patch_key: str, enabled: bool) -> None:
+        off = list(self.disabled_patches.get(mod_id, ()))
+        if enabled and patch_key in off:
+            off.remove(patch_key)
+        elif not enabled and patch_key not in off:
+            off.append(patch_key)
+        if off:
+            self.disabled_patches[mod_id] = off
+        else:
+            self.disabled_patches.pop(mod_id, None)
 
     def order_of(self, mod_id: str) -> int | None:
         """1-based position in the load order, or None when disabled."""

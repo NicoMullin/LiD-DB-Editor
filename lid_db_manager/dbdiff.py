@@ -26,6 +26,20 @@ class IncompatibleDatabase(ModManagerError):
     """The two databases are not the same shape, so a diff would be nonsense."""
 
 
+class _AllRows:
+    """Sentinel: keep every row of this table, without listing them."""
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging only
+        return "ALL_ROWS"
+
+
+ALL_ROWS = _AllRows()
+
+# What a chooser hands back: table name -> ALL_ROWS, or the set of row keys to
+# keep. A table missing from the mapping is dropped entirely.
+Selection = dict
+
+
 @dataclass
 class RowUpdate:
     key: tuple                      # primary key (or rowid) values
@@ -100,6 +114,76 @@ class DbDelta:
         if self.new_table_count:
             parts.append(f"{self.new_table_count:,} new table(s)")
         return f"{', '.join(parts)} across {len(self.tables)} table(s)"
+
+    @property
+    def change_count(self) -> int:
+        """Changed rows plus added and removed ones - what a chooser counts."""
+        return sum(
+            len(t.updates) + len(t.inserts) + len(t.deletes) for t in self.tables
+        )
+
+    def filtered(self, selection: "Selection") -> "DbDelta":
+        """A copy carrying only what ``selection`` keeps.
+
+        Lets someone import a reworked database and take part of it - the shop
+        changes without the enemy tuning, say. Dropping pieces can produce a
+        combination the rework's author never tested, which is the caller's
+        business to warn about, not this function's.
+        """
+        kept = DbDelta(warnings=list(self.warnings))
+        for table_delta in self.tables:
+            wanted = selection.get(table_delta.table)
+            if wanted is None:  # table not selected at all
+                continue
+            if wanted is ALL_ROWS:
+                kept.tables.append(table_delta)
+                continue
+            trimmed = TableDelta(
+                table_delta.table,
+                list(table_delta.key_columns),
+                list(table_delta.columns),
+                keyed_by_rowid=table_delta.keyed_by_rowid,
+                create_sql=table_delta.create_sql,
+                index_sql=list(table_delta.index_sql),
+                updates=[u for u in table_delta.updates if u.key in wanted],
+                inserts=[
+                    v for v in table_delta.inserts
+                    if insert_key(table_delta, v) in wanted
+                ],
+                deletes=[k for k in table_delta.deletes if k in wanted],
+            )
+            # A new table keeps its CREATE even when every row is dropped:
+            # the table itself is one of the things being imported.
+            if not trimmed.empty:
+                kept.tables.append(trimmed)
+        return kept
+
+    def split_by_table(self) -> list["DbDelta"]:
+        """One single-table delta per table, so each can become its own mod.
+
+        That is what makes an imported rework toggleable afterwards rather than
+        only at import: each piece is an ordinary mod the player can switch off,
+        reorder or revert on its own.
+        """
+        out = []
+        for table_delta in self.tables:
+            piece = DbDelta(warnings=list(self.warnings))
+            piece.tables.append(table_delta)
+            out.append(piece)
+        return out
+
+
+def insert_key(table_delta: TableDelta, values: tuple) -> tuple | None:
+    """The primary-key tuple of a row about to be inserted.
+
+    Inserts carry every column, so the key has to be read back out of them.
+    Returns None for a table addressed by rowid, where an inserted row has no
+    key of its own to select on.
+    """
+    try:
+        return tuple(values[table_delta.columns.index(c)] for c in table_delta.key_columns)
+    except ValueError:  # a key column that is not a real column, i.e. rowid
+        return None
 
 
 def _open(path: Path) -> sqlite3.Connection:

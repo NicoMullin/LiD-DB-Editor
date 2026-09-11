@@ -84,6 +84,13 @@ class Mod:
                 pairs.add((table, column))
         return pairs
 
+    def asset_targets(self) -> list[str]:
+        """Game files this mod copies, as forward-slash paths under the game root."""
+        found: set[str] = set()
+        for patch in self.patches:
+            found |= patch.asset_targets()
+        return sorted(found)
+
     def affects_label(self) -> str:
         """Short "Affects: ..." string for the mod list."""
         by_table: dict[str, list[str]] = {}
@@ -95,6 +102,11 @@ class Mod:
                 parts.append(f"{table} (whole table)")
             else:
                 parts.append(f"{table} ({', '.join(columns)})")
+        assets = self.asset_targets()
+        if assets:
+            names = [a.rsplit("/", 1)[-1] for a in assets]
+            shown = ", ".join(names[:4]) + (f" and {len(names) - 4} more" if len(names) > 4 else "")
+            parts.append(f"game file(s): {shown}")
         return "; ".join(parts) or "(nothing detected)"
 
 
