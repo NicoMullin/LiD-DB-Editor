@@ -124,8 +124,9 @@ my-cool-mod/
 ```
 
 This is the best of both: your SQL stays exactly as written, and the manager
-still knows the name, the author and the dependencies. `mods/nitro-boost-text/`
-is a working example.
+still knows the name, the author and the dependencies.
+`mods/nitro-boost-100000pct/` is a working example - it mixes two `update_set`
+patches with a `raw_sql_file` one.
 
 The `.sql` file can be called anything — the `path` in the patch decides. It
 must be inside the mod folder; `../` is rejected.
@@ -463,9 +464,9 @@ declaration, not a constraint: if a mod ends up above something it requires you
 get a warning telling you to move it, rather than the manager quietly shuffling
 things behind your back.
 
-You also get a warning when a required mod is not enabled at all. Use `requires`
-for companion mods — `nitro-boost-text` requires `nitro-boost-100000pct` so the
-tooltip cannot claim something the skill does not do.
+You also get a warning when a required mod is not enabled at all. Use
+`requires` for a mod that only makes sense on top of another one - a text mod
+that rewrites a description to match a number some other mod changes, say.
 
 ---
 

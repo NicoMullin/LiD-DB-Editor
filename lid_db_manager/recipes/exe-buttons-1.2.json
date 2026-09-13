@@ -1,0 +1,16 @@
+{
+  "mod": "Colored PlayStation Buttons",
+  "version": "1.2",
+  "target": "Binaries/Win64/BrgGame-Steam.exe",
+  "package": "UI_ButtonGuide_STM_SF.upk",
+  "checksum_before": "1b26d222e55b5da895839a0d412497670d94be10",
+  "checksum_after": "1ba2f780f15180912dedf706119f96670d6e6e18",
+  "asset_sha256": "21304459fb70462dde5896f49b3f30127039ec09ad236ee686c86dc431deb79c",
+  "code_fingerprint": "865385568ef7f241653ed15a73920121ada7ea856de466e545648e7727787fb5",
+  "steam_build": "25244463",
+  "manifest_sha256": "080983c54f1e4cc1f29ec2f3681c449f210094e7daeb61bdfb43444f1f4e0bcd",
+  "recorded": "2026-09-12",
+  "notes": "One hash in the executable's file table. No code is changed.",
+  "author": "S3er0i9ng",
+  "source": "https://letitdiemods.pages.dev/"
+}

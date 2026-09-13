@@ -5,7 +5,7 @@ LET IT DIE's ``masters.db``, snapshots the pre-state for revert, and
 re-applies the enabled mod list when the game replaces the database.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 APP_NAME = "LET IT DIE DB Mod Manager"
 GAME_NAME = "LET IT DIE"

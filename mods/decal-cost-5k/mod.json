@@ -1,0 +1,21 @@
+{
+  "id": "decal-cost-5k",
+  "name": "Decals Cost 5,000 KC",
+  "description": "The 50,000 KC decals at the Mushroom Club cost 5,000 KC instead.",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "game_version": "5.0.3.0.0 - 1.87",
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [
+    "decal-cost-25k",
+    "decal-cost-10k"
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "description": "master_skill.buy_money 50,000 -> 5,000 on 34 decals",
+      "sql": "UPDATE master_skill SET buy_money = 5000 WHERE buy_money = 50000;"
+    }
+  ]
+}

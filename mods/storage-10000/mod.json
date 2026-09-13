@@ -1,0 +1,21 @@
+{
+  "id": "storage-10000",
+  "name": "Storage Holds 10,000",
+  "description": "Coin Locker storage can be expanded to 10,000 instead of 2,000.",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "game_version": "5.0.3.0.0 - 1.87",
+  "requires": [],
+  "conflicts_with": [],
+  "patches": [
+    {
+      "type": "update_set",
+      "table": "master_const_int",
+      "set": {
+        "value": 10000
+      },
+      "where": "id = 'COINLOCKER_EXPAND_LIMIT_COUNT'",
+      "expected_rows": 1
+    }
+  ]
+}

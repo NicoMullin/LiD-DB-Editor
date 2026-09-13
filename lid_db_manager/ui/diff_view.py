@@ -6,6 +6,7 @@ import html
 
 from PySide6.QtWidgets import QLabel, QTabWidget, QTextBrowser, QVBoxLayout, QWidget
 
+from .. import explain
 from ..manager import Manager
 from ..mod import Mod
 from .theme import colors
@@ -31,11 +32,13 @@ class DiffView(QWidget):
 
         self.tabs = QTabWidget()
         self.details = QTextBrowser()
+        self.plain = QTextBrowser()
         self.diff = QTextBrowser()
         self.readme = QTextBrowser()
-        for browser in (self.details, self.diff, self.readme):
+        for browser in (self.details, self.plain, self.diff, self.readme):
             browser.setOpenExternalLinks(True)
         self.tabs.addTab(self.details, "Details")
+        self.tabs.addTab(self.plain, "In plain English")
         self.tabs.addTab(self.diff, "Diff preview")
         self.tabs.addTab(self.readme, "Readme")
 
@@ -53,15 +56,18 @@ class DiffView(QWidget):
         mod = self.manager.scan.get(mod_id)
         if mod is None:
             self.title.setText("Select a mod")
-            for browser in (self.details, self.diff, self.readme):
+            for browser in (self.details, self.plain, self.diff, self.readme):
                 browser.setHtml("")
             return
         self.title.setText(mod.name)
         self.details.setHtml(self._details_html(mod))
         self.readme.setHtml(self._readme_html(mod))
         self.diff.setHtml("<p><i>Loading preview...</i></p>")
+        self.plain.setHtml("<p><i>Working it out...</i></p>")
         if self.tabs.currentWidget() is self.diff:
             self._load_diff(mod)
+        elif self.tabs.currentWidget() is self.plain:
+            self._load_plain(mod)
 
     def refresh(self) -> None:
         if self.mod_id:
@@ -83,6 +89,7 @@ class DiffView(QWidget):
             f".before {{ color: {palette['failed']}; font-family: Consolas, monospace; }}"
             f".after {{ color: {palette['ok']}; font-family: Consolas, monospace; }}"
             f".warn {{ color: {palette['pending']}; }}"
+            f".quote {{ color: {palette['dim']}; font-style: italic; }}"
             f".fail {{ color: {palette['failed']}; }}"
             f"code {{ font-family: Consolas, monospace; }}"
             f"</style>"
@@ -147,6 +154,53 @@ class DiffView(QWidget):
             return self._style() + f'<p class="fail">Could not read {html.escape(str(exc))}</p>'
         return self._style() + f"<pre>{html.escape(text)}</pre>"
 
+    def _load_plain(self, mod: Mod) -> None:
+        """What this mod changes, said in words rather than rows."""
+        escape = html.escape
+        try:
+            delta = self.manager.mod_delta(mod)
+            explanation = explain.explain_delta(
+                delta, db_path=self.manager.db_path, home=self.manager.paths.root
+            )
+        except Exception as exc:  # a display must never take the panel down
+            self.plain.setHtml(
+                self._style() + f'<p class="fail">Could not work it out: {escape(str(exc))}</p>'
+            )
+            return
+
+        parts = [self._style()]
+        if delta is None:
+            parts.append(
+                '<p class="warn">This needs an untouched copy of the database to compare '
+                "against, and there is not one yet. Pick your database, or save your mod "
+                "list once.</p>"
+            )
+        elif explanation.empty:
+            parts.append('<p class="dim">This mod changes nothing at all.</p>')
+        for table in explanation.tables:
+            parts.append(f"<h3>{escape(table.title)}</h3>")
+            if table.about:
+                parts.append(f'<p class="dim">{escape(table.about)}</p>')
+            parts.append("<ul>")
+            for change in table.changes:
+                parts.append(f"<li>{escape(change.sentence)}")
+                if change.example:
+                    parts.append(f'<br><span class="dim">for example, {escape(change.example)}</span>')
+                if change.quotes:
+                    parts.append('<br><span class="quote">')
+                    parts.append("<br>".join(escape(q) for q in change.quotes))
+                    parts.append("</span>")
+                parts.append("</li>")
+            parts.append("</ul>")
+        if explanation.note:
+            parts.append(f'<p class="dim">{escape(explanation.note)}</p>')
+        parts.append(
+            '<p class="dim">This describes what the mod does to the database. '
+            "Some things the game draws as pictures - a price on a sign, for instance - "
+            "do not follow the numbers.</p>"
+        )
+        self.plain.setHtml("".join(parts))
+
     def _load_diff(self, mod: Mod) -> None:
         if not self.manager.db_path or not self.manager.db_path.is_file():
             self.diff.setHtml(self._style() + '<p class="warn">No database selected.</p>')
@@ -180,15 +234,21 @@ class DiffView(QWidget):
         self.diff.setHtml("".join(parts))
 
     def _on_tab_changed(self, index: int) -> None:
-        if self.tabs.widget(index) is not self.diff:
+        widget = self.tabs.widget(index)
+        if widget not in (self.diff, self.plain):
             return
         mod = self.manager.scan.get(self.mod_id)
-        if mod is not None:
-            self.diff.setHtml(self._style() + "<p><i>Loading preview...</i></p>")
-            # Let the "loading" line paint before the (possibly slow) query runs.
-            from PySide6.QtCore import QTimer
+        if mod is None:
+            return
+        # Both of these read the database, so show something before they run.
+        from PySide6.QtCore import QTimer
 
+        if widget is self.diff:
+            self.diff.setHtml(self._style() + "<p><i>Loading preview...</i></p>")
             QTimer.singleShot(0, lambda: self._load_diff(mod))
+        else:
+            self.plain.setHtml(self._style() + "<p><i>Working it out...</i></p>")
+            QTimer.singleShot(0, lambda: self._load_plain(mod))
 
 
 def _clip(text: str) -> str:

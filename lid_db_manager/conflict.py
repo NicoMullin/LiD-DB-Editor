@@ -132,7 +132,18 @@ def footprint(mod: Mod, con: sqlite3.Connection | None = None) -> _ModFootprint:
         elif isinstance(patch, TextReplacePatch):
             result.texts |= patch.text_keys()
         elif isinstance(patch, RawSqlPatch):
-            result.raw_tables |= patch.tables() - excluded
+            # Raw SQL can do anything, so it normally counts as writing whole
+            # tables. When every statement is a plain UPDATE the columns are
+            # readable, and then it is treated like any other column-level
+            # patch - so two mods changing different columns of the same rows
+            # stop being reported as fighting over them.
+            resolved = patch.resolved_targets()
+            if resolved is not None and not (
+                {table for table, _ in resolved} & excluded
+            ):
+                result.columns |= resolved
+            else:
+                result.raw_tables |= patch.tables() - excluded
 
         result.asset_targets |= patch.asset_targets()
 

@@ -15,7 +15,7 @@
 -- No BEGIN/COMMIT here: the mod manager already runs every enabled
 -- mod inside one transaction, so wrapping this in another would
 -- either error or break that atomicity. (If you run this file by
--- hand with `sqlite3 masters.db < nitro-boost-text.sql`, add them
+-- hand with `sqlite3 masters.db < descriptions.sql`, add them
 -- back, or just accept per-statement autocommit.)
 -- ============================================================
 

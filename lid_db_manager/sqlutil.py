@@ -50,11 +50,23 @@ def sha256_file(path: Path, chunk_size: int = 1 << 20) -> str:
     return digest.hexdigest()
 
 
-def connect(db_path: Path, *, read_only: bool = False) -> sqlite3.Connection:
+def connect(db_path: Path, *, read_only: bool = False,
+            foreign_keys: bool = True) -> sqlite3.Connection:
     """Open the DB with manual transaction control.
 
     ``isolation_level=None`` turns off sqlite3's implicit transaction handling so
     the runner can issue its own BEGIN IMMEDIATE / COMMIT / ROLLBACK.
+
+    ``foreign_keys=False`` is for putting saved rows back. masters.db declares
+    foreign keys that its own shipped data breaks - on game 5.0.3 there are 256
+    such rows, 255 of them in ``master_asset`` with an empty ``type``, plus two
+    tables whose foreign key definitions do not even resolve. SQLite only
+    notices a broken row when something touches it, so the game never trips over
+    them and neither does an ordinary mod. Restoring a whole-table snapshot does
+    touch them - it writes every row back - and the constraint then fails on the
+    game's own data rather than on anything a mod did. Since a restore only ever
+    puts back what was already there, the check has nothing to protect and is
+    switched off for it. It stays on everywhere else.
     """
     if read_only:
         escaped = (
@@ -68,17 +80,31 @@ def connect(db_path: Path, *, read_only: bool = False) -> sqlite3.Connection:
     else:
         con = sqlite3.connect(str(db_path), isolation_level=None, timeout=5.0)
     con.row_factory = sqlite3.Row
-    con.execute("PRAGMA foreign_keys = ON")
+    # Must be set outside a transaction; it is a no-op inside one.
+    con.execute(f"PRAGMA foreign_keys = {'ON' if foreign_keys else 'OFF'}")
     return con
 
 
 def begin_immediate(con: sqlite3.Connection, timeout_seconds: float = 5.0) -> None:
-    """Take the write lock, retrying with backoff while the DB is locked."""
+    """Take the write lock, retrying with backoff while the DB is locked.
+
+    Foreign keys are checked at COMMIT rather than after each statement. They
+    are still enforced - a transaction that ends with a broken reference will
+    not commit - but a mod is allowed to pass through states that are only
+    momentarily inconsistent on the way there.
+
+    That matters because ``INSERT OR REPLACE`` is a delete followed by an
+    insert, and several of this game's tables point at each other with
+    ON DELETE RESTRICT. Re-applying a mod over rows it had already written
+    would otherwise fail on the delete half of a row being put back exactly as
+    it was - a change of nothing at all, refused.
+    """
     deadline = time.monotonic() + timeout_seconds
     delay = 0.05
     while True:
         try:
             con.execute("BEGIN IMMEDIATE")
+            con.execute("PRAGMA defer_foreign_keys = ON")  # resets at commit
             return
         except sqlite3.OperationalError as exc:
             if "locked" not in str(exc).lower() and "busy" not in str(exc).lower():
@@ -89,6 +115,90 @@ def begin_immediate(con: sqlite3.Connection, timeout_seconds: float = 5.0) -> No
                 ) from exc
             time.sleep(delay)
             delay = min(delay * 2, 0.5)
+
+
+# The two shapes dbdiff writes an added row as. Anything else is not examined:
+# the answer is only ever used to explain something, so "cannot tell" is fine.
+_INSERT_VALUES = re.compile(
+    r"^INSERT(?:\s+OR\s+\w+)?\s+INTO\s+(?P<table>\"[^\"]+\"|[A-Za-z_]\w*)\s*"
+    r"\((?P<cols>.+?)\)\s*VALUES\s*\((?P<vals>.+)\)\s*;?$",
+    re.IGNORECASE | re.DOTALL,
+)
+_INSERT_GUARDED = re.compile(
+    r"^INSERT\s+INTO\s+.+?\bWHERE\s+NOT\s+EXISTS\s*\((?P<probe>SELECT\s+1\s+FROM\s+.+)\)\s*;?$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def row_already_there(con: sqlite3.Connection, statement: str) -> bool | None:
+    """Is the row this INSERT would add already in the table?
+
+    None means "could not tell" - the statement is not one of the shapes we
+    write, or the table is not there. Used only to explain what happened, so a
+    wrong guess must never be possible: anything unrecognised returns None.
+    """
+    # Comments come through attached to the statement after them, so the SQL
+    # rarely starts at the first character.
+    body = [
+        line for line in statement.splitlines()
+        if line.strip() and not line.lstrip().startswith("--")
+    ]
+    text = " ".join(" ".join(body).split())
+    guarded = _INSERT_GUARDED.match(text)
+    if guarded:
+        # The statement already carries the test; just run it.
+        probe = f"SELECT EXISTS({guarded.group('probe')})"
+    else:
+        plain = _INSERT_VALUES.match(text)
+        if not plain:
+            return None
+        # Row-value IS compares the whole tuple at once, so the column and value
+        # lists never have to be split - which would mean parsing SQL literals.
+        probe = (
+            f"SELECT EXISTS(SELECT 1 FROM {plain.group('table')} "
+            f"WHERE ({plain.group('cols')}) IS ({plain.group('vals')}))"
+        )
+    try:
+        return bool(con.execute(probe).fetchone()[0])
+    except sqlite3.Error:
+        return None
+
+
+def inserts_already_present(
+    con: sqlite3.Connection, statements: list[str], sample: int = 40
+) -> tuple[int, int]:
+    """(how many added rows were checked, how many were already there).
+
+    Stops after ``sample`` so validating a large mod stays quick.
+    """
+    checked = present = 0
+    for statement in statements:
+        if checked >= sample:
+            break
+        answer = row_already_there(con, statement)
+        if answer is None:
+            continue
+        checked += 1
+        present += int(answer)
+    return checked, present
+
+
+def database_game_version(con: sqlite3.Connection) -> str:
+    """The game build this database came from, or "" if it does not say.
+
+    ``master_const_str.TITLE_VERSION`` reads like "5.0.3.0.0 - 1.87". A mod
+    built by diffing one database only strictly describes that build, so this
+    is what a mod's own recorded version is compared against.
+    """
+    try:
+        row = con.execute(
+            "SELECT value FROM master_const_str WHERE id = 'TITLE_VERSION'"
+        ).fetchone()
+    except sqlite3.Error:
+        return ""
+    if not row:
+        return ""
+    return str(row[0] or "").strip()
 
 
 def table_exists(con: sqlite3.Connection, table: str) -> bool:

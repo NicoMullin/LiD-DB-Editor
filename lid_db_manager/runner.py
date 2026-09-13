@@ -380,7 +380,10 @@ def revert_mods(
         return results
 
     try:
-        con = connect(Path(db_path))
+        # Foreign keys off: a restore puts back rows that were in the database
+        # already, and some of the game's own shipped rows break its own
+        # constraints. See sqlutil.connect.
+        con = connect(Path(db_path), foreign_keys=False)
     except sqlite3.Error as exc:
         for result in results:
             if not result.error:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lid-db-mod-manager"
-version = "0.3.0"
+version = "0.4.0"
 description = "Apply JSON- and SQL-defined mods to LET IT DIE's masters.db"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -28,6 +28,10 @@ lid-db-manager-gui = "lid_db_manager.ui.app:run"
 
 [tool.setuptools]
 packages = ["lid_db_manager", "lid_db_manager.ui"]
+
+[tool.setuptools.package-data]
+# Recorded database changes for recognised content packs. See crossover.py.
+lid_db_manager = ["recipes/*.sql", "recipes/*.json"]
 
 [tool.ruff]
 line-length = 100

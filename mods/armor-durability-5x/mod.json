@@ -1,0 +1,20 @@
+{
+  "id": "armor-durability-5x",
+  "name": "Armor Durability x5",
+  "description": "Every piece of armour lasts 5 times as long before it breaks.",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "game_version": "5.0.3.0.0 - 1.87",
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [
+    "armor-durability-2x"
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "description": "dur x5 on 979 row(s)",
+      "sql": "UPDATE master_part SET dur = dur * 5 WHERE type IN ('PTTP_HEAD', 'PTTP_BODY', 'PTTP_LEGS');"
+    }
+  ]
+}

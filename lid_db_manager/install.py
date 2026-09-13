@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from . import dbdiff
+from . import crossover, dbdiff, vetted
 from .errors import ModManagerError
 from .sqlutil import sha256_file
 
@@ -36,6 +36,12 @@ KIND_FOLDER = "folder"
 KIND_ZIP = "zip"
 KIND_DATABASE = "database"
 KIND_ASSET_FOLDER = "asset_folder"
+# A recognised content pack: artwork plus the database changes that make it
+# reachable in game, installed together as one mod.
+KIND_CONTENT_PACK = "content_pack"
+# A mod release matching one of the vetted recordings in recipes/ - artwork
+# plus the one executable hash the game needs updating to accept it.
+KIND_VETTED_MOD = "vetted_mod"
 
 # Where LET IT DIE keeps the loose packages an asset mod replaces.
 ASSET_TARGET_DIR = "BrgGame/CookedPCConsole"
@@ -56,6 +62,11 @@ class InstallCandidate:
     note: str = ""
     delta: "dbdiff.DbDelta | None" = None
     warnings: list[str] = field(default_factory=list)
+    # Set when the source was recognised as a known content pack, whether or
+    # not its database half could be matched to a recorded recipe.
+    pack: "crossover.PackInfo | None" = None
+    # Set when the source matched a vetted recording in recipes/.
+    recipe: "vetted.ExeRecipe | None" = None
 
 
 def _title_from(text: str) -> str:
@@ -96,6 +107,100 @@ def _asset_files(root: Path) -> list[Path]:
     )
 
 
+def _folder_candidate(folder: Path, found_in: str = "") -> InstallCandidate | None:
+    """What this one folder is, if it holds game files at all. None if it does not.
+
+    ``found_in`` names the subfolder it was found in, when the drop was on a
+    parent - so the note can say where the content actually came from rather
+    than looking like it read the whole download.
+    """
+    where = f"  (from {found_in}/)" if found_in else ""
+
+    # A release matching a vetted recording is recognised before anything else:
+    # its artwork alone would be refused by the game, so installing it as a
+    # plain pile of .upk would look like it worked and quietly not.
+    recording = vetted.identify_mod_folder(folder)
+    if recording is not None:
+        return InstallCandidate(
+            folder, KIND_VETTED_MOD, recording.summary,
+            f"{recording.package} -> {ASSET_TARGET_DIR}, and the one hash the game "
+            f"keeps for it{where}",
+            recipe=recording,
+        )
+
+    asset_root = _asset_root(folder)
+    if asset_root is None:
+        return None
+    count = len(_asset_files(asset_root))
+    pack = crossover.identify(folder)
+    if pack.complete:
+        recipe = pack.recipe
+        return InstallCandidate(
+            folder, KIND_CONTENT_PACK, pack.suggested_name,
+            f"{recipe.summary}, plus {count} game file(s) -> {ASSET_TARGET_DIR}{where}",
+            pack=pack,
+        )
+    note = f"{count} game file(s) -> {ASSET_TARGET_DIR}{where}"
+    if pack.is_pack:
+        # Recognised, but its database half cannot be matched. Installing the
+        # artwork alone is harmless - it simply stays unreachable.
+        return InstallCandidate(
+            folder, KIND_ASSET_FOLDER, pack.suggested_name,
+            note + "  (artwork only)", warnings=[pack.reason], pack=pack,
+        )
+    if (folder / "catalog.json").is_file():
+        note += "  (catalog.json database changes are not imported - files only)"
+    return InstallCandidate(folder, KIND_ASSET_FOLDER, folder.name, note)
+
+
+def _nested_pack(folder: Path) -> InstallCandidate | None:
+    """A recognised content pack one level inside the folder that was dropped.
+
+    Releases have started bundling the pack as a subfolder beside other things -
+    a second mod, an installer, artwork of their own - so the folder a player
+    actually has is the one above the pack. Looking one level down finds it.
+
+    Only a recognised content pack is taken this way, never a plain pile of
+    .upk: those subfolders can be anything (a second mod with its own rules, a
+    backup, a source tree), and copying whichever one happened to sort first
+    into the game would be a guess. One level only, and no recursion.
+    """
+    try:
+        children = sorted(p for p in folder.iterdir() if p.is_dir())
+    except OSError:
+        return None
+    found = []
+    for child in children:
+        if child.name.startswith((".", "__")):
+            continue
+        if crossover.identify(child).is_pack:
+            found.append(child)
+    if not found:
+        return None
+    if len(found) > 1:
+        names = ", ".join(p.name for p in found)
+        raise InstallError(
+            f"{folder.name} holds more than one content pack ({names}). "
+            "Drop the one you want rather than the folder above it."
+        )
+    candidate = _folder_candidate(found[0], found_in=found[0].name)
+
+    # A download can hold more than one mod. Only the pack is taken, but say
+    # what else was in there rather than leaving it looking like nothing was.
+    others = [
+        child for child in children
+        if child != found[0] and vetted.identify_mod_folder(child) is not None
+    ]
+    if candidate is not None and others:
+        names = ", ".join(f"{vetted.identify_mod_folder(c).summary} ({c.name}/)"
+                          for c in others)
+        candidate.warnings.append(
+            f"{folder.name} also holds {names}. Only the content pack was taken - "
+            "drop that subfolder on its own to add it as a separate mod."
+        )
+    return candidate
+
+
 def inspect(source: Path, vanilla: Path | None = None) -> InstallCandidate:
     """Work out what a path is, without writing anything.
 
@@ -109,13 +214,12 @@ def inspect(source: Path, vanilla: Path | None = None) -> InstallCandidate:
     if source.is_dir():
         if (source / "mod.json").is_file() or any(source.glob("*.sql")):
             return InstallCandidate(source, KIND_FOLDER, source.name, "folder copied as-is")
-        asset_root = _asset_root(source)
-        if asset_root is not None:
-            count = len(_asset_files(asset_root))
-            note = f"{count} game file(s) -> {ASSET_TARGET_DIR}"
-            if (source / "catalog.json").is_file():
-                note += "  (catalog.json database changes are not imported - files only)"
-            return InstallCandidate(source, KIND_ASSET_FOLDER, source.name, note)
+        here = _folder_candidate(source)
+        if here is not None:
+            return here
+        nested = _nested_pack(source)
+        if nested is not None:
+            return nested
         raise InstallError(
             f"{source.name} has no mod.json, no .sql file and no game files to copy, "
             "so it is not a mod folder"
@@ -153,15 +257,126 @@ def inspect(source: Path, vanilla: Path | None = None) -> InstallCandidate:
     )
 
 
+def _write_vetted_mod(candidate: InstallCandidate, folder: Path) -> Path:
+    """A mod release matching a vetted recording.
+
+    The mod.json is not written here - it is copied, byte for byte, from the
+    one that ships beside the recording. What gets installed is therefore a
+    file that was reviewed and committed, not something this code made up at
+    the time, which is the whole reason the recording is vetted at all.
+
+    Only the replacement package is taken from the player's download. Anything
+    else in that folder - an installer, a manifest, a script - is left behind.
+    """
+    recipe = candidate.recipe
+    if recipe is None:
+        raise InstallError("this mod does not match a vetted recording")
+    source = candidate.source / recipe.package
+    if not source.is_file():
+        raise InstallError(f"{candidate.source.name} no longer contains {recipe.package}")
+    try:
+        mod_json = recipe.mod_json()
+    except vetted.VettedError as exc:
+        raise InstallError(str(exc)) from None
+
+    folder.mkdir(parents=True)
+    try:
+        (folder / "assets").mkdir()
+        shutil.copy2(source, folder / "assets" / recipe.package)
+        if sha256_file(folder / "assets" / recipe.package) != recipe.asset_sha256:
+            raise InstallError(f"{recipe.package} changed while it was being copied")
+        mod_json = dict(mod_json)
+        mod_json["id"] = folder.name
+        (folder / "mod.json").write_text(
+            json.dumps(mod_json, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        for doc in candidate.source.glob("*"):
+            if doc.is_file() and doc.suffix.lower() in (".txt", ".md"):
+                shutil.copy2(doc, folder / doc.name)
+    except Exception:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return folder
+
+
+def _write_content_pack(candidate: InstallCandidate, folder: Path, name: str,
+                        description: str, author: str, version: str) -> Path:
+    """One mod holding both halves of a recognised content pack.
+
+    The database half is a recipe that ships with the manager; the artwork is
+    copied out of the pack the player downloaded. They go in together because
+    either half alone is wrong: the rows without the artwork give invisible or
+    wrong-textured gear, and the artwork without the rows is unreachable.
+    """
+    pack = candidate.pack
+    recipe = pack.recipe if pack else None
+    if pack is None or recipe is None:
+        raise InstallError("this content pack has no recorded database changes")
+    asset_root = _asset_root(candidate.source)
+    if asset_root is None:
+        raise InstallError(f"{candidate.source.name} has no game files to copy")
+
+    folder.mkdir(parents=True)
+    try:
+        files = _asset_files(asset_root)
+        if not files:
+            raise InstallError("no game files found to copy")
+        for src in files:
+            dest = folder / "assets" / src.relative_to(asset_root)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+
+        sql_name = f"{safe_folder_name(name)}.sql"
+        (folder / sql_name).write_text(recipe.sql(), encoding="utf-8")
+
+        # The pack's own readme and changelog, so the Readme tab shows what the
+        # content is and who made it.
+        for doc in candidate.source.glob("*"):
+            if doc.is_file() and doc.suffix.lower() in (".txt", ".md"):
+                shutil.copy2(doc, folder / doc.name)
+
+        _write_mod_json_patches(
+            folder, name,
+            description or (
+                f"{recipe.summary}, with the {len(files)} artwork packages they need. "
+                f"Database changes recorded from the pack's own v{recipe.version} "
+                "installer; artwork from the pack itself."
+            ),
+            author, version or recipe.version,
+            [
+                {
+                    "type": "raw_sql_file",
+                    "path": sql_name,
+                    "description": f"{recipe.summary} (v{recipe.version})",
+                },
+                {
+                    "type": "asset_file",
+                    "source": "assets",
+                    "target": ASSET_TARGET_DIR,
+                    "description": f"{len(files)} artwork package(s)",
+                },
+            ],
+            game_version=recipe.game_version,
+        )
+    except Exception:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return folder
+
+
 def _write_mod_json_patches(folder: Path, name: str, description: str, author: str,
                             version: str, patches: list[dict],
-                            requires: list[str] | None = None) -> None:
+                            requires: list[str] | None = None,
+                            game_version: str = "") -> None:
     payload = {
         "id": folder.name,
         "name": name,
         "description": description.strip() or f"Imported from {folder.name}",
         "version": version.strip() or "1.0.0",
         "author": author.strip() or "unknown",
+        # Only written when it is actually known. An empty value would read as
+        # "built for no particular build", which is not the same as silence.
+        **({"game_version": game_version} if game_version else {}),
         "requires": [r for r in (requires or []) if r],
         "conflicts_with": [],
         "patches": patches,
@@ -351,6 +566,12 @@ def install(
         shutil.copytree(candidate.source, folder,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         return folder
+
+    if candidate.kind == KIND_CONTENT_PACK:
+        return _write_content_pack(candidate, folder, name, description, author, version)
+
+    if candidate.kind == KIND_VETTED_MOD:
+        return _write_vetted_mod(candidate, folder)
 
     if candidate.kind == KIND_ASSET_FOLDER:
         asset_root = _asset_root(candidate.source)

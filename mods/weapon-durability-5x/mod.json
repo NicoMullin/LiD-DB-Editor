@@ -1,0 +1,20 @@
+{
+  "id": "weapon-durability-5x",
+  "name": "Weapon Durability x5",
+  "description": "Every weapon lasts 5 times as long before it breaks.",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "game_version": "5.0.3.0.0 - 1.87",
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [
+    "weapon-durability-2x"
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "description": "dur x5 on 385 row(s)",
+      "sql": "UPDATE master_part SET dur = dur * 5 WHERE type = 'PTTP_ARM';"
+    }
+  ]
+}

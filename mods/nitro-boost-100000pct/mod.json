@@ -1,8 +1,8 @@
 {
   "id": "nitro-boost-100000pct",
   "name": "Nitro Boost EXP +100,000%",
-  "description": "Both Nitro Boost (EXPUP_02) and EXPUP_01 give 100,000% EXP instead of 40% / 10%.",
-  "version": "1.0.0",
+  "description": "Nitro Boost and Turbo-charged Engine give 100,000% EXP instead of 40% / 10%, and their in-game descriptions are rewritten to say so.",
+  "version": "2.0.0",
   "author": "KSFA",
   "requires": [],
   "conflicts_with": [],
@@ -24,6 +24,13 @@
       },
       "where": "id = 'SKL_EXPUP_01'",
       "expected_rows": 1
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "descriptions.sql",
+      "id": "text",
+      "description": "Skill descriptions, so the tooltip matches the number"
     }
-  ]
+  ],
+  "game_version": "5.0.3.0.0 - 1.87"
 }

@@ -1,0 +1,21 @@
+{
+  "pack": "LET IT DIE Crossover Content",
+  "version": "3.74",
+  "catalog_sha256": "775200a37a230f78497a3cad8fe2007028fdd1656ae00e5e9b3305744a875785",
+  "sql": "crossover-3.74.sql",
+  "recorded": "2026-09-12",
+  "game_version": "5.0.3.0.0 - 1.87",
+  "author": "S3er0i9ng",
+  "source": "https://letitdiemods.pages.dev/",
+  "counts": {
+    "decals": 42,
+    "quests": 25,
+    "clones": 3,
+    "packages": 234
+  },
+  "changes": {
+    "inserts": 476,
+    "updates": 120,
+    "tables": 16
+  }
+}

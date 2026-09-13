@@ -30,7 +30,12 @@ from PySide6.QtWidgets import (
 from .. import APP_NAME, DB_FILENAME, DEFAULT_DB_HINT, __version__
 from .. import backup as backup_module
 from ..backup import BACKUP_SUFFIX, ORIGINAL_SUFFIX
-from ..install import KIND_ASSET_FOLDER, InstallError
+from ..install import (
+    KIND_ASSET_FOLDER,
+    KIND_CONTENT_PACK,
+    KIND_VETTED_MOD,
+    InstallError,
+)
 from ..modedit import ModEditError
 from ..manager import Manager
 from ..watchdog import STATUS_OK, STATUS_STALE, DbStatus
@@ -247,6 +252,7 @@ class MainWindow(QMainWindow):
         self._add_action(tools, "Move up the load order", lambda: self.move_selected(-1), "Ctrl+Up")
         self._add_action(tools, "Move down the load order", lambda: self.move_selected(+1), "Ctrl+Down")
         tools.addSeparator()
+        self._add_action(tools, "Build a mod...", self.build_mod, "Ctrl+B")
         self._add_action(
             tools, "Create a mod from a modded masters.db...", self.import_database
         )
@@ -254,6 +260,7 @@ class MainWindow(QMainWindow):
         self._add_action(tools, "Add a mod from a folder...", self.add_mod_from_folder)
         self._add_action(tools, "Edit mod details...", self.edit_selected_mod, "F2")
         tools.addSeparator()
+        self._add_action(tools, "Set item artwork folder...", self.set_icon_folder)
         self._add_action(tools, "Set game folder...", self.set_game_folder)
         self._add_action(tools, "Restore game files...", self.restore_game_files)
         self._add_action(tools, "Restore a backup...", self.restore_backup)
@@ -676,6 +683,58 @@ class MainWindow(QMainWindow):
             self._install_queue.append(Path(path))
             self._drain_install_queue()
 
+    def build_mod(self) -> None:
+        """Tools entry: make a mod by changing values, with no SQL involved."""
+        if not self.manager.vanilla_path:
+            QMessageBox.information(
+                self,
+                "No vanilla copy yet",
+                "Building a mod means changing values in a clean copy of the "
+                "database, and there is not one yet.\n\n"
+                f"Click Save Mod List once and the manager keeps {DB_FILENAME}"
+                f"{ORIGINAL_SUFFIX} next to your database - that is what the "
+                "editor starts from.",
+            )
+            return
+        from .builder_window import BuilderWindow
+
+        window = BuilderWindow(self.manager, dark=self.dark, parent=self)
+        if window.exec():
+            self.refresh(rescan=True)
+
+    def set_icon_folder(self) -> None:
+        """Point the builder at item artwork the player already has.
+
+        None ships with the program: the game's artwork belongs to its owners,
+        not to us, so it is never redistributed here. A player who has a copy
+        can point at it and the builder will use it.
+        """
+        from ..icons import IconSource
+
+        current = self.manager.state.settings.icon_folder
+        path = QFileDialog.getExistingDirectory(
+            self, "Pick a folder of item artwork", current or ""
+        )
+        if not path:
+            return
+        source = IconSource(path)
+        if not source.available:
+            QMessageBox.warning(
+                self, "Nothing usable in there",
+                "That folder holds no pictures this can match to the game's "
+                "items.\n\nIt expects either an icon_map.json keyed by the "
+                "game's own ids, or files named after what they show - "
+                "battle_machete.png, or pt_arm_wp001_002.png.",
+            )
+            return
+        self.manager.state.settings.icon_folder = path
+        self.manager.state.save()
+        QMessageBox.information(
+            self, "Artwork found",
+            f"Using the artwork in {path}.\n\nIt is read from there and never "
+            "copied into your mods or this program.",
+        )
+
     def import_database(self) -> None:
         """Tools entry: turn somebody else's modded masters.db into a mod."""
         if not self.manager.vanilla_path:
@@ -816,17 +875,60 @@ class MainWindow(QMainWindow):
                 )
             self.statusBar().showMessage(message, 10000)
 
-        if candidate.kind == KIND_ASSET_FOLDER and (
+        if candidate.kind == KIND_VETTED_MOD and candidate.recipe is not None:
+            recipe = candidate.recipe
+            QMessageBox.information(
+                self,
+                "This mod changes the game executable",
+                f"{recipe.summary} went in as one mod.\n\n"
+                f"It replaces {recipe.package}, and the game keeps a checksum for "
+                "that file inside BrgGame-Steam.exe - so the replacement is refused "
+                "unless that one value is updated too. This mod does both.\n\n"
+                "What changes in the executable is twenty bytes in a table of file "
+                "checksums. No program code is changed, and the manager checks that "
+                "before and after: the code section has to hash to the same value "
+                "or nothing is written.\n\n"
+                "The manager will not do this for any mod that asks. It only carries "
+                "out changes recorded in its own recipes folder, which are added by "
+                "hand. Yours is:\n"
+                f"    {recipe.name}\n\n"
+                "The executable is backed up first, like any game file, and unticking "
+                "this mod puts it back byte for byte.",
+            )
+        elif candidate.kind == KIND_CONTENT_PACK and candidate.pack is not None:
+            recipe = candidate.pack.recipe
+            QMessageBox.information(
+                self,
+                "Content pack added",
+                f"{candidate.pack.suggested_name} went in as one mod, holding both "
+                "halves: the artwork, and the database changes that make it "
+                "reachable in game.\n\n"
+                f"That is {recipe.summary}, and "
+                f"{candidate.pack.asset_count} artwork packages.\n\n"
+                "It is switched off. Tick it and Save Mod List when you are ready - "
+                "it layers with your other mods and unticking it puts everything "
+                "back.\n\n"
+                "You do not need to run the pack's own installer as well. Doing "
+                "both would not break anything, but the manager rebuilds "
+                "masters.db from your mod list, so its changes would be replaced "
+                "by these next time you save.",
+            )
+        elif candidate.kind == KIND_ASSET_FOLDER and (
             (candidate.source / "catalog.json").is_file()
             or (candidate.source / "installer.py").is_file()
         ):
+            # A content pack we could not match to a recorded recipe, or someone
+            # else's pack entirely. The artwork is in; the database half still
+            # has to go the long way round.
+            why = candidate.warnings[0] if candidate.warnings else (
+                "This pack also changes masters.db (items, quests, drop pools). "
+                "That part is done by the pack's own installer, which this "
+                "manager does not have a recorded copy of."
+            )
             QMessageBox.information(
                 self,
                 "This pack also changes the database",
-                "The game files have been added as a mod.\n\n"
-                "This pack also changes masters.db (items, quests, drop pools). "
-                "That part is done by the pack's own installer, which this "
-                "manager cannot read.\n\n"
+                f"The game files have been added as a mod.\n\n{why}\n\n"
                 "First: tick the files mod you just added and Save Mod List - "
                 "before running the pack's installer, so the manager keeps track "
                 "of the model files.\n\n"

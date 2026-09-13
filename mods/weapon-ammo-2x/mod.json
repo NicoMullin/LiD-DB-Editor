@@ -1,0 +1,18 @@
+{
+  "id": "weapon-ammo-2x",
+  "name": "Weapon Spare Ammo x2",
+  "description": "Every gun carries 2 times as much spare ammo.",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "game_version": "5.0.3.0.0 - 1.87",
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "description": "spare x2 on 117 row(s)",
+      "sql": "UPDATE master_part SET spare = spare * 2 WHERE type = 'PTTP_ARM' AND spare > 0;"
+    }
+  ]
+}

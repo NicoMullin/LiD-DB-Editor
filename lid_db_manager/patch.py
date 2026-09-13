@@ -15,11 +15,13 @@ step (see asset_runner) once the database transaction has committed.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import exe_checksums, vetted
 from .asset_runner import forbidden_target_reason
 from .errors import ApplyError, ModLoadError, ValidationError
 from .sqlutil import (
@@ -28,10 +30,13 @@ from .sqlutil import (
     count_where,
     has_rowid,
     if_not_exists,
+    inserts_already_present,
     is_transaction_control,
     parse_row_scope,
     quote_ident,
+    row_already_there,
     rows_matching,
+    sha256_file,
     split_statements,
     table_exists,
     tables_created_by,
@@ -201,6 +206,21 @@ class Patch:
                 f"table {table!r} has no column(s) {', '.join(sorted(missing))} "
                 f"(it has: {', '.join(existing)})",
             )
+
+
+def _statement_gist(statement: str, width: int = 110) -> str:
+    """The part of a statement worth showing in an error.
+
+    Comments come through attached to the statement that follows them, and a
+    generated .sql file starts with a header, so a plain truncation of the
+    first statement is a screenful of title and nothing about what failed.
+    """
+    lines = [
+        line for line in statement.splitlines()
+        if line.strip() and not line.lstrip().startswith("--")
+    ]
+    gist = " ".join(" ".join(lines).split()) or " ".join(statement.split())
+    return gist[:width] + ("..." if len(gist) > width else "")
 
 
 class UpdateSetPatch(Patch):
@@ -534,7 +554,7 @@ class RawSqlPatch(Patch):
                 try:
                     scratch.execute(if_not_exists(statement))
                 except sqlite3.Error as exc:
-                    short = " ".join(statement.split())[:90]
+                    short = _statement_gist(statement)
                     raise ValidationError(
                         mod_id, f"SQL is not valid ({exc}) in: {short}"
                     ) from exc
@@ -552,10 +572,22 @@ class RawSqlPatch(Patch):
                 try:
                     compile_only(con, if_not_exists(statement))
                 except sqlite3.Error as exc:
-                    short = " ".join(statement.split())[:90]
+                    short = _statement_gist(statement)
                     raise ValidationError(mod_id, f"SQL is not valid ({exc}) in: {short}") from exc
 
         warnings: list[str] = []
+        # Content a mod adds can already be in the database - most often because
+        # the same thing was installed by its own installer first. That is not a
+        # problem and the apply will go through, but it explains why saving
+        # changes nothing, so it is worth saying before it looks like a fault.
+        checked, present = inserts_already_present(con, statements)
+        if checked and present == checked:
+            warnings.append(
+                f"{self.source_label()}: everything it adds is already in your "
+                "database - something else appears to have installed this content "
+                "already. Applying it is harmless and puts it under the manager's "
+                "control, but nothing will visibly change."
+            )
         relaxed = sum(1 for s in statements if if_not_exists(s) != s)
         if relaxed:
             warnings.append(
@@ -666,6 +698,72 @@ class RawSqlPatch(Patch):
         )
         return DiffPreview(self.summary(), ", ".join(tables) or "(unknown)", len(rows), rows, note)
 
+    @staticmethod
+    def _why(con: sqlite3.Connection, statement: str, exc: sqlite3.Error) -> str:
+        """Plain words for a failure whose cause we can actually establish.
+
+        Only ever added to a message. If the reason cannot be shown to be true,
+        nothing is said - a confident wrong explanation is worse than a raw
+        SQLite error, because it sends people off fixing the wrong thing.
+        """
+        if not isinstance(exc, sqlite3.IntegrityError):
+            return ""
+        try:
+            already = row_already_there(con, statement)
+        except sqlite3.Error:
+            return ""
+        if already:
+            return (
+                " - this row is already in your database, so this content looks "
+                "like it was installed another way first; restoring the database "
+                "to vanilla before enabling this mod would clear that up"
+            )
+        if "FOREIGN KEY" in str(exc).upper():
+            return (
+                " - a row this depends on is missing, so the mods above it in the "
+                "load order may not have been applied"
+            )
+        return ""
+
+    # An UPDATE whose SET clause is a list of "column = <simple expression>".
+    # Simple means: no commas and no brackets, so splitting on commas cannot
+    # cut an expression in half. Anything more involved is left unresolved.
+    _PLAIN_UPDATE = re.compile(
+        r"^UPDATE\s+(?:OR\s+\w+\s+)?(?P<table>\"[^\"]+\"|[A-Za-z_]\w*)\s+SET\s+"
+        r"(?P<sets>[^;()]+?)(?:\s+WHERE\s+[^;]+)?;?$",
+        re.IGNORECASE | re.DOTALL,
+    )
+    _ASSIGNMENT = re.compile(r"^\s*(\"[^\"]+\"|[A-Za-z_]\w*)\s*=\s*[^,()]+$")
+
+    def resolved_targets(self) -> set[tuple[str, str]] | None:
+        """(table, column) pairs this writes, or None when it cannot be told.
+
+        Raw SQL is normally treated as writing a whole table, because it can do
+        anything. But the common shape by far is a handful of plain UPDATEs,
+        and for those the columns are readable - which lets two mods that touch
+        the same rows in different columns stop being reported as a conflict.
+
+        Conservative on purpose: anything that is not a plain UPDATE with a
+        plain SET clause gives up and returns None, and the caller falls back
+        to treating the whole table as written.
+        """
+        found: set[tuple[str, str]] = set()
+        statements = [s for s in self.statements() if _statement_gist(s).strip()]
+        if not statements:
+            return None
+        for statement in statements:
+            text = " ".join(_statement_gist(statement, width=10_000).split())
+            match = self._PLAIN_UPDATE.match(text)
+            if not match:
+                return None
+            table = match.group("table").strip('"')
+            for assignment in match.group("sets").split(","):
+                column = self._ASSIGNMENT.match(assignment)
+                if not column:
+                    return None
+                found.add((table, column.group(1).strip('"')))
+        return found or None
+
     def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
         changed = 0
         for statement in self.statements():
@@ -675,9 +773,11 @@ class RawSqlPatch(Patch):
             try:
                 cursor = con.execute(statement)
             except sqlite3.Error as exc:
-                short = " ".join(statement.split())[:90]
+                short = _statement_gist(statement)
                 raise ApplyError(
-                    mod_id, f"{self.source_label()} failed ({exc}) in: {short}"
+                    mod_id,
+                    f"{self.source_label()} failed ({exc}){self._why(con, statement, exc)}"
+                    f" in: {short}",
                 ) from exc
             if cursor.rowcount and cursor.rowcount > 0:
                 changed += cursor.rowcount
@@ -881,12 +981,131 @@ class AssetFilePatch(Patch):
         return PatchResult(rows_changed=0)
 
 
+class ExeChecksumPatch(Patch):
+    """Change one hash in the game executable's table of expected file hashes.
+
+    The game carries a SHA-1 for most of its own packages and refuses one that
+    does not match. A mod replacing a listed package therefore cannot work
+    unless that hash is updated too - which is a real need, and also exactly
+    what someone would want in order to slip a modified file past the check.
+
+    So this patch takes no hashes, no package name and no target. It takes the
+    name of a recording that ships with the manager, and everything else comes
+    from there. An unknown name does not load::
+
+        {"type": "exe_checksum_entry", "recipe": "exe-buttons-1.2"}
+
+    The edit itself is twenty bytes inside a resource, and ``exe_checksums``
+    proves after every one that the length is unchanged, that nothing outside
+    those bytes moved, and that the executable's code section still hashes to
+    what it did. See vetted.py for why this is a list and not a capability.
+    """
+
+    type = "exe_checksum_entry"
+
+    def __init__(self, data: dict, mod_dir: Path, index: int):
+        super().__init__(data, mod_dir, index)
+        label = f"patch #{index + 1} (exe_checksum_entry)"
+        name = str(data.get("recipe") or "").strip()
+        if not name:
+            raise ModLoadError(mod_dir.name, f"{label} needs a 'recipe' name")
+        for rejected in ("package", "checksum_before", "checksum_after", "target"):
+            if rejected in data:
+                raise ModLoadError(
+                    mod_dir.name,
+                    f"{label} may not set {rejected!r} - everything about the change "
+                    "comes from the named recording, which is the point of it",
+                )
+        try:
+            self.recipe = vetted.exe_recipe(name)
+        except vetted.VettedError as exc:
+            raise ModLoadError(mod_dir.name, f"{label} {exc}") from None
+        self.recipe_name = name
+
+    # -- hooks -------------------------------------------------------------
+
+    def summary(self) -> str:
+        return (
+            f"{self.description or self.recipe.summary}: updates the game's expected "
+            f"hash for {self.recipe.package}"
+        )
+
+    def tables(self) -> set[str]:
+        return set()
+
+    def targets(self) -> set[tuple[str, str]]:
+        return set()
+
+    def asset_targets(self) -> set[str]:
+        # Declared so two mods changing the executable read as a conflict.
+        return {self.recipe.target}
+
+    def validate(self, con: sqlite3.Connection, mod_id: str) -> list[str]:
+        # The replacement package has to be in the mod beside this patch: the
+        # hash being written is that file's, so without it the game would be
+        # told to expect something that is not there.
+        supplied = self._supplied_package()
+        if supplied is None:
+            raise ValidationError(
+                mod_id,
+                f"this mod updates the game's hash for {self.recipe.package} but does "
+                "not contain that file - the two only make sense together",
+            )
+        actual = sha256_file(supplied)
+        if actual != self.recipe.asset_sha256:
+            raise ValidationError(
+                mod_id,
+                f"the {self.recipe.package} in this mod is not the one the recording "
+                f"was made from (it hashes to {actual[:12]}..., expected "
+                f"{self.recipe.asset_sha256[:12]}...)",
+            )
+        return [
+            "changes one hash inside the game executable so the game accepts "
+            f"{self.recipe.package}; the executable's code is not changed"
+        ]
+
+    def _supplied_package(self) -> Path | None:
+        """The replacement package inside this mod folder, if it is there."""
+        wanted = self.recipe.package.lower()
+        for found in self.mod_dir.rglob("*"):
+            if found.is_file() and found.name.lower() == wanted:
+                return found
+        return None
+
+    def snapshot_specs(self, con: sqlite3.Connection) -> list[SnapshotSpec]:
+        return []
+
+    def preview(self, con: sqlite3.Connection) -> DiffPreview:
+        return DiffPreview(
+            rows=[DiffRow(
+                key=self.recipe.target,
+                before=f"expects {self.recipe.package} to hash to "
+                       f"{self.recipe.checksum_before[:12]}...",
+                after=f"expects {self.recipe.checksum_after[:12]}...",
+            )],
+            note="Twenty bytes in a table of file hashes. No code is changed.",
+        )
+
+    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+        # Nothing happens in the database transaction; the asset runner carries
+        # this out after it commits, like every other game-file change.
+        return PatchResult(rows_changed=0)
+
+    def transform(self, original: bytes) -> bytes:
+        """The executable's bytes with this one hash changed."""
+        return exe_checksums.apply_entry(
+            original, self.recipe.package,
+            self.recipe.checksum_before, self.recipe.checksum_after,
+        )
+
+
 _PATCH_TYPES: dict[str, type[Patch]] = {
     UpdateSetPatch.type: UpdateSetPatch,
     TextReplacePatch.type: TextReplacePatch,
     RawSqlPatch.type: RawSqlPatch,
     RawSqlFilePatch.type: RawSqlFilePatch,
     AssetFilePatch.type: AssetFilePatch,
+    ExeChecksumPatch.type: ExeChecksumPatch,
 }
 
 PATCH_TYPE_NAMES = tuple(sorted(_PATCH_TYPES))

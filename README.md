@@ -29,14 +29,28 @@ program file is ever added to the game.
 - **Survives game updates.** It watches the database and, when the game replaces
   it, re-applies your enabled mods automatically.
 - **Shows you the change.** A diff panel lists the actual rows a mod will
-  rewrite, before and after, before you commit to it.
+  rewrite, before and after, before you commit to it — and an **In plain
+  English** tab says what that means, using the game's own names and wording.
+- **Lets you build your own, without SQL.** An editor over a clean copy of the
+  database, grouped into the parts people actually mod, with every column
+  labelled by what it means. Change the numbers, press save, get a mod.
 - **Takes mods however they arrive.** Drag a `.sql`, a mod folder or a `.zip`
   onto the window. Hand it somebody else's already-modded `masters.db` and it
   works out the difference and turns that into a mod you can switch off again.
 - **Handles game files too.** Mods that ship new models and artwork as `.upk`
   files are copied into the game while switched on and taken back out when
-  switched off — including packs like Crossover Content that have their own
-  installer.
+  switched off.
+- **Installs the Crossover Content pack in one drop.** Artwork and the database
+  changes that make it reachable go in together as a single mod you can switch
+  off again — no running its installer, no swapping `masters.db` by hand.
+- **Handles artwork the game checks.** Most packages carry a checksum inside the
+  game executable, so replacing one normally fails. For a short, hand-vetted list
+  of mods the manager updates that one value too — twenty bytes of data, no code,
+  fully reversible — and refuses to do it for anything not on the list.
+- **Notices when a mod was built for another game version.** A mod can record
+  the build it was made against; if your database is a different one, you are
+  told before you save. It still applies — most do work across a patch — but a
+  mismatch that would otherwise only show up in game stops being invisible.
 - **Lets you decide who wins.** Mods apply in a load order you control, so a
   small tweak can override one value from a huge rework and leave the rest.
 - **Keeps blunt mods from trampling careful ones.** A mod marked
@@ -46,8 +60,16 @@ program file is ever added to the game.
 
 It is fully offline: no network calls of any kind, no telemetry, and no Steam
 integration. It writes the `masters.db` you point it at, plus any game files a
-mod ships — normally `.upk` files in `BrgGame\CookedPCConsole\`. It never
-writes program files (`.exe`, `.dll` and the like) anywhere.
+mod ships — normally `.upk` files in `BrgGame\CookedPCConsole\`.
+
+**No mod can add a program file** (`.exe`, `.dll` and the like) anywhere, and no
+mod can change the game's code. There is exactly one thing it will change inside
+`BrgGame-Steam.exe`: a single file checksum, twenty bytes in a data table, for
+mods that replace artwork the game verifies. It is checked before and after that
+the executable's code section is byte-for-byte unchanged, it is backed up and
+fully reversible, and it only ever happens for changes recorded in this
+repository by hand — never at a mod's request. See
+[Mods that need a change to the game executable](#mods-that-need-a-change-to-the-game-executable).
 
 ## Requirements
 
@@ -130,22 +152,64 @@ away.
 
 ## Mods included
 
-Four, in `mods/`, each with its own `readme.md`.
+Eighteen, in `mods/`, each with its own `readme.md`.
 
-| Mod                     | What it does                                             |
-|-------------------------|----------------------------------------------------------|
-| `revive-cost-1kc`       | Every grade's revive costs 1 Kill Coin                   |
-| `body-prices-1kc`       | Every fighter tier unlock costs 1 Kill Coin              |
-| `nitro-boost-100000pct` | Nitro Boost and Turbo-charged Engine give 100,000% EXP   |
-| `nitro-boost-text`      | Makes those two skill descriptions say 100,000% to match |
+### Costs and rewards
+
+| Mod                     | What it does                                            |
+|-------------------------|---------------------------------------------------------|
+| `revive-cost-1kc`       | Every grade's revive costs 1 Kill Coin                  |
+| `body-prices-1kc`       | Every fighter tier unlock costs 1 Kill Coin             |
+| `nitro-boost-100000pct` | Nitro Boost and Turbo-charged Engine give 100,000% EXP, and their descriptions say so |
+| `decal-cost-25k` / `-10k` / `-5k` | The Mushroom Club's 50,000 KC decals cost that instead |
+| `tdm-rewards-2x` / `-5x` / `-10x` | Every Kill Coin and SP payout from Tokyo Death Metro, multiplied |
+
+### Space
+
+| Mod              | What it does                                       |
+|------------------|----------------------------------------------------|
+| `bank-limit-10x` | Both banks hold ten times as much, all 99 levels   |
+| `reward-box-250` | The reward box holds 250 instead of 50             |
+| `storage-10000`  | The Coin Locker expands to 10,000 instead of 2,000 |
+
+### Durability and ammo
+
+| Mod                    | What it does                                       | Rows |
+|------------------------|----------------------------------------------------|------|
+| `weapon-durability-2x` | Every weapon lasts twice as long                   |  385 |
+| `weapon-durability-5x` | Every weapon lasts five times as long              |  385 |
+| `armor-durability-2x`  | Every piece of armour lasts twice as long          |  979 |
+| `armor-durability-5x`  | Every piece of armour lasts five times as long     |  979 |
+| `weapon-ammo-2x`       | Every gun carries twice as much spare ammo         |  117 |
+| `weapon-magazine-2x`   | Every gun holds twice as many rounds per magazine  |  160 |
+
+The x2 and x5 versions of the same thing are **alternatives** — pick one. Each
+names the other in `conflicts_with`, so the manager warns if you tick both.
+Mixing across the groups is fine: weapon durability, armour durability, ammo
+and magazine all write different columns and the manager knows it.
+
+These multiply rather than set a number, so they are marked `"apply": "diff"` —
+the manager measures them against an untouched copy of the database every time,
+and saving twice can never turn x2 into x4.
+
+Two weapon families have a magazine but no reserve ammo at all — rocket
+launchers, flame wands, the Red Hot Iron line. Everything they will ever fire
+sits in the magazine, so `weapon-ammo-2x` does nothing for them and
+`weapon-magazine-2x` doubles their entire supply.
+
+Where a mod comes in several strengths — decals, TDM rewards, and the
+durability pairs above — they are **alternatives**. Each names the others in
+`conflicts_with`, so the manager warns if you tick more than one.
 
 Two caveats worth knowing before you enable them:
 
 - `revive-cost-1kc` — you are charged 1 KC, but the price on the sign held up
   in-game is part of a **texture**, not the database, so it still shows the old
   number. Matching it means replacing that texture yourself.
-- `nitro-boost-text` — covers English, German, Spanish, French, Italian and
-  Portuguese. Japanese, Chinese and Korean keep the stock wording.
+- `nitro-boost-100000pct` — its description rewrite covers English, German,
+  Spanish, French, Italian and Portuguese. Japanese, Chinese and Korean keep
+  the stock wording. That half is a separate patch inside the mod, so you can
+  untick it and keep the number change on its own.
 
 ## Adding mods
 
@@ -286,21 +350,103 @@ them; if one does, it shows in the list as broken, with the reason.
 
 The community **LET IT DIE Crossover Content** pack restores cut crossover
 content — decals in the Mushroom Club pool, blueprint quests, and the models
-and artwork that go with them. It has **two halves**, and the manager handles
-each one differently:
+and artwork that go with them.
 
-- **Model files** — the `.upk` in its `assets` folder. The manager reads these
-  straight from the folder.
-- **Database changes** — new items, quests and drop pool entries. These are
-  made by the pack's own installer, which the manager cannot read. So you let
-  the installer make them once, keep the result, and turn *that* into a mod.
+It has **two halves**, and both have to arrive or nothing shows up in game:
 
-You end up with two mods: one for the files, one for the database. Two
-checkboxes also make it easy to see that each half really loaded.
+- **Artwork** — the 234 `.upk` packages in its `assets` folder.
+- **Database changes** — the decal-pool entries and blueprint quests that make
+  that artwork reachable. Without them the artwork sits in the game unused.
 
-### Which download you need
+**Drag the pack's folder onto the window.** The manager recognises it and adds
+both halves as one mod. That is the whole procedure.
 
-The pack comes as two downloads:
+You do not need to run the pack's own installer, and you should not. The
+manager rebuilds `masters.db` from your mod list every time you save, so
+anything written to the game from outside that list is replaced the next time
+you tick something. That is why the two tools used to undo each other, and why
+the content has to be a mod in the list to survive.
+
+### Getting it
+
+1. Go to **<https://letitdiemods.pages.dev/>**
+2. Download **LET IT DIE Mod Manager v1.2**. That one download carries both
+   the Crossover Content pack *and* the Colored PlayStation Buttons mod.
+3. Open the ZIP and pull out the two folders inside it: **`crossover`** and
+   **`buttons`**.
+4. Drag each one onto the DB editor window **separately**. Each installs as its
+   own mod.
+
+You do not need Python, and you do not need to run anything in that download.
+Only the artwork is taken out of it, so once both mods are installed you can
+delete the ZIP and the extracted folders if you want the space back.
+
+`buttons` is a different mod with different rules — it replaces artwork the
+game checksums, so it also updates one value inside the executable. See
+[Mods that need a change to the game executable](#mods-that-need-a-change-to-the-game-executable).
+That is why the two are dragged in separately rather than as one drop.
+
+**If you drag the whole extracted folder instead**, the manager looks one level
+down, finds the crossover pack and installs that — then tells you the buttons
+mod was in there too and to drop it on its own. Nothing is taken silently.
+
+### Where the database changes come from
+
+They ship with the manager, recorded from the pack's own installer: run against
+a clean `masters.db`, the difference measured, and the recording replayed and
+checked against the installer's own result before it was kept. For v3.74 that
+is 476 added rows and 120 changed ones across 16 tables, and nothing deleted.
+
+The 120 changed rows are not edits to the pack's content — they switch on
+collab items the game already shipped but left hidden on PC.
+
+The artwork itself is **not** redistributed here. It comes from the download
+above, from its author.
+
+### Version checking
+
+A recording only fits the release it was made from, so the manager fingerprints
+the pack before using one. If the pack's `catalog.json` does not match what was
+recorded — a newer release, or a repackaged copy — it says so and installs the
+artwork on its own instead of guessing. Writing rows that do not match the
+artwork would not produce an error; it would produce invisible or
+wrong-textured gear, which is worse.
+
+If that happens, either wait for a manager update, or use
+[the long way round](#the-long-way-round) below.
+
+There is a second version involved: **the game's**. A recording is a set of
+changes measured against one build of `masters.db`, and the game does get
+patched. Each recording notes the build it came from, the mod carries that
+forward, and validation compares it against your database — see
+[Mods built for a different game version](#mods-built-for-a-different-game-version).
+
+### Once it is in
+
+Tick it and click **Save Mod List**. From there it behaves like any other mod:
+it layers with the rest, it appears in the **In plain English** tab, it
+conflict-checks against your other mods, and unticking it puts the database
+back and takes the artwork out of the game.
+
+Start the game. Decals come through the **Mushroom Club** draw pool — they are
+not handed to you — and the blueprint quests appear at the normal quest
+interface.
+
+### Credit
+
+The Crossover Content pack is **by S3er0i9ng**, not by me, and is not part of
+this manager. The artwork is theirs and is not redistributed here — only a
+recording of the database changes, with their permission.
+
+Get the pack itself from **<https://letitdiemods.pages.dev/>**.
+
+### The long way round
+
+Only needed when the manager does not recognise your version of the pack. It
+produces two mods instead of one — you let the pack's installer make the
+database changes once, keep the result, and turn *that* into a mod.
+
+The pack comes as two downloads, and for this route you may need both:
 
 | You have                 | Download                                                                                                                               |
 |--------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
@@ -309,7 +455,7 @@ The pack comes as two downloads:
 
 Unzip whichever you downloaded before going on.
 
-### Part 1 — the model files
+#### Part 1 — the model files
 
 1. Drag the **No-EXE folder** onto the DB editor window — the folder that has
    `assets` and `catalog.json` directly inside it.
@@ -332,7 +478,7 @@ place and never keeps track of them — so turning the mod off later would leave
 them behind. Saving first means the manager put them there, so it can take
 them away again.
 
-### Part 2 — the database changes
+#### Part 2 — the database changes
 
 The pack's installer does not work on a loose file: you point it at the game
 folder, and it edits the real `masters.db` in place. So the trick is to back
@@ -381,14 +527,116 @@ the edited file, and then put the vanilla one back.
 9. Click **Add mods**, tick **`Crossover Content Database`**, and click
    **Save Mod List**.
 
-Start the game. Decals come through the **Mushroom Club** draw pool — they are
-not handed to you — and the blueprint quests show up at the normal quest
-interface. You can delete the two copies on your Desktop afterwards; the
-manager keeps its own untouched copy as `masters.db.original`.
+You can delete the two copies on your Desktop afterwards; the manager keeps its
+own untouched copy as `masters.db.original`.
 
 **From now on, switch it on and off in the DB editor**, not with the pack's
 own installer. Untick both mods and save, and the database goes back to how it
 was and the model files are taken out of the game.
+
+### Recording a new release (maintainers)
+
+When the pack puts out a new version, `tools/build_crossover_recipe.py` records
+it — it runs the pack's own installer against the vanilla database, diffs the
+result, verifies the recording reproduces that result exactly, and writes the
+recipe plus its fingerprint into `lid_db_manager/recipes/`:
+
+```
+py -3 tools/build_crossover_recipe.py --pack "C:\...\LetItDieCrossoverContent-v3.75-Source-NoEXE"
+```
+
+Nothing is written if the verification fails. Players never run this.
+
+## Mods that need a change to the game executable
+
+Some artwork cannot be replaced by copying a file over it, because the game
+checks. `BrgGame-Steam.exe` carries a SHA-1 for most of its own data — on the
+build this was written against, **7,678 of the 7,882 packages on disk**, plus
+221 `.ini` and 139 `.usf` files. Replace a listed file and the game refuses it.
+
+Most artwork mods never run into this. The 204 packages the table does *not*
+list are equipment added after the table was built, which is why the Crossover
+Content pack installs without any of this — 201 of its files are unlisted, and
+the 33 that are listed it ships byte-identical to the originals.
+
+The **Colored PlayStation Buttons** mod, also **by S3er0i9ng**
+(<https://letitdiemods.pages.dev/>), is the other case. It replaces
+`UI_ButtonGuide_STM_SF.upk`, which *is* listed, so the game has to be told the
+new hash or the replacement does nothing. As with the content pack, the mod
+itself is not redistributed here — download it from them.
+
+### Getting it
+
+It is in the same download as the Crossover Content pack: **LET IT DIE Mod
+Manager v1.2** from <https://letitdiemods.pages.dev/>. Open the ZIP and pull out
+the **`buttons`** folder.
+
+### How the manager handles it
+
+Drop that folder on the window. It is recognised, and goes in as one mod
+holding both halves: the replacement package, and the one hash the game keeps
+for it.
+
+Unticking it puts the executable back byte for byte.
+
+### What actually changes
+
+Twenty bytes, inside a table of file hashes. No program code.
+
+That is not a promise, it is a check. The executable has a code section with a
+fingerprint of its own, and every edit is verified before it is allowed to
+count:
+
+- the file's length is unchanged,
+- every byte outside those twenty is identical,
+- the code section hashes to exactly what it did before,
+- and the entry now holds the replacement package's real hash.
+
+If any of those fail, nothing is written. The same code refuses a package the
+table does not list, a package listed twice (228 names really are), a hash that
+is not what the recording expected — which means a different game build, or an
+executable something else already changed — and a malformed recording.
+
+### Only recordings that ship with the manager
+
+This is deliberately not a thing mods can do. A mod cannot name a package and a
+pair of hashes; it can only name a recording that ships here:
+
+```json
+{ "type": "exe_checksum_entry", "recipe": "exe-buttons-1.2" }
+```
+
+An unknown name does not load:
+
+> `'exe-made-up' is not a recording this manager ships, so it will not be
+> carried out. Changes to the game executable are limited to recordings that
+> ship with the manager.`
+
+A mod that tries to supply its own `package`, `checksum_before`,
+`checksum_after` or `target` alongside the name is refused too. Everything
+about the change comes from the recording, which is the point of it.
+
+Each recording lives in `lid_db_manager/recipes/` as two committed files: the
+recording itself, and the exact `mod.json` that gets installed. Neither is
+generated at install time — what runs on a player's machine is a file in this
+repository that can be read and diffed.
+
+### Adding a recording (maintainers)
+
+Recording one is deliberately a change to this repository. `tools/build_buttons_recipe.py`
+reads the mod folder and a real game executable, checks the mod's own manifest
+against what the executable actually holds, performs the edit in memory to prove
+it works and is reversible, and only then writes the two files:
+
+```
+py -3 tools/build_buttons_recipe.py --mod "C:\...\buttons" --game "E:\...\LET IT DIE"
+```
+
+The executable is opened read-only and never written. Nothing is recorded if
+any check fails. Then look both files over and commit them — that is what makes
+the recording vetted, and it is the only step that cannot be automated.
+
+Players never run this.
 
 ## Editing a mod
 
@@ -412,6 +660,56 @@ It refuses outright if the file came from a different game version — a databas
 missing a vanilla table, or with different columns in one. That difference
 would read as "undo the developers' changes", and applying it would quietly
 roll the game back.
+
+## Mods built for a different game version
+
+A mod made by diffing a database is a set of changes measured against **one
+build of the game**. LET IT DIE gets patched, and when it does, most of those
+changes still land exactly as intended — rows are addressed by name, not by
+position, and a patch rarely touches the same ones.
+
+But when one *doesn't* fit, nothing fails. The mod applies, the save succeeds,
+and something is quietly wrong in game. That is the worst shape a problem can
+take, so the manager says something instead of leaving you to find out.
+
+### How it knows
+
+`masters.db` carries its own build number:
+
+```
+master_const_str.TITLE_VERSION  ->  "5.0.3.0.0 - 1.87"
+```
+
+A mod can record the build it was made against in its `mod.json`:
+
+```json
+{ "game_version": "5.0.3.0.0 - 1.87" }
+```
+
+When both are present and they differ, validation adds a warning naming each:
+
+> built for game 5.0.3.0.0 - 1.87, but your database is 5.0.2.0.0 - 1.86. It
+> will still apply, and usually that is fine — but if the update changed
+> anything this mod touches, the result will be wrong in game rather than
+> reported here.
+
+### A warning, not a refusal
+
+Deliberately. A mod built on the previous build usually works perfectly, and
+refusing would block mods that are fine. The point is that the mismatch stops
+being invisible, not that it stops being allowed.
+
+Two things stay quiet rather than guessing: a mod that records no build, and a
+database that does not report one. Neither is treated as a mismatch.
+
+### If you write mods
+
+Add `game_version` to your `mod.json` when you build one by diffing — the value
+is whatever your database's `TITLE_VERSION` says. It costs nothing, and it means
+anyone on a later build gets told rather than surprised.
+
+Mods that ship with the manager and are recorded from a content pack get it
+filled in automatically, from the baseline the recording was taken against.
 
 ## Load order
 
@@ -466,6 +764,85 @@ backup — it is what the watchdog calls when the game replaces `masters.db`
 after an update. Skipping the backup is deliberate: an automatic re-apply must
 never quietly rotate your good backups away.
 
+## Seeing what a mod does, in plain English
+
+Select a mod and open the **In plain English** tab. Instead of rows and column
+names, it says what the mod changes:
+
+```
+Buffalo Bank (Kill Bank) upgrades
+The store in your Waiting Room that holds your Kill Coins.
+ • Doubles the most Kill Coins it can hold, for levels 1-99.
+     for example, level 1: 50,000 KC → 100,000 KC
+```
+
+Most of it comes from the game itself. Skills, quests and fighter types are
+named from the game's own text, so a mod touching `SKL_EXPUP_02` reads as
+**Nitro Boost**. Where the game writes its own description — *"Increases EXP
+gained by 40%"* — the tab shows that description with the mod's new number
+filled in, which is the only honest way to describe a value that means
+something different on every row.
+
+Long lists are summarised rather than printed: 99 changed levels read as
+*"levels 1-99"*, and a mod that renames every floor reads as *"191 lines of
+text, in 8 languages"* rather than 1,528 rows.
+
+**It never guesses.** A column nobody has described yet is shown under its real
+name, with a note saying so. Some columns are described as *unused* — vanilla
+leaves them at zero on every single row — and ten whole tables are marked as
+left over from when the game was online, so the tab tells you editing them will
+not do anything rather than explaining them.
+
+It is careful about the difference between those ten and a table that is merely
+*empty*. The ten are named nowhere in the game's own executable, which is good
+evidence they are dead. Seven others simply have no rows in vanilla, which
+proves nothing about whether the game would read them — so those say exactly
+that, and leave the question open, rather than telling you not to bother.
+
+**All 221 tables are now described.** Every table in `masters.db` has a title,
+an explanation of what it is for, and plain-English meanings for the columns a
+mod is likely to touch. 155 are covered in full; the other 66 have their main
+columns described and the rarer ones still shown under their real names.
+
+| Area         | What is covered                                                                                      |
+|--------------|------------------------------------------------------------------------------------------------------|
+| Waiting Room | Buffalo Bank, SPLithium Tank, Freezer, Jail, decorations                                             |
+| Quests       | quests, rewards, categories, what each one checks for and the limits it enforces                     |
+| Gear         | weapons and armour, crafting and upgrading, ranks, rage moves, damage and knockback per attack       |
+| Items        | items, mushrooms and what eating them does, beasts, ammunition                                       |
+| Decals       | decals, the draw pool and its odds, caps on stacking, mushrooms that unlock them                     |
+| Fighters     | tiers, level EXP, stats by level, uncapping, weapon mastery, bodies, names, expert points            |
+| Death Metro  | ranks and payouts, the players you raid, team wars, base alarms, abduction                           |
+| The Hunter   | what a hunter brings back, by floor, by hour and by luck                                             |
+| Enemies      | Haters, Screamers, mid-bosses, stage bosses, the Four Forcemen, Jackals, small enemies, beasts       |
+| Stages       | the seven areas, their rooms and every spot things can be placed in                                  |
+| Floors       | what drops and at what level, materials, hazards, how floors join the elevator, the top of the Tower |
+| Pools        | mushrooms by season, beasts, items, treasure boxes, Mystery Bags, Death Boxes                        |
+| Rewards      | daily login bonuses, quest rewards, stamps, magazines, vouchers, Steam DLC                           |
+| Shops        | prices, where shops appear, the vending machine and its schedule                                     |
+| Presentation | game text, subtitles, the radio's tracks and channels, posters, the credits                          |
+| Left over    | ten tables the offline game never reads — it says so instead of describing them                      |
+
+### Describing more of the database
+
+The descriptions live in `lid_db_manager/explain_data.py`, one entry per table.
+You can also add your own without touching the program: put a
+`table-notes.json` next to your `mods` folder, in the same shape:
+
+```json
+{
+  "master_tdm_rank": {
+    "title": "Death Metro ranks",
+    "word": "rank",
+    "columns": { "point_min": ["the points needed to reach it", "pts"] }
+  }
+}
+```
+
+It is merged over the built-in descriptions when the manager starts. A broken
+file is ignored rather than fatal. If you are unsure what a column does, write
+"(not confirmed)" into the wording — saying so is better than a confident guess.
+
 ## When a change doesn't show up in game
 
 The manager tells you what it wrote to `masters.db`, and the Diff preview shows
@@ -484,6 +861,112 @@ Before assuming a mod is broken:
 - For anything shop-related, wait for the daily reset.
 - If you want to be certain, open `masters.db` in a SQLite browser and look at
   the rows directly.
+
+## Building a mod without writing any SQL
+
+**Tools → Build a mod** (Ctrl+B) opens an editor over a clean copy of the
+database. Pick a heading, pick a table, change the numbers, press **Save as
+mod**. No SQL, no table names to memorise, no text editor.
+
+The headings are the parts people actually ask about:
+
+|-------------------------------------|--------------------------------------------------------------------------|
+|-------------------------------------|--------------------------------------------------------------------------|
+| Weapons & Armour                    | craft and upgrade costs, stats, rank requirements                        |
+| Fighters                            | tier prices, level caps, Death Bag size, decal slots                     |
+| Items · Mushrooms · Beasts · Decals | prices, effects, where they appear, draw odds                            |
+| Vending machine                     | what it sells, for how much, on which day                                |
+| Quests · Rewards                    | what quests ask, what they pay, login bonuses, Mystery Bags              |
+| Enemies                             | Screamers, small enemies, mid-bosses, the Four Forcemen, Haters, Jackals |
+| Tokyo Death Metro                   | ranks and payouts, the players you raid, team wars                       |
+| Everything else                     | the other 170-odd tables, for when you know what you want                |
+
+### Two ways to look at anything
+
+Because one shape doesn't fit both kinds of table:
+
+- **As a list** — pick a weapon from the list, see everything about it on a
+  form. Right for tables where each row is a *thing*, and the only readable
+  option for the wide ones: a weapon has 90 columns, and no grid that wide is
+  worth looking at.
+- **As a table** — a grid, for the tables where each row is a *number in a
+  series*, like the bank's 99 levels, where you want to see the whole curve.
+
+It picks for you based on the table's shape, and the dropdown switches.
+
+Every column is labelled with what it *means* rather than its database name —
+"the cost to unlock it (KC)", not `price` — and the described ones are shown
+first, so the handful worth touching aren't buried behind ninety that aren't.
+Rows are named the same way: **All-rounder, grade 2**, not `BAL / 2 / 0`.
+
+### Item artwork
+
+The builder can show a picture beside each weapon, decal, material and
+blueprint. **None of it ships with this program.** The game's artwork belongs to
+Grasshopper Manufacture, not to this project and not to whoever extracted it, so
+there is none in this repository and none in any release.
+
+What it does instead: **Tools -> Set item artwork folder...** points it at a
+copy you already have on your own machine. If the folder carries an
+`icon_map.json` keyed by the game's own ids it uses that; otherwise it matches
+filenames, either the id (`pt_arm_wp001_002.png`) or the name
+(`battle_machete.png`). Blueprints borrow the picture of the gear they make.
+
+Leave it unset and everything works exactly as before, with no pictures.
+
+Pictures are scaled to 40px once and kept in `icon-cache/` so lists stay quick -
+about 2 KB each. That folder is yours, is never uploaded anywhere, and can be
+deleted at any time.
+
+### Stocking the vending machine
+
+Open the vending machine and there's an **Add things to the machine...** button.
+It opens a catalogue of everything the machine can sell — search it, tick what
+you want, choose a day, and optionally set a price.
+
+Three things it knows that you'd otherwise have to work out yourself:
+
+- **Blueprints have no names.** All 1,899 of them are called "RMAP" in the
+  game's text, so each is shown as *the weapon or armour it makes* — "Battle
+  Machete — blueprint" — which is what you'd actually search for. The
+  unidentified variants are marked as such.
+- **The day of the week is the tab.** `MON` through `SUN`, plus an always-in-
+  stock tab and the recycle tab, spelled out in words.
+- **The machine carries no price of its own.** Every price and discount column
+  is zero on all 315 vanilla rows, so what it charges is the *item's* price —
+  which is what setting a price here changes, everywhere that item is sold. The
+  window says so before you do it.
+
+It also copies the settings of whatever tab you're adding to, rather than asking
+you to pick a "currency type" whose meaning isn't recorded anywhere.
+
+Two things make bulk edits painless. **Set every shown row to...** applies one
+value to everything currently listed, and **Multiply by...** scales it — so
+"every revive costs 1 KC" or "double the bank at every level" is one action, not
+ninety-nine edits. Search first to narrow what "shown" means.
+
+### What it will not let you do
+
+- **Change a key column.** That would move the row rather than edit it.
+- **Type words into a number.** It says so, using the column's real meaning.
+- **Turn a whole number into a decimal.** Multiplying an integer column rounds,
+  because writing `75000.5` where the game expects a whole number is how you get
+  a crash instead of a mod.
+- **Wreck a list column.** `skill_slots` holds `1,2,3` — three open decal slots,
+  not the number three. Those columns are edited as text and say so.
+
+### It cannot produce a broken mod
+
+The editor never writes a mod file. It edits a scratch copy of your
+`masters.db.original`, and when you save, that copy goes through **exactly the
+same import path** as a modded database someone sends you. So it inherits
+validation, snapshots, load order, switchable parts and untick-to-undo — there
+is no second code path that could get any of it wrong.
+
+Your real database is never touched while you edit, and the scratch copy is
+deleted when you close the window. What you get is an ordinary mod, sitting in
+the list **switched off**, with its own diff and plain-English tab to check
+before you tick it.
 
 ## Making your own mods
 

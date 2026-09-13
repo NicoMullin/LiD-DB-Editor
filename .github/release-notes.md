@@ -46,6 +46,20 @@ sets. Switching off one part of a mod works the same way.
 change its description, write its readme. No text editor, no hunting for the
 folder.
 
+**A new "In plain English" tab.** Select a mod and it says what the mod
+actually changes, instead of listing rows and column names:
+
+> Doubles the most Kill Coins the Buffalo Bank can hold, for levels 1-99.
+
+Most of it comes from the game itself — skills, quests, items and fighter types
+are named from the game's own text, and where the game writes its own
+description the tab shows it with the mod's new number filled in. Long lists
+are summarised, so 99 changed levels read as "levels 1-99" rather than 99 rows.
+
+It never guesses: a column nobody has described yet is shown under its real
+name with a note saying so, and you can describe tables yourself by dropping a
+`table-notes.json` into the manager's folder.
+
 Safety: a mod can never copy program files (`.exe`, `.dll` and the like) or
 replace `masters.db` itself. Such a mod shows in the list as broken, with the
 reason.

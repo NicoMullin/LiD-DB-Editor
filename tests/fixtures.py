@@ -40,6 +40,63 @@ CREATE TABLE master_body_detail (
     id TEXT PRIMARY KEY,
     price INTEGER
 );
+-- Weapons and armour. The real table has ninety-odd columns; these are the
+-- ones the shipped mods read or write.
+CREATE TABLE master_part (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    type TEXT NOT NULL,
+    dur INTEGER NOT NULL DEFAULT 0,
+    dur_c REAL NOT NULL DEFAULT 1.0,
+    capacity INTEGER NOT NULL DEFAULT 0,
+    spare INTEGER NOT NULL DEFAULT 0,
+    atk INTEGER NOT NULL DEFAULT 0,
+    def INTEGER NOT NULL DEFAULT 0
+);
+-- The two banks: Kill Coins and SP. "limit" is a SQL keyword, which is
+-- exactly why the shipped mod quotes it.
+CREATE TABLE master_safe_level (
+    level INTEGER PRIMARY KEY,
+    price INTEGER NOT NULL DEFAULT 0,
+    "limit" INTEGER NOT NULL DEFAULT 0,
+    rob_limit INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE master_spirit_tank_level (
+    level INTEGER PRIMARY KEY,
+    price INTEGER NOT NULL DEFAULT 0,
+    "limit" INTEGER NOT NULL DEFAULT 0,
+    rob_limit INTEGER NOT NULL DEFAULT 0
+);
+-- Tokyo Death Metro. The _bag columns hold comma-separated odds, not amounts,
+-- which is why no mod multiplies them.
+CREATE TABLE master_tdm_rank (
+    id TEXT PRIMARY KEY,
+    idx INTEGER NOT NULL DEFAULT 0,
+    point_min INTEGER NOT NULL DEFAULT 0,
+    point_max INTEGER NOT NULL DEFAULT 0,
+    win_bns_spirit INTEGER NOT NULL DEFAULT 0,
+    win_bns_money INTEGER NOT NULL DEFAULT 0,
+    win_bns_bag TEXT NOT NULL DEFAULT '',
+    def_bns_spirit INTEGER NOT NULL DEFAULT 0,
+    def_bns_spirit_limit INTEGER NOT NULL DEFAULT 0,
+    def_bns_money INTEGER NOT NULL DEFAULT 0,
+    def_bns_money_limit INTEGER NOT NULL DEFAULT 0,
+    def_bns_bag TEXT NOT NULL DEFAULT '',
+    weekly_bns_spirit INTEGER NOT NULL DEFAULT 0,
+    weekly_bns_money INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE master_war_reward (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL DEFAULT '',
+    win_spirit INTEGER NOT NULL DEFAULT 0,
+    win_money INTEGER NOT NULL DEFAULT 0,
+    win_medal INTEGER NOT NULL DEFAULT 0,
+    win_mysterybag TEXT NOT NULL DEFAULT '',
+    lose_spirit INTEGER NOT NULL DEFAULT 0,
+    lose_money INTEGER NOT NULL DEFAULT 0,
+    lose_medal INTEGER NOT NULL DEFAULT 0,
+    lose_mysterybag TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE master_part_research (
     id TEXT PRIMARY KEY,
     init_waiting_minute INTEGER,
@@ -144,6 +201,54 @@ def build_db(path: Path) -> Path:
         con.executemany(
             "INSERT INTO master_body_detail (id, price) VALUES (?, ?)",
             [("BODY_01", 2000), ("BODY_02", 8000), ("BODY_03", 1)],
+        )
+        con.executemany(
+            "INSERT INTO master_part (id, name, type, dur, dur_c, capacity, spare, atk, def) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                # A melee weapon, a gun with a reserve, a gun without one,
+                # a piece of armour, and one of the empty-slot rows that the
+                # shipped mods deliberately leave alone.
+                ("PT_ARM_Machete", "PT_ARM.TXT_MACHETE", "PTTP_ARM", 500, 1.05, 0, 0, 120, 0),
+                ("PT_ARM_Magnum", "PT_ARM.TXT_MAGNUM", "PTTP_ARM", 800, 1.02, 6, 36, 400, 0),
+                ("PT_ARM_Rocket", "PT_ARM.TXT_ROCKET", "PTTP_ARM", 900, 1.00, 4, 0, 900, 0),
+                ("PT_BODY_Vest", "PT_BODY.TXT_VEST", "PTTP_BODY", 1200, 1.00, 0, 0, 0, 80),
+                ("PT_HEAD_Cap", "PT_HEAD.TXT_CAP", "PTTP_HEAD", 1100, 1.00, 0, 0, 0, 40),
+                ("PT_LEGS_Boots", "PT_LEGS.TXT_BOOTS", "PTTP_LEGS", 1000, 1.00, 0, 0, 0, 30),
+                ("PT_MASK_001", None, "PTTP_MASK", 1000, 1.00, 0, 0, 0, 0),
+            ],
+        )
+        con.executemany(
+            'INSERT INTO master_safe_level (level, price, "limit", rob_limit) '
+            "VALUES (?, ?, ?, ?)",
+            [(1, 0, 50000, 2000), (2, 1000, 60000, 2400), (99, 832000, 2560000, 128000)],
+        )
+        con.executemany(
+            'INSERT INTO master_spirit_tank_level (level, price, "limit", rob_limit) '
+            "VALUES (?, ?, ?, ?)",
+            [(1, 0, 50000, 2000), (2, 1000, 60000, 2400)],
+        )
+        con.executemany(
+            "INSERT INTO master_tdm_rank (id, idx, point_min, point_max, win_bns_spirit, "
+            "win_bns_money, win_bns_bag, def_bns_spirit, def_bns_spirit_limit, "
+            "def_bns_money, def_bns_money_limit, def_bns_bag, weekly_bns_spirit, "
+            "weekly_bns_money) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("TDM_RANK_01_01", 0, 0, 100, 800, 800, "0,0,0,100,100",
+                 1000, 10000, 1000, 10000, "0,0,0,0,100", 100, 100),
+                ("TDM_RANK_01_02", 1, 100, 300, 1000, 1000, "0,0,0,100,100",
+                 1300, 13000, 1300, 13000, "0,0,0,0,100", 120, 120),
+            ],
+        )
+        con.executemany(
+            "INSERT INTO master_war_reward (id, type, win_spirit, win_money, win_medal, "
+            "win_mysterybag, lose_spirit, lose_money, lose_medal, lose_mysterybag) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("WAR_RWD_ABDUCT_01", "abduct", 50000, 50000, 0, "", 25000, 25000, 0, ""),
+                ("WAR_RWD_DEFENCE_01", "defence", 50000, 50000, 0, "RAINBOW",
+                 25000, 25000, 0, ""),
+            ],
         )
         con.executemany(
             "INSERT INTO master_part_research "

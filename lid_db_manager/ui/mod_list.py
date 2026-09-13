@@ -7,10 +7,21 @@ from PySide6.QtGui import QBrush, QFont
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTreeWidget, QTreeWidgetItem
 
 from ..manager import Manager
+from ..vetted import GAME_EXE
 from .theme import STATUS_GLYPH, STATUS_KEY, STATUS_TEXT, status_color
 
 MOD_ID_ROLE = Qt.ItemDataRole.UserRole
 PATCH_KEY_ROLE = Qt.ItemDataRole.UserRole + 1
+
+EXE_TOOLTIP = (
+    "This mod changes the game executable.\n\n"
+    "It replaces artwork the game keeps a checksum for, so that one checksum has "
+    "to be updated or the game refuses the replacement. What changes is twenty "
+    "bytes in a table of file checksums - no program code, checked before and "
+    "after.\n\n"
+    "The executable is backed up, and unticking this mod puts it back byte for "
+    "byte. Only changes recorded in the manager's own recipes folder can do this."
+)
 
 
 def _affects(tables: list[str], asset_targets: list[str]) -> str:
@@ -18,6 +29,20 @@ def _affects(tables: list[str], asset_targets: list[str]) -> str:
     bits = list(tables)
     bits += [f"file: {target.rsplit('/', 1)[-1]}" for target in asset_targets]
     return ", ".join(bits) or "-"
+
+
+def _touches_executable(targets) -> bool:
+    return GAME_EXE in {str(t).replace("\\", "/") for t in targets}
+
+
+def _label(mod_id: str, name: str) -> str:
+    """"id - name", unless they are the same thing said twice.
+
+    A folder named after the mod gives both columns the same text, which reads
+    as a stutter rather than as information.
+    """
+    tidy = lambda text: "".join(c for c in text.lower() if c.isalnum())  # noqa: E731
+    return name if tidy(mod_id) == tidy(name) else f"{mod_id}  -  {name}"
 
 
 class ModListWidget(QTreeWidget):
@@ -82,9 +107,20 @@ class ModListWidget(QTreeWidget):
             )
             item.setText(0, str(order) if order else "")
             item.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            item.setText(1, f"{mod.id}  -  {mod.name}")
+            # A mod that changes the game executable says so wherever it is
+            # seen, not only in the box that appeared once when it was added.
+            # The check is on what the mod actually targets, so it cannot be
+            # opted out of by a mod that would rather not mention it.
+            marked = _touches_executable(mod.asset_targets())
+            label = _label(mod.id, mod.name)
+            item.setText(1, label + ("   [changes the game .exe]" if marked else ""))
             item.setText(2, f"{STATUS_GLYPH[status]} {STATUS_TEXT[status]}")
             item.setText(3, _affects(sorted(mod.tables()), mod.asset_targets()))
+
+            if marked:
+                item.setForeground(1, QBrush(status_color(self.dark, "pending")))
+                item.setToolTip(1, EXE_TOOLTIP)
+                item.setToolTip(3, EXE_TOOLTIP)
 
             color = status_color(self.dark, STATUS_KEY[status])
             item.setForeground(2, QBrush(color))

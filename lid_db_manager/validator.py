@@ -14,7 +14,7 @@ from pathlib import Path
 from .conflict import ConflictReport, analyze
 from .errors import ValidationError
 from .mod import Mod
-from .sqlutil import connect
+from .sqlutil import connect, database_game_version
 
 
 @dataclass
@@ -63,9 +63,40 @@ class ValidationReport:
         return f"Validated {total} mod(s) OK ({warnings} warning(s))"
 
 
+def game_version_warning(con: sqlite3.Connection, mod: Mod) -> str:
+    """Why this mod's game build and the database's differ, or "".
+
+    A mod is a set of changes measured against one build of the game. When the
+    game is patched, most of those changes still land exactly as intended - the
+    rows are addressed by name, and a patch rarely touches the same ones. But
+    when it does not fit, nothing raises: the mod applies, and something is
+    quietly wrong in game. So a mismatch is reported rather than assumed
+    harmless, and it is a warning rather than a refusal because the usual
+    outcome really is that it is fine.
+
+    Only mods that say which build they were made for are checked. A mod that
+    says nothing is not guessed about.
+    """
+    if not mod.game_version:
+        return ""
+    actual = database_game_version(con)
+    if not actual or actual == mod.game_version:
+        return ""
+    return (
+        f"built for game {mod.game_version}, but your database is {actual}. "
+        "It will still apply, and usually that is fine - but if the update "
+        "changed anything this mod touches, the result will be wrong in game "
+        "rather than reported here. Check what it does in the In plain English "
+        "tab, and look for a release built for your version."
+    )
+
+
 def validate_mod(con: sqlite3.Connection, mod: Mod) -> ModValidation:
     """Validate a single mod against an open, read-only connection."""
     result = ModValidation(mod_id=mod.id, warnings=list(mod.load_warnings))
+    mismatch = game_version_warning(con, mod)
+    if mismatch:
+        result.warnings.append(mismatch)
     for patch in mod.patches:
         try:
             result.patch_summaries.append(patch.summary())

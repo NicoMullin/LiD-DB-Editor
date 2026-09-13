@@ -1,0 +1,28 @@
+{
+  "id": "tdm-rewards-10x",
+  "name": "TDM Rewards x10",
+  "description": "Every Kill Coin and SP reward from Tokyo Death Metro is multiplied by 10.",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "game_version": "5.0.3.0.0 - 1.87",
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [
+    "tdm-rewards-2x",
+    "tdm-rewards-5x"
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "rank-bonuses",
+      "description": "master_tdm_rank rank bonuses x10 (15 ranks)",
+      "sql": "UPDATE master_tdm_rank SET win_bns_spirit = win_bns_spirit * 10, win_bns_money = win_bns_money * 10, def_bns_spirit = def_bns_spirit * 10, def_bns_money = def_bns_money * 10, def_bns_spirit_limit = def_bns_spirit_limit * 10, def_bns_money_limit = def_bns_money_limit * 10, weekly_bns_spirit = weekly_bns_spirit * 10, weekly_bns_money = weekly_bns_money * 10;"
+    },
+    {
+      "type": "raw_sql",
+      "id": "battle-rewards",
+      "description": "master_war_reward win/lose payouts x10 (48 rows)",
+      "sql": "UPDATE master_war_reward SET win_spirit = win_spirit * 10, win_money = win_money * 10, lose_spirit = lose_spirit * 10, lose_money = lose_money * 10;"
+    }
+  ]
+}

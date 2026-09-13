@@ -313,7 +313,35 @@ class ShippedModTests(unittest.TestCase):
         "revive-cost-1kc",
         "body-prices-1kc",
         "nitro-boost-100000pct",
-        "nitro-boost-text",
+        "weapon-durability-2x",
+        "weapon-durability-5x",
+        "armor-durability-2x",
+        "armor-durability-5x",
+        "weapon-ammo-2x",
+        "weapon-magazine-2x",
+        "bank-limit-10x",
+        "reward-box-250",
+        "storage-10000",
+        "decal-cost-25k",
+        "decal-cost-10k",
+        "decal-cost-5k",
+        "tdm-rewards-2x",
+        "tdm-rewards-5x",
+        "tdm-rewards-10x",
+    }
+
+    # Pairs that are the same change at two strengths. They are meant to
+    # collide - you pick one - and each declares the other in conflicts_with,
+    # so the manager warns instead of silently letting one win.
+    ALTERNATIVES = {
+        frozenset({"weapon-durability-2x", "weapon-durability-5x"}),
+        frozenset({"armor-durability-2x", "armor-durability-5x"}),
+        frozenset({"decal-cost-25k", "decal-cost-10k"}),
+        frozenset({"decal-cost-25k", "decal-cost-5k"}),
+        frozenset({"decal-cost-10k", "decal-cost-5k"}),
+        frozenset({"tdm-rewards-2x", "tdm-rewards-5x"}),
+        frozenset({"tdm-rewards-2x", "tdm-rewards-10x"}),
+        frozenset({"tdm-rewards-5x", "tdm-rewards-10x"}),
     }
 
     # Mods that may sit in a working copy but are not part of the repo: the
@@ -370,10 +398,36 @@ class ShippedModTests(unittest.TestCase):
     # which the shipped set deliberately does not have.
 
     def test_the_real_mods_do_not_conflict_with_each_other(self) -> None:
-        """Floor Material Names and nitro-boost-text share a table, not a row."""
+        """Apart from the x2/x5 pairs, which are alternatives on purpose."""
         report = self._analyze(self._real_mods())
-        self.assertEqual([c.message() for c in report.conflicts], [])
+        unexpected = [
+            c.message() for c in report.conflicts
+            if frozenset({c.first, c.second}) not in self.ALTERNATIVES
+        ]
+        self.assertEqual(unexpected, [])
         self.assertEqual([r.message() for r in report.missing_requirements], [])
+
+    def test_each_strength_pair_is_declared_as_a_conflict(self) -> None:
+        """Not just detected by row overlap - said out loud by the mod itself,
+        so the warning names the reason rather than a shared table."""
+        mods = {m.id: m for m in self._real_mods()}
+        for pair in self.ALTERNATIVES:
+            weak, strong = sorted(pair)
+            with self.subTest(pair=f"{weak}/{strong}"):
+                self.assertIn(strong, mods[weak].conflicts_with)
+                self.assertIn(weak, mods[strong].conflicts_with)
+
+    def test_the_multiplier_mods_cannot_compound(self) -> None:
+        """They multiply, so a second save would square them unless they are
+        measured against vanilla each time."""
+        from lid_db_manager.mod import APPLY_DIFF
+
+        multipliers = {m for m in self.SHIPPED
+                       if m.endswith(("-2x", "-5x", "-10x"))}
+        mods = {m.id: m for m in self._real_mods()}
+        for mod_id in sorted(multipliers):
+            with self.subTest(mod=mod_id):
+                self.assertEqual(mods[mod_id].apply_mode, APPLY_DIFF)
 
     def test_the_diagnostic_mod_really_does_conflict(self) -> None:
         """The other half: a genuine row collision must still be reported.

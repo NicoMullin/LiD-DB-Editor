@@ -1,0 +1,25 @@
+{
+  "id": "bank-limit-10x",
+  "name": "Bank Limit x10",
+  "description": "Every Safe and Spirit Tank level holds ten times as much - level 1 goes from 50,000 to 500,000, and so on up all 99 levels.",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "game_version": "5.0.3.0.0 - 1.87",
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "kill-coins",
+      "description": "Safe (Kill Coin bank) capacity x10, all 99 levels",
+      "sql": "UPDATE master_safe_level SET \"limit\" = \"limit\" * 10;"
+    },
+    {
+      "type": "raw_sql",
+      "id": "sp",
+      "description": "Spirit Tank (SP bank) capacity x10, all 99 levels",
+      "sql": "UPDATE master_spirit_tank_level SET \"limit\" = \"limit\" * 10;"
+    }
+  ]
+}

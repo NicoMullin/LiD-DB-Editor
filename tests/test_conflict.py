@@ -107,12 +107,34 @@ class ConflictTests(unittest.TestCase):
         )
         self.assertEqual(report.conflicts, [])
 
-    def test_raw_sql_conflicts_at_table_granularity(self) -> None:
+    def test_a_plain_update_is_read_down_to_its_columns(self) -> None:
+        """Two mods writing different columns of one table do not fight."""
         report = self._analyze(
             ("a-mod", raw_sql("UPDATE master_skill SET val0 = 1")),
             ("b-mod", update_set("master_skill", "buy_money")),
         )
-        self.assertEqual([c.kind for c in report.conflicts], [KIND_RAW_SQL])
+        self.assertEqual([c.message() for c in report.conflicts], [])
+
+    def test_the_same_column_still_conflicts(self) -> None:
+        report = self._analyze(
+            ("a-mod", raw_sql("UPDATE master_skill SET buy_money = 1")),
+            ("b-mod", update_set("master_skill", "buy_money")),
+        )
+        self.assertEqual([c.kind for c in report.conflicts], [KIND_COLUMN])
+
+    def test_sql_that_cannot_be_read_still_takes_the_whole_table(self) -> None:
+        """The fallback has to stay: raw SQL can do anything."""
+        for sql in (
+            "DELETE FROM master_skill WHERE id = 'SKL_EXPUP_01'",
+            "UPDATE master_skill SET val0 = (SELECT MAX(val0) FROM master_skill)",
+            "UPDATE master_skill SET val0 = max(1, 2)",
+        ):
+            with self.subTest(sql=sql):
+                report = self._analyze(
+                    ("a-mod", raw_sql(sql)),
+                    ("b-mod", update_set("master_skill", "buy_money")),
+                )
+                self.assertEqual([c.kind for c in report.conflicts], [KIND_RAW_SQL])
 
     def test_raw_sql_opt_out_suppresses_the_warning(self) -> None:
         report = self._analyze(
@@ -173,16 +195,16 @@ class ConflictTests(unittest.TestCase):
             ("b-mod", raw_sql(
                 "UPDATE master_text SET txt = 'two' WHERE id = 'TXT_AMS_0000'")),
         )
-        self.assertEqual([c.kind for c in report.conflicts], [KIND_RAW_SQL])
+        self.assertEqual([c.kind for c in report.conflicts], [KIND_COLUMN])
         self.assertIn("shared row", report.conflicts[0].detail)
 
     def test_raw_sql_without_a_where_clause_conflicts_with_everything(self) -> None:
         report = self._analyze_with_db(
-            ("a-mod", raw_sql("UPDATE master_text SET type = 1")),
+            ("a-mod", raw_sql("UPDATE master_text SET txt = 'everything'")),
             ("b-mod", raw_sql(
                 "UPDATE master_text SET txt = 'x' WHERE sct = 'AREA_NAME'")),
         )
-        self.assertEqual([c.kind for c in report.conflicts], [KIND_RAW_SQL])
+        self.assertEqual([c.kind for c in report.conflicts], [KIND_COLUMN])
 
     def test_an_insert_makes_the_table_unknown_so_it_still_conflicts(self) -> None:
         report = self._analyze_with_db(
@@ -211,10 +233,11 @@ class ConflictTests(unittest.TestCase):
 
     def test_raw_sql_conflicting_with_an_update_set_on_shared_rows(self) -> None:
         report = self._analyze_with_db(
-            ("a-mod", raw_sql("UPDATE master_skill SET val0 = 1 WHERE id = 'SKL_EXPUP_01'")),
+            ("a-mod", raw_sql(
+                "UPDATE master_skill SET buy_money = 1 WHERE id = 'SKL_EXPUP_01'")),
             ("b-mod", update_set("master_skill", "buy_money", "id = 'SKL_EXPUP_01'")),
         )
-        self.assertEqual([c.kind for c in report.conflicts], [KIND_RAW_SQL])
+        self.assertEqual([c.kind for c in report.conflicts], [KIND_COLUMN])
 
     def test_raw_sql_and_update_set_on_different_rows_of_one_table(self) -> None:
         report = self._analyze_with_db(

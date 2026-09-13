@@ -37,6 +37,11 @@ class Mod:
     folder: Path
     patches: list[Patch] = field(default_factory=list)
     homepage: str = ""
+    # The game build this mod was built against, as master_const_str's
+    # TITLE_VERSION reads it - "5.0.3.0.0 - 1.87". Optional, and only ever used
+    # to warn: a mod made on one build usually still fits the next, but when it
+    # does not, the failure is silent, so the mismatch is worth saying out loud.
+    game_version: str = ""
     requires: list[str] = field(default_factory=list)
     conflicts_with: list[str] = field(default_factory=list)
     raw_sql_files_do_not_touch: list[str] = field(default_factory=list)
@@ -170,6 +175,7 @@ def load_mod_json(mod_dir: Path) -> Mod:
         folder=mod_dir,
         patches=patches,
         homepage=str(data.get("homepage", "") or ""),
+        game_version=str(data.get("game_version", "") or "").strip(),
         requires=_as_string_list(data.get("requires"), mod_ref, "requires"),
         conflicts_with=_as_string_list(data.get("conflicts_with"), mod_ref, "conflicts_with"),
         raw_sql_files_do_not_touch=_as_string_list(

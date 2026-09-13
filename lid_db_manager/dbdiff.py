@@ -449,7 +449,21 @@ def to_sql(delta: DbDelta, header: str = "") -> str:
         for values in table_delta.inserts:
             cols = ", ".join(quote_ident(c) for c in table_delta.columns)
             vals = ", ".join(_literal(v) for v in values)
-            lines.append(f"INSERT OR REPLACE INTO {name} ({cols}) VALUES ({vals});")
+            if table_delta.keyed_by_rowid:
+                # No primary key, so OR REPLACE has nothing to replace on and
+                # every re-apply would append the row again. Insert it only if
+                # an identical row is not already there. IS, not =, so a NULL
+                # in the row matches the NULL already in the table.
+                match = " AND ".join(
+                    f"{quote_ident(c)} IS {_literal(v)}"
+                    for c, v in zip(table_delta.columns, values)
+                )
+                lines.append(
+                    f"INSERT INTO {name} ({cols}) SELECT {vals} "
+                    f"WHERE NOT EXISTS (SELECT 1 FROM {name} WHERE {match});"
+                )
+            else:
+                lines.append(f"INSERT OR REPLACE INTO {name} ({cols}) VALUES ({vals});")
         for row_key in table_delta.deletes:
             where = " AND ".join(
                 f"{quote_ident(c)} = {_literal(v)}"

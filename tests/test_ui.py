@@ -441,3 +441,38 @@ class WindowSmokeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class TheExecutableMarker(unittest.TestCase):
+    """A mod that changes the game executable has to say so in the list.
+
+    The install-time box appears once. The list is where the mod is seen from
+    then on, so the marker is read off what the mod actually targets rather
+    than off anything the mod says about itself.
+    """
+
+    def test_a_mod_touching_the_exe_is_marked(self) -> None:
+        from lid_db_manager.ui.mod_list import _touches_executable
+        from lid_db_manager.vetted import GAME_EXE
+
+        self.assertTrue(_touches_executable({GAME_EXE}))
+        self.assertTrue(_touches_executable({GAME_EXE.replace("/", "\\")}))
+        self.assertTrue(
+            _touches_executable({GAME_EXE, "BrgGame/CookedPCConsole/Thing_SF.upk"})
+        )
+
+    def test_an_ordinary_asset_mod_is_not(self) -> None:
+        from lid_db_manager.ui.mod_list import _touches_executable
+
+        self.assertFalse(_touches_executable(set()))
+        self.assertFalse(_touches_executable({"BrgGame/CookedPCConsole/Thing_SF.upk"}))
+        self.assertFalse(_touches_executable({"Binaries/Win64/other.exe"}))
+
+    def test_the_label_does_not_stutter(self) -> None:
+        from lid_db_manager.ui.mod_list import _label
+
+        self.assertEqual(_label("revive-cost-1kc", "Revive Cost"),
+                         "revive-cost-1kc  -  Revive Cost")
+        self.assertEqual(_label("Buttons v1.2", "Buttons v1.2"), "Buttons v1.2")
+        self.assertEqual(_label("buttons-v1.2", "Buttons V1.2"), "Buttons V1.2")

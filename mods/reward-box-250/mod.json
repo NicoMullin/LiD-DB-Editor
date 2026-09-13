@@ -1,0 +1,21 @@
+{
+  "id": "reward-box-250",
+  "name": "Reward Box Holds 250",
+  "description": "The reward box holds 250 items instead of 50.",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "game_version": "5.0.3.0.0 - 1.87",
+  "requires": [],
+  "conflicts_with": [],
+  "patches": [
+    {
+      "type": "update_set",
+      "table": "master_const_int",
+      "set": {
+        "value": 250
+      },
+      "where": "id = 'REWARD_BOX_LIMIT'",
+      "expected_rows": 1
+    }
+  ]
+}

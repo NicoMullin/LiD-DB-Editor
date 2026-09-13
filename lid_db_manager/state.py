@@ -53,6 +53,10 @@ class Settings:
     poll_seconds: int = 5
     dark_mode: bool = True
     keep_backups: int = 5
+    # A folder of item artwork to show in the builder. Nothing ships with the
+    # program - game artwork belongs to its owners - so this points at a copy
+    # the player already has on their own machine, and stays empty otherwise.
+    icon_folder: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -66,6 +70,7 @@ class Settings:
             poll_seconds=max(1, int(data.get("poll_seconds", defaults.poll_seconds) or 5)),
             dark_mode=bool(data.get("dark_mode", defaults.dark_mode)),
             keep_backups=max(1, int(data.get("keep_backups", defaults.keep_backups) or 5)),
+            icon_folder=str(data.get("icon_folder", defaults.icon_folder) or ""),
         )
 
 

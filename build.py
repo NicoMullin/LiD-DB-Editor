@@ -24,6 +24,7 @@ import argparse
 import os
 import shutil
 import subprocess
+import tempfile
 import sys
 import time
 from pathlib import Path
@@ -73,6 +74,13 @@ def build(one_file: bool, icon: Path | None, keep_console: bool) -> Path:
         command += ["--add-binary", f"{dll}{os.pathsep}PySide6"]
     if runtime:
         print(f"Bundling {len(runtime)} MSVC runtime DLL(s) so the build needs no redistributable")
+    # Recorded database changes for recognised content packs. These are data
+    # files, not modules, so PyInstaller does not pick them up on its own; the
+    # package looks for them under sys._MEIPASS when frozen (see crossover.py).
+    recipes = ROOT / "lid_db_manager" / "recipes"
+    if recipes.is_dir():
+        command += ["--add-data", f"{recipes}{os.pathsep}lid_db_manager/recipes"]
+        print(f"Bundling {len(list(recipes.glob('*.sql')))} content-pack recipe(s)")
     if icon is not None:
         command += ["--icon", str(icon)]
     command.append(str(ROOT / "run.py"))
@@ -85,18 +93,62 @@ def build(one_file: bool, icon: Path | None, keep_console: bool) -> Path:
     return ROOT / "dist" / (f"{APP_NAME}.exe" if one_file else APP_NAME)
 
 
+# What the app writes beside its own executable, and what a rebuild must not
+# destroy: the mods someone installed, which of them are on, the rows saved so
+# they can be switched off again, and the only copies of the game files they
+# replaced. PyInstaller deletes its whole output folder, so these are carried
+# out and back by hand.
+RUNTIME_STATE = ("mods", "state.json", "snapshots", "backups", "logs")
+
+
+def rescue_runtime_state(target_dir: Path, into: Path) -> list[str]:
+    """Move a previous build's runtime state somewhere safe. Returns what moved."""
+    saved = []
+    for name in RUNTIME_STATE:
+        source = target_dir / name
+        if source.exists():
+            shutil.move(str(source), str(into / name))
+            saved.append(name)
+    return saved
+
+
+def restore_runtime_state(target_dir: Path, saved_in: Path, names: list[str]) -> None:
+    """Put it back, without overwriting anything the new build wrote."""
+    for name in names:
+        source = saved_in / name
+        destination = target_dir / name
+        if not source.exists():
+            continue
+        if destination.exists() and source.is_dir():
+            # mods/ is the one the build also writes: keep both, and let what
+            # was already installed win, since it may have been edited.
+            for item in source.iterdir():
+                target = destination / item.name
+                if target.exists():
+                    shutil.rmtree(target) if target.is_dir() else target.unlink()
+                shutil.move(str(item), str(target))
+            shutil.rmtree(source, ignore_errors=True)
+        else:
+            shutil.move(str(source), str(destination))
+
+
 def stage_mods(target_dir: Path) -> None:
     """Put mods/ next to the executable, where the app looks for it at runtime."""
     destination = target_dir / "mods"
-    if destination.exists():
-        shutil.rmtree(destination)
-    shutil.copytree(
-        ROOT / "mods",
-        destination,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".*"),
-    )
+    destination.mkdir(parents=True, exist_ok=True)
+    for item in (ROOT / "mods").iterdir():
+        if item.name.startswith(".") or item.name == "__pycache__":
+            continue
+        target = destination / item.name
+        if target.exists():
+            continue  # already there from a previous build - leave it alone
+        if item.is_dir():
+            shutil.copytree(item, target,
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".*"))
+        else:
+            shutil.copy2(item, target)
     count = sum(1 for p in destination.iterdir() if p.is_dir() and not p.name.startswith("_"))
-    print(f"Copied mods/ -> {destination}  ({count} mod(s) plus the templates)")
+    print(f"Staged mods/ -> {destination}  ({count} mod(s) plus the templates)")
 
 
 def main() -> int:
@@ -129,7 +181,26 @@ def main() -> int:
         )
         return 2
 
+    # PyInstaller deletes its output folder, and for a --onedir build that is
+    # also where the app keeps everything a player has done with it. Carry that
+    # out of the way first and put it back afterwards; a rebuild is a developer
+    # action and must not cost someone their installed mods, their mod list, or
+    # the only copies of the game files those mods replaced.
+    target_dir = ROOT / "dist" / APP_NAME
+    rescue = None
+    saved: list[str] = []
+    if not args.onefile and target_dir.is_dir():
+        rescue = Path(tempfile.mkdtemp(prefix="lid-build-state-"))
+        saved = rescue_runtime_state(target_dir, rescue)
+        if saved:
+            print(f"Set aside {', '.join(saved)} so the rebuild does not destroy them")
+
     result = build(args.onefile, args.icon, args.console)
+    if saved and rescue is not None:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        restore_runtime_state(target_dir, rescue, saved)
+        shutil.rmtree(rescue, ignore_errors=True)
+        print(f"Put back {', '.join(saved)}")
     if not result.exists():
         print(f"Expected {result} but it is not there.", file=sys.stderr)
         return 1
@@ -138,8 +209,25 @@ def main() -> int:
     stage_mods(result.parent if args.onefile else result)
 
     payload = result.parent if args.onefile else result
+    total = folder_size_mb(payload)
+    # Anything this machine accumulated by using the app - saved databases,
+    # snapshots, mods someone installed - is not part of a release, and saying
+    # "ship 592 MB" when the build is 120 MB of that is just wrong.
+    yours = sum(
+        folder_size_mb(payload / name)
+        for name in ("backups", "snapshots", "logs")
+        if (payload / name).exists()
+    )
+    installed = sum(
+        folder_size_mb(item)
+        for item in (payload / "mods").iterdir()
+        if (payload / "mods").is_dir() and not (ROOT / "mods" / item.name).exists()
+    ) if (payload / "mods").is_dir() else 0.0
     print(f"\nBuilt: {result}")
-    print(f"Ship the whole '{payload.name}' folder - {folder_size_mb(payload):.0f} MB")
+    print(f"Ship the whole '{payload.name}' folder - {total - yours - installed:.0f} MB")
+    if yours or installed:
+        print(f"  (plus {yours + installed:.0f} MB of this machine's own backups, "
+              f"snapshots and installed mods, which a release does not include)")
     print(
         "\nThe app keeps mods/, logs/, snapshots/, backups/ and state.json next to\n"
         "the executable, so put it somewhere writable - not Program Files."

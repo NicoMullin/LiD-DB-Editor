@@ -23,6 +23,9 @@ mods/overlap-test/
 mods/diff-demo-blunt/
 mods/diff-demo-tweak/
 
+# Generated thumbnails of artwork the user supplied - never redistributed
+icon-cache/
+
 # Runtime state - each user's own
 state.json
 state.json.corrupt
@@ -36,8 +39,6 @@ backups/
 # Store-page copy for other sites, not part of the release
 nexus-description.txt
 
-# Local working notes and session transcript - never published
-claude-session/
 
 # Personal game saves - player name and account id inside, never published
 Save file json/
@@ -46,3 +47,7 @@ Save file json/
 # Tool caches
 .pytest_cache/
 .ruff_cache/
+
+# Reference material from other projects - read, not redistributed
+resrourse files/
+resource files/

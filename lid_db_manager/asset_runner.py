@@ -329,6 +329,60 @@ def _normalise(target: str) -> str:
     return target.replace("\\", "/").strip("/")
 
 
+def _wanted_transforms(mods_in_load_order) -> dict[str, tuple[object, str]]:
+    """target -> (patch, mod id) for patches that rewrite a game file in place.
+
+    A transform is not a copy: there is no file in the mod folder to put down,
+    only a change to make to the file already in the game. The one kind that
+    exists edits a hash inside the executable, and it is limited to recordings
+    that ship with the manager - see vetted.py.
+    """
+    wanted: dict[str, tuple[object, str]] = {}
+    for mod in mods_in_load_order:
+        for patch in mod.patches:
+            transform = getattr(patch, "transform", None)
+            if not callable(transform):
+                continue
+            for target in patch.asset_targets():
+                wanted[_normalise(target)] = (patch, mod.id)
+    return wanted
+
+
+def _stage_transforms(
+    transforms: dict[str, tuple[object, str]],
+    game_root: Path,
+    store: Path,
+    manifest: dict[str, dict],
+    staging: Path,
+) -> list[tuple[str, Path, Path]]:
+    """Work out each transformed file's new contents, without writing to the game.
+
+    The change is always computed from the *pristine* file - the ".original"
+    kept the first time any mod claimed it, when there is one - so running twice
+    is not running the change twice, and so a transform never stacks on top of
+    another mod's version of the same file.
+    """
+    plan: list[tuple[str, Path, Path]] = []
+    staging.mkdir(parents=True, exist_ok=True)
+    for target, (patch, mod_id) in sorted(transforms.items()):
+        dest = _resolve_target(game_root, target)
+        if not dest.is_file():
+            raise OSError(f"{mod_id}: {target} is not in the game folder")
+        kept = manifest.get(target, {}).get("backup")
+        pristine = store / kept if kept else dest
+        if not pristine.is_file():
+            raise OSError(f"{mod_id}: the saved copy of {target} is missing")
+        try:
+            produced = patch.transform(pristine.read_bytes())
+        except Exception as exc:  # the patch says why; the runner just refuses
+            raise OSError(f"{mod_id}: {target} was not changed - {exc}") from exc
+        staged = staging / _flatten(target)
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_bytes(produced)
+        plan.append((target, staged, dest))
+    return plan
+
+
 def apply_asset_patches(
     mods_in_load_order,
     game_root: Path,
@@ -346,11 +400,14 @@ def apply_asset_patches(
 
     try:
         wanted = _wanted_files(mods_in_load_order)
+        transforms = _wanted_transforms(mods_in_load_order)
     except OSError as exc:
         report.ok = False
         report.error = str(exc)
+        if log:
+            log.error(report.error)
         return report
-    if not wanted:
+    if not wanted and not transforms:
         return report
 
     # Checked before a single byte is copied: a refused file fails the whole
@@ -379,6 +436,16 @@ def apply_asset_patches(
     # Work out the changes first so a no-op run touches nothing.
     plan: list[tuple[str, Path, Path]] = []  # target, source, dest
     try:
+        # Transforms first: they read the pristine file, so they must be worked
+        # out before anything this run writes.
+        staged_plan = _stage_transforms(
+            transforms, game_root, store, manifest, rollback_dir / "staged"
+        )
+        for target, source, dest in staged_plan:
+            if dest.is_file() and sha256_file(dest) == sha256_file(source):
+                report.skipped += 1
+                continue
+            plan.append((target, source, dest))
         for target, (source, _mod_id) in sorted(wanted.items()):
             if not source.is_file():
                 report.ok = False
@@ -391,8 +458,12 @@ def apply_asset_patches(
                 continue
             plan.append((target, source, dest))
     except OSError as exc:
+        # Why, not just that. Without this the manager reports only that game
+        # files could not be applied, which tells nobody anything.
         report.ok = False
         report.error = str(exc)
+        if log:
+            log.error(report.error)
         return report
 
     if not plan:
