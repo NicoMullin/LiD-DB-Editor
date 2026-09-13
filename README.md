@@ -1,3 +1,6 @@
+## VirusTotal scan of the current code pf BETA V0.4.0
+https://www.virustotal.com/gui/url/63368c8eb96033d99a7a4bc4788535a4810c7ddc300b740e84036b356da2371e/detection
+
 # LET IT DIE DB Mod Manager
 
 A small desktop tool for modding LET IT DIE. It applies community-made patches
