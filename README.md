@@ -91,7 +91,7 @@ Then:
 
 1. Point it at your `masters.db` — usually under
    `...\steamapps\common\LET IT DIE\BrgGame\Content\masters.db`.
-   **Use a clean one** — see below.
+   **Use a clean one** — see [Point it at a clean masters.db](#point-it-at-a-clean-mastersdb).
 2. Tick the mods you want.
 3. Click **Save Mod List**.
 
@@ -291,7 +291,7 @@ to and you get a mod that half-works. Each part's `.sql` records where it came
 from.
 
 Switching a part off and saving puts that part's values back, the same as
-unticking a whole mod — see below.
+unticking a whole mod — see [Switching a mod off](#switching-a-mod-off).
 
 ## Mods that replace game files (`.upk`)
 

@@ -36,6 +36,11 @@ backups/
 *.db.backup
 *.db.original
 
+# The clean reference copies of the game's database, one per game build. These
+# are the exception to the *.db rule above: everything else matching it is a
+# working copy or a backup belonging to whoever is running the tool.
+!LiD Vanilla DB/**/*.db
+
 # Store-page copy for other sites, not part of the release
 nexus-description.txt
 
