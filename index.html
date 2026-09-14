@@ -1,0 +1,1759 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LID Mod Manager Manual</title>
+<meta name="description" content="User manual for the LET IT DIE DB Mod Manager.">
+</head>
+<body>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --ground:#EDE9E5; --surface:#FAF8F6; --raised:#FFFFFF;
+  --ink:#1A1512; --muted:#6B615A; --faint:#8C8079;
+  --rule:#D4CCC4; --rule-soft:#E3DCD5;
+  --accent:#A81E22; --accent-soft:#F3E2E1;
+  --caution:#8A5A00; --caution-soft:#F6EBD6;
+  --good:#2F6B4F;
+  --code-bg:#F1ECE7;
+  --shadow:0 1px 2px rgba(26,21,18,.06), 0 8px 24px -12px rgba(26,21,18,.18);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#141110; --surface:#1C1817; --raised:#231E1B;
+    --ink:#EBE5DF; --muted:#A2968C; --faint:#7E736B;
+    --rule:#332C28; --rule-soft:#2A2421;
+    --accent:#E4665E; --accent-soft:#2E1B1A;
+    --caution:#D2A24A; --caution-soft:#2B2214;
+    --good:#6FB08C;
+    --code-bg:#231E1B;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#141110; --surface:#1C1817; --raised:#231E1B;
+  --ink:#EBE5DF; --muted:#A2968C; --faint:#7E736B;
+  --rule:#332C28; --rule-soft:#2A2421;
+  --accent:#E4665E; --accent-soft:#2E1B1A;
+  --caution:#D2A24A; --caution-soft:#2B2214;
+  --good:#6FB08C;
+  --code-bg:#231E1B;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth; scroll-padding-top:86px}
+@media (prefers-reduced-motion:reduce){ html{scroll-behavior:auto} *{animation:none!important; transition:none!important} }
+
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"Source Serif 4",Georgia,"Times New Roman",serif;
+  font-size:17px; line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- header ---------- */
+.top{
+  position:sticky; top:0; z-index:40;
+  background:var(--ground);
+  background:color-mix(in srgb, var(--ground) 88%, transparent);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--rule);
+}
+.top-in{
+  max-width:1240px; margin:0 auto;
+  padding-block:12px; padding-left:20px; padding-right:20px;
+  display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+}
+.brand{display:flex; align-items:baseline; gap:10px; min-width:0}
+.brand b{
+  font-family:Archivo,system-ui,sans-serif; font-weight:700; font-size:18px;
+  letter-spacing:-.015em; white-space:nowrap;
+}
+.brand span{
+  font-family:Archivo,system-ui,sans-serif; font-size:11px; font-weight:500;
+  letter-spacing:.14em; text-transform:uppercase; color:var(--faint);
+  white-space:nowrap;
+}
+.ver{
+  font-family:"JetBrains Mono",ui-monospace,monospace; font-size:11px;
+  color:var(--accent); border:1px solid var(--accent); border-radius:3px;
+  padding:1px 6px; letter-spacing:.02em;
+}
+.tools{display:flex; align-items:center; gap:8px; margin-left:auto}
+.find{position:relative; display:flex; align-items:center}
+.find svg{position:absolute; left:10px; width:15px; height:15px; stroke:var(--faint); fill:none; stroke-width:2}
+#q{
+  font-family:Archivo,system-ui,sans-serif; font-size:14px;
+  width:250px; max-width:46vw;
+  padding:8px 30px 8px 31px;
+  color:var(--ink); background:var(--surface);
+  border:1px solid var(--rule); border-radius:4px;
+}
+#q::placeholder{color:var(--faint)}
+#q:focus{outline:2px solid var(--accent); outline-offset:1px; border-color:transparent}
+.clearq{
+  position:absolute; right:6px; width:20px; height:20px; border:0; cursor:pointer;
+  background:none; color:var(--faint); font-size:16px; line-height:1; border-radius:3px;
+}
+.clearq:hover{color:var(--ink)}
+.iconbtn{
+  font-family:Archivo,system-ui,sans-serif; font-size:12px; font-weight:600;
+  letter-spacing:.06em; text-transform:uppercase;
+  background:var(--surface); color:var(--muted);
+  border:1px solid var(--rule); border-radius:4px;
+  padding:8px 11px; cursor:pointer;
+}
+.iconbtn:hover{color:var(--ink); border-color:var(--faint)}
+.iconbtn:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+#menu{display:none}
+
+/* ---------- shell ---------- */
+.shell{
+  max-width:1240px; margin:0 auto;
+  padding-left:20px; padding-right:20px; padding-block:0 80px;
+  display:grid; grid-template-columns:252px minmax(0,1fr); gap:44px; align-items:start;
+}
+
+/* ---------- rail ---------- */
+.rail{
+  position:sticky; top:86px; max-height:calc(100vh - 108px);
+  overflow-y:auto; padding-block:28px 20px; padding-right:6px;
+  font-family:Archivo,system-ui,sans-serif;
+  scrollbar-width:thin;
+}
+.rail h4{
+  margin:0 0 7px; font-size:10.5px; font-weight:700; letter-spacing:.15em;
+  text-transform:uppercase; color:var(--faint);
+}
+.grp{margin-bottom:22px}
+.rail a{
+  display:flex; justify-content:space-between; gap:8px; align-items:baseline;
+  text-decoration:none; color:var(--muted);
+  font-size:13.5px; line-height:1.35; padding:5px 9px;
+  border-left:2px solid transparent; border-radius:0 3px 3px 0;
+}
+.rail a:hover{color:var(--ink); background:var(--surface)}
+.rail a.on{color:var(--accent); border-left-color:var(--accent); background:var(--accent-soft); font-weight:600}
+.rail a.sub{padding-left:20px; font-size:12.5px; color:var(--faint)}
+.rail a.sub:hover{color:var(--ink)}
+.rail a.sub.on{
+  color:var(--accent); background:var(--accent-soft);
+  border-left-color:var(--accent); font-weight:600;
+}
+.hit{
+  font-family:"JetBrains Mono",monospace; font-size:10.5px;
+  color:var(--raised); background:var(--accent);
+  border-radius:8px; padding:1px 6px; flex:none;
+}
+.rail a[hidden]{display:none}
+.noresult{padding:8px 9px; font-size:13px; color:var(--faint); font-style:italic}
+
+/* ---------- main ---------- */
+main{min-width:0; padding-block:28px 0}
+
+.groupmark{
+  font-family:Archivo,system-ui,sans-serif; font-size:11px; font-weight:700;
+  letter-spacing:.18em; text-transform:uppercase; color:var(--accent);
+  margin:76px 0 0; padding-bottom:6px;
+  display:flex; align-items:center; gap:12px;
+}
+.groupmark::after{content:""; flex:1; height:1px; background:var(--rule)}
+.groupmark:first-child{margin-top:0}
+.groupmark + h2{margin-top:14px; border-top-color:var(--accent)}
+
+.lede{
+  border-bottom:1px solid var(--rule); padding-bottom:26px; margin-bottom:30px;
+}
+.lede h1{
+  font-family:Archivo,system-ui,sans-serif; font-weight:700;
+  font-size:clamp(30px,4.6vw,44px); line-height:1.08; letter-spacing:-.028em;
+  margin:0 0 12px; text-wrap:balance;
+}
+.lede p{margin:0; color:var(--muted); font-size:18px; max-width:62ch}
+
+.jump{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(196px,1fr)); gap:1px;
+  background:var(--rule-soft); border:1px solid var(--rule-soft);
+  margin:0 0 42px; border-radius:5px; overflow:hidden;
+}
+.jump a{
+  background:var(--surface); padding:14px 16px; text-decoration:none; color:var(--ink);
+  display:block;
+}
+.jump a:hover{background:var(--raised)}
+.jump b{
+  display:block; font-family:Archivo,sans-serif; font-size:13.5px; font-weight:600;
+  margin-bottom:3px;
+}
+.jump i{display:block; font-style:normal; font-size:12.5px; color:var(--faint); line-height:1.45}
+
+/* rendered markdown */
+.doc h2{
+  font-family:Archivo,system-ui,sans-serif; font-weight:700;
+  font-size:26px; letter-spacing:-.02em; line-height:1.2;
+  margin:58px 0 16px; padding-top:14px; border-top:2px solid var(--ink);
+  text-wrap:balance; scroll-margin-top:86px;
+}
+.doc h2:first-child{margin-top:0}
+.doc h3{
+  font-family:Archivo,system-ui,sans-serif; font-weight:600;
+  font-size:18px; letter-spacing:-.008em; margin:34px 0 10px;
+  text-wrap:balance; scroll-margin-top:86px;
+}
+.doc h4{font-family:Archivo,sans-serif; font-size:15px; margin:24px 0 8px}
+.doc p{margin:0 0 15px; max-width:68ch}
+.doc ul,.doc ol{margin:0 0 15px; padding-left:22px; max-width:66ch}
+.doc li{margin-bottom:6px}
+.doc li>ul,.doc li>ol{margin-top:6px}
+.doc a{color:var(--accent); text-underline-offset:2px}
+.doc a:hover{text-decoration-thickness:2px}
+.doc strong{font-weight:600}
+.doc hr{border:0; border-top:1px solid var(--rule); margin:34px 0}
+
+.doc code{
+  font-family:"JetBrains Mono",ui-monospace,monospace; font-size:.855em;
+  background:var(--code-bg); padding:.12em .38em; border-radius:3px;
+  overflow-wrap:break-word;
+}
+.doc pre{
+  background:var(--code-bg); border:1px solid var(--rule-soft); border-radius:5px;
+  padding:15px 17px; overflow-x:auto; margin:0 0 18px; position:relative;
+}
+.doc pre code{background:none; padding:0; font-size:13px; line-height:1.6}
+.copy{
+  position:absolute; top:8px; right:8px; opacity:0;
+  font-family:Archivo,sans-serif; font-size:10.5px; font-weight:600;
+  letter-spacing:.07em; text-transform:uppercase;
+  background:var(--surface); color:var(--muted);
+  border:1px solid var(--rule); border-radius:3px; padding:4px 8px; cursor:pointer;
+}
+.doc pre:hover .copy, .copy:focus-visible{opacity:1}
+.copy:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+
+.tablewrap{overflow-x:auto; margin:0 0 20px}
+.doc table{border-collapse:collapse; font-size:14.5px; min-width:100%}
+.doc th{
+  font-family:Archivo,sans-serif; font-size:11px; font-weight:700;
+  letter-spacing:.09em; text-transform:uppercase; color:var(--faint);
+  text-align:left; padding:0 14px 8px 0; border-bottom:1px solid var(--ink);
+  white-space:nowrap;
+}
+.doc td{
+  padding:9px 14px 9px 0; border-bottom:1px solid var(--rule-soft);
+  vertical-align:top; font-variant-numeric:tabular-nums;
+}
+.doc tr:last-child td{border-bottom:0}
+
+.doc blockquote{
+  margin:0 0 18px; padding:2px 0 2px 18px;
+  border-left:3px solid var(--caution); background:var(--caution-soft);
+  padding:12px 16px; border-radius:0 4px 4px 0;
+}
+.doc blockquote p{margin:0; color:var(--ink)}
+.doc blockquote p+p{margin-top:10px}
+
+mark{background:rgba(226,168,60,.42); color:inherit; border-radius:2px; padding:0 1px}
+:root[data-theme="dark"] mark{background:rgba(226,168,60,.28)}
+
+.anchor{
+  float:left; margin-left:-22px; width:22px; opacity:0;
+  color:var(--faint); text-decoration:none; font-weight:400;
+}
+.doc h2:hover .anchor,.doc h3:hover .anchor,.anchor:focus{opacity:1}
+
+.foot{
+  max-width:1240px; margin:0 auto; padding:26px 20px 46px;
+  border-top:1px solid var(--rule);
+  font-family:Archivo,sans-serif; font-size:12.5px; color:var(--faint);
+  display:flex; gap:14px; flex-wrap:wrap; justify-content:space-between;
+}
+.foot a{color:var(--muted)}
+
+@media (max-width:940px){
+  .shell{grid-template-columns:minmax(0,1fr); gap:0}
+  #menu{display:inline-block}
+  .rail{
+    position:static; max-height:none; display:none;
+    padding-block:16px; margin-bottom:18px;
+    border-bottom:1px solid var(--rule);
+  }
+  .rail.open{display:block}
+  .brand span{display:none}
+  #q{width:190px}
+}
+@media (max-width:520px){
+  body{font-size:16px}
+  .top-in{gap:10px}
+  #q{width:100%; max-width:none}
+  .find{flex:1 1 100%; order:3}
+  .doc h2{font-size:22px}
+}
+</style>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <b>LID Mod Manager</b>
+      <span>Manual</span>
+      <span class="ver">v0.5.0</span>
+    </div>
+    <div class="tools">
+      <div class="find">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="Search the manual..." autocomplete="off" spellcheck="false">
+        <button class="clearq" id="clearq" type="button" hidden aria-label="Clear search">&times;</button>
+      </div>
+      <button class="iconbtn" id="menu" type="button" aria-expanded="false">Contents</button>
+      <button class="iconbtn" id="theme" type="button" aria-label="Switch colour theme">Theme</button>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" id="rail" aria-label="Contents"></nav>
+  <main>
+    <div class="lede">
+      <h1>Modding LET IT DIE without breaking it</h1>
+      <p>Everything the manager does, why each safeguard is there, and how to get out of trouble. Twenty-four sections &mdash; use the contents or the search rather than reading it end to end.</p>
+    </div>
+
+    <div class="jump">
+      <a href="#the-crossover-content-pack"><b>The Crossover pack</b><i>Built in &mdash; tick it and save</i></a>
+      <a href="#mods-included"><b>What comes with it</b><i>Twenty mods, ready to tick</i></a>
+      <a href="#when-a-change-doesnt-show-up-in-game"><b>My change didn't show up</b><i>Usually the daily reset, not a broken mod</i></a>
+      <a href="#undoing-things"><b>Undo something</b><i>Per mod, or the whole database</i></a>
+      <a href="#building-a-mod-without-writing-any-sql"><b>Make my own mod</b><i>An editor over the database, no SQL</i></a>
+      <a href="#point-it-at-a-clean-mastersdb"><b>Before you start</b><i>Read this one first &mdash; it is the one that bites</i></a>
+    </div>
+
+    <div class="doc" id="doc"></div>
+  </main>
+</div>
+
+<footer class="foot">
+  <span>LET IT DIE DB Mod Manager &mdash; by KSFA. MIT License</span>
+  <span>Crossover Content and Colored PlayStation Buttons are by S3er0i9ng.</span>
+</footer>
+
+<script id="src" type="text/markdown"># LET IT DIE DB Mod Manager
+
+A small desktop tool for modding LET IT DIE. It applies community-made patches
+to the game's `masters.db` — the SQLite file holding prices, skill values, craft
+costs and every other tuning number — and puts them back when the game replaces
+that file.
+
+Mods are plain JSON or SQL in a folder, plus `.upk` game files for mods that
+add models and artwork. Nothing is compiled and nothing is injected — no
+program file is ever added to the game.
+
+> **Status: beta.** It has been used against a live install, but treat your
+> `masters.db` as precious anyway — which is what most of the tool is about.
+
+## What it does
+
+- **Applies your mod list** to `masters.db`, in one transaction. If any mod
+  fails, none of them are applied — you never end up half-modded.
+- **Checks first.** Every mod is validated against your actual database on a
+  read-only connection before a single byte is written: tables and columns must
+  exist, SQL must compile. A mod written for a different game version is
+  reported, not run.
+- **Backs up before it does anything.** The moment you point it at a database
+  it keeps `masters.db.original` and never touches that file again, so there is
+  always a way back to stock without re-downloading.
+- **Undoes individual mods.** Before each mod runs, the rows it is about to
+  change are copied aside. Turning one mod off puts exactly those rows back and
+  leaves your other mods alone.
+- **Survives game updates.** It watches the database and, when the game replaces
+  it, re-applies your enabled mods automatically.
+- **Shows you the change.** A diff panel lists the actual rows a mod will
+  rewrite, before and after, before you commit to it — and an **In plain
+  English** tab says what that means, using the game's own names and wording.
+- **Lets you build your own, without SQL.** An editor over a clean copy of the
+  database, grouped into the parts people actually mod, with every column
+  labelled by what it means. Change the numbers, press save, get a mod.
+- **Takes mods however they arrive.** Drag a `.sql`, a mod folder or a `.zip`
+  onto the window. Hand it somebody else's already-modded `masters.db` and it
+  works out the difference and turns that into a mod you can switch off again.
+- **Handles game files too.** Mods that ship new models and artwork as `.upk`
+  files are copied into the game while switched on and taken back out when
+  switched off.
+- **Comes with the Crossover Content pack and Colored PlayStation Buttons.**
+  Both by S3er0i9ng, included with their permission and ready to tick. Artwork
+  and the database changes that make it reachable switch on and off together —
+  no running an installer, no swapping `masters.db` by hand.
+- **Handles artwork the game checks.** Most packages carry a checksum inside the
+  game executable, so replacing one normally fails. For a short, hand-vetted list
+  of mods the manager updates that one value too — twenty bytes of data, no code,
+  fully reversible — and refuses to do it for anything not on the list.
+- **Notices when a mod was built for another game version.** A mod can record
+  the build it was made against; if your database is a different one, you are
+  told before you save. It still applies — most do work across a patch — but a
+  mismatch that would otherwise only show up in game stops being invisible.
+- **Lets you decide who wins.** Mods apply in a load order you control, so a
+  small tweak can override one value from a huge rework and leave the rest.
+- **Keeps blunt mods from trampling careful ones.** A mod marked
+  `"apply": "diff"` is run against an untouched copy of the database first, and
+  only the values it genuinely changes are written — so a whole-table dump stops
+  wiping out everything else, and re-applying it can never compound.
+
+It is fully offline: no network calls of any kind, no telemetry, and no Steam
+integration. It writes the `masters.db` you point it at, plus any game files a
+mod ships — normally `.upk` files in `BrgGame\CookedPCConsole\`.
+
+**No mod can add a program file** (`.exe`, `.dll` and the like) anywhere, and no
+mod can change the game's code. There is exactly one thing it will change inside
+`BrgGame-Steam.exe`: a single file checksum, twenty bytes in a data table, for
+mods that replace artwork the game verifies. It is checked before and after that
+the executable's code section is byte-for-byte unchanged, it is backed up and
+fully reversible, and it only ever happens for changes recorded in this
+repository by hand — never at a mod's request. See
+[Mods that need a change to the game executable](#mods-that-need-a-change-to-the-game-executable).
+
+## Requirements
+
+- Python 3.11 or newer. Use a version PySide6 has wheels for — as of PySide6
+  6.11 that means 3.11 to 3.13. (The command line works on any 3.11+.)
+- Windows, macOS or Linux. Developed on Windows.
+
+## Running it
+
+Note there is a release with a prebuilt exe if you do not want to install Python
+and the other requirements.
+
+```bash
+pip install -r requirements.txt
+python run.py
+```
+
+Then:
+
+1. Point it at your `masters.db` — usually under
+   `...\steamapps\common\LET IT DIE\BrgGame\Content\masters.db`.
+   **Use a clean one** — see [Point it at a clean masters.db](#point-it-at-a-clean-mastersdb).
+2. Tick the mods you want.
+3. Click **Save Mod List**.
+
+That last click is the one that does everything: backups, validation, then the
+apply, all as one step you can undo.
+
+## Point it at a clean `masters.db`
+
+The moment you pick it, that file is copied to `masters.db.original` — the copy
+the tool never overwrites and always restores from. If the database has
+**already** been edited, by hand or by another tool, then that "original" is a
+copy of the edited version and nothing can get you back to stock.
+
+If you are not certain yours is untouched, replace it **before** pointing this
+tool at it: delete `masters.db` and let Steam re-download it (Properties →
+Installed Files → Verify integrity of game files). Doing that afterwards means
+downloading it all over again, which is exactly what the `.original` exists to
+spare you.
+
+## Switching a mod off
+
+Untick it and press **Save Mod List**. The values it wrote go back — but not
+blindly to vanilla. They go back to *whatever they would be without it*:
+
+| The value                              | What it becomes               |
+|----------------------------------------|-------------------------------|
+| Only the switched-off mod wrote it     | Vanilla                       |
+| Another enabled mod writes it too      | That mod's value              |
+| The switched-off mod was overriding it | The mod underneath takes over |
+
+That falls out of how snapshots work rather than any clever reasoning: before a
+mod runs, the rows it is about to change are copied aside, and what was there
+at that moment already *was* the other mod's value. Switching one part of a mod
+off works the same way.
+
+Nothing happens to the database until you save — unticking on its own only
+changes the list.
+
+The one time it declines: if the game has replaced `masters.db` since those
+mods were applied, the saved rows describe values that are no longer there, and
+writing them back would put an old version's numbers over a new one's. The
+manager says so in the log and leaves them alone.
+
+## Undoing things
+
+Two independent levels:
+
+- **Revert Selected**, the button at the bottom of the window — unwinds one mod
+  from the rows it saved before applying, leaving everything else in place.
+- **Tools → Restore a backup**, which replaces the whole database. It lists the
+  `.original` first, then the rolling `masters.db.backup` from your most recent
+  save, then the dated copies in `backups/` (newest five kept).
+
+`.original` is taken when you choose the database; the rolling and dated
+backups are taken by **Save Mod List**. Re-apply, automatic or manual, never
+takes one — so an automatic re-apply can't quietly rotate your good backups
+away.
+
+## Mods included
+
+Twenty, in `mods/`, each with its own `readme.md`: eighteen tweaks of mine, and
+two larger mods by S3er0i9ng included with their permission
+([below](#by-s3er0i9ng)).
+
+### Costs and rewards
+
+| Mod                     | What it does                                            |
+|-------------------------|---------------------------------------------------------|
+| `revive-cost-1kc`       | Every grade's revive costs 1 Kill Coin                  |
+| `body-prices-1kc`       | Every fighter tier unlock costs 1 Kill Coin             |
+| `nitro-boost-100000pct` | Nitro Boost and Turbo-charged Engine give 100,000% EXP, and their descriptions say so |
+| `decal-cost-25k` / `-10k` / `-5k` | The Mushroom Club's 50,000 KC decals cost that instead |
+| `tdm-rewards-2x` / `-5x` / `-10x` | Every Kill Coin and SP payout from Tokyo Death Metro, multiplied |
+
+### Space
+
+| Mod              | What it does                                       |
+|------------------|----------------------------------------------------|
+| `bank-limit-10x` | Both banks hold ten times as much, all 99 levels   |
+| `reward-box-250` | The reward box holds 250 instead of 50             |
+| `storage-10000`  | The Coin Locker expands to 10,000 instead of 2,000 |
+
+### Durability and ammo
+
+| Mod                    | What it does                                       | Rows |
+|------------------------|----------------------------------------------------|------|
+| `weapon-durability-2x` | Every weapon lasts twice as long                   |  385 |
+| `weapon-durability-5x` | Every weapon lasts five times as long              |  385 |
+| `armor-durability-2x`  | Every piece of armour lasts twice as long          |  979 |
+| `armor-durability-5x`  | Every piece of armour lasts five times as long     |  979 |
+| `weapon-ammo-2x`       | Every gun carries twice as much spare ammo         |  117 |
+| `weapon-magazine-2x`   | Every gun holds twice as many rounds per magazine  |  160 |
+
+The x2 and x5 versions of the same thing are **alternatives** — pick one. Each
+names the other in `conflicts_with`, so the manager warns if you tick both.
+Mixing across the groups is fine: weapon durability, armour durability, ammo
+and magazine all write different columns and the manager knows it.
+
+These multiply rather than set a number, so they are marked `"apply": "diff"` —
+the manager measures them against an untouched copy of the database every time,
+and saving twice can never turn x2 into x4.
+
+Two weapon families have a magazine but no reserve ammo at all — rocket
+launchers, flame wands, the Red Hot Iron line. Everything they will ever fire
+sits in the magazine, so `weapon-ammo-2x` does nothing for them and
+`weapon-magazine-2x` doubles their entire supply.
+
+Where a mod comes in several strengths — decals, TDM rewards, and the
+durability pairs above — they are **alternatives**. Each names the others in
+`conflicts_with`, so the manager warns if you tick more than one.
+
+Two caveats worth knowing before you enable them:
+
+- `revive-cost-1kc` — you are charged 1 KC, but the price on the sign held up
+  in-game is part of a **texture**, not the database, so it still shows the old
+  number. Matching it means replacing that texture yourself.
+- `nitro-boost-100000pct` — its description rewrite covers English, German,
+  Spanish, French, Italian and Portuguese. Japanese, Chinese and Korean keep
+  the stock wording. That half is a separate patch inside the mod, so you can
+  untick it and keep the number change on its own.
+
+### By S3er0i9ng
+
+| Mod                                  | What it does                                                                                     |
+|--------------------------------------|--------------------------------------------------------------------------------------------------|
+| `LET IT DIE Crossover Content v3.75` | Restores cut crossover gear: Mushroom Club decals, blueprint quests, and 234 artwork packages    |
+| `Colored PlayStation Buttons v1.2`   | Colored PlayStation button prompts, plus the one hash the game keeps for that file               |
+
+Both are included with their author's permission; the originals are at
+<https://letitdiemods.pages.dev/>. See
+[The Crossover Content pack](#the-crossover-content-pack) and
+[Mods that need a change to the game executable](#mods-that-need-a-change-to-the-game-executable).
+
+Ticking the Crossover pack alongside the durability, ammo or magazine mods, or
+Nitro Boost, shows a "both write table" warning. The manager can only compare
+the pack's SQL a whole table at a time; they share a table but no rows — the
+pack switches hidden gear on and adds new rows, and those mods change other
+columns and other text.
+
+## Adding mods
+
+You do not have to find the `mods/` folder any more. **Drop the file on the
+window** — anywhere on it, while the manager is running — and it installs
+itself. Five things are accepted:
+
+| What you drop                              | What happens                                                                                                         |
+|--------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
+| A `.sql` patch                             | Becomes a new mod folder built around that file                                                                      |
+| A folder with SQL in it                    | Installed as-is, `mod.json` or not                                                                                   |
+| A folder with an `assets` folder of `.upk` | Becomes a mod that copies them into the game — see [Mods that replace game files](#mods-that-replace-game-files-upk) |
+| A `.zip` with a `mod.json` or `.sql` in it | Unpacked and installed, refusing any path that escapes it                                                            |
+| An edited `masters.db`                     | Compared against vanilla; you pick which changes to keep (below)                                                     |
+
+A small dialog asks for a name — prefilled from the filename — and optionally a
+description, author and version. That writes a real `mod.json`, so the entry
+reads properly in the list instead of showing up as an unnamed `.sql`.
+
+Drop several at once and you get one dialog each, in turn. `.sqlite` and
+`.sqlite3` count as databases too.
+
+**Whatever you drop arrives switched off.** Nothing is applied by the act of
+adding it. Enable it when you have read its diff, then Save Mod List.
+
+If you would rather use a menu, **Tools → Add a mod from a file** does exactly
+the same thing. And putting a folder in `mods/` by hand and pressing **F5**
+still works.
+
+### Someone posted a whole reworked `masters.db`
+
+Drop it on the window, or use **Tools → Create a mod from a modded
+masters.db**. The manager compares it against your untouched `masters.db.original`
+and writes out **just the differences as ordinary mods** that sit in your list
+with everything else and can be **switched on and off**.
+
+That matters because the usual way to share a rework is the whole database
+file, which you install by overwriting yours. Doing that throws away every
+other mod you had, and the only way back is another file swap.
+
+**You choose what to take.** The dialog shows every change it found, grouped by
+table:
+
+```
+  [x] master_shop_product_price     130 changed
+  [ ] master_automaticshop_lineup   315 changed
+  [x] master_tdm_rank                14 changed
+        [x] TDM_RANK_01     point_min: 1200 → 0
+        [ ] TDM_RANK_02     point_min: 2400 → 0
+        [x] TDM_RANK_03     point_min: 3600 → 0
+
+  Taking 113 of 661 change(s), across 3 table(s).
+```
+
+Untick a table to leave that part of the rework out entirely, or expand it and
+untick individual edits. There is a filter box for finding things in a long
+list, and All / None buttons.
+
+**The choice is not a one-off.** What you install is a single mod with one name
+and one readme, holding a switch for each table. Expand it in the list and tick
+the parts you want — the ones you turn off simply are not applied next time you
+save, and you can change your mind whenever you like:
+
+```
+  [x]  1   Big Rework
+             master_shop_product_price   130 changed
+       [x]  master_tdm_rank              14 changed
+       [ ]  master_automaticshop_lineup  315 changed
+```
+
+Tick *Install each table as a separate mod* in the import dialog if you would
+rather have one mod per table — useful when you want to slot other mods
+*between* parts of a rework in the load order, since a single mod's parts all
+apply together.
+
+The catch is worth knowing: taking part of a rework creates a combination its
+author never tested. Keep an added vending item but drop the product it refers
+to and you get a mod that half-works. Each part's `.sql` records where it came
+from.
+
+Switching a part off and saving puts that part's values back, the same as
+unticking a whole mod — see [Switching a mod off](#switching-a-mod-off).
+
+## Mods that replace game files (`.upk`)
+
+Some mods are not database edits at all — they are new models, outfits and
+artwork, shipped as `.upk` files. The manager handles those too. The files
+live in their mod folder, and are copied into the game only while the mod is
+switched on.
+
+### How the folder has to look
+
+A folder, with a folder called **`assets`** inside it, holding the `.upk` files:
+
+```
+My Outfit Mod/            <- drag THIS folder onto the window
+└── assets/               <- must be called exactly "assets"
+    ├── CH_Kat_Head_SF.upk
+    └── CH_Kat_Body_SF.upk
+```
+
+**Drag the outer folder onto the DB editor window.** The info window opens:
+
+| Field           | What to put                                                      |
+|-----------------|------------------------------------------------------------------|
+| **Name**        | Filled in from the folder name — change it to something readable |
+| **Description** | Optional. One line saying what the mod does                      |
+| **Author**      | Optional. Whoever made the mod                                   |
+| **Version**     | Optional. The mod's version, if it has one                       |
+
+Click **Add mod**. It arrives switched off; tick it and **Save Mod List**, and
+the files are copied into `BrgGame\CookedPCConsole\`. Untick it and save again
+and they are taken back out.
+
+If it says there are no game files to copy, the folder is not quite right:
+
+| What you dragged                                                     | Fix                                               |
+|----------------------------------------------------------------------|---------------------------------------------------|
+| The inner folder is called something other than `assets`             | Rename it to `assets`                             |
+| A folder inside a folder inside a folder — unzipping often does this | Drag the one that has `assets` directly inside it |
+| A `.zip`                                                             | Unzip it first, then drag the folder              |
+
+(Loose `.upk` files sitting straight in the folder, with no `assets` folder,
+also work.)
+
+**Close the game first.** A running game holds its files open; the manager
+refuses to copy anything until LET IT DIE is closed.
+
+**Backups stay small.** Only a vanilla file a mod actually replaces is backed
+up — one copy, kept only while that mod is on. A mod that only *adds* new
+files needs no backup at all.
+
+**Program files are refused.** A mod may never copy `.exe`, `.dll` or similar
+into the game, since Windows would run them. Real content packs never contain
+them; if one does, it shows in the list as broken, with the reason.
+
+## The Crossover Content pack
+
+The community **LET IT DIE Crossover Content** pack restores cut crossover
+content — decals in the Mushroom Club pool, blueprint quests, and the models
+and artwork that go with them.
+
+It has **two halves**, and both have to arrive or nothing shows up in game:
+
+- **Artwork** — the 234 `.upk` packages in its `assets` folder.
+- **Database changes** — the decal-pool entries and blueprint quests that make
+  that artwork reachable. Without them the artwork sits in the game unused.
+
+**It comes with the manager.** Tick `LET IT DIE Crossover Content v3.75` in
+the mod list and click **Save Mod List**. That is the whole procedure.
+
+You do not need to run the pack's own installer, and you should not. The
+manager rebuilds `masters.db` from your mod list every time you save, so
+anything written to the game from outside that list is replaced the next time
+you tick something. That is why the two tools used to undo each other, and why
+the content has to be a mod in the list to survive.
+
+### Updates
+
+The manager ships v3.75. When the pack gets an update, the manager has to be
+updated to include it — a new release of this program will carry it.
+
+### Where the database changes come from
+
+They ship with the manager, recorded from the pack's own installer: run against
+a clean `masters.db`, the difference measured, and the recording replayed and
+checked against the installer's own result before it was kept. For v3.74 that
+is 476 added rows and 120 changed ones across 16 tables, and nothing deleted.
+
+The 120 changed rows are not edits to the pack's content — they switch on
+collab items the game already shipped but left hidden on PC.
+
+The artwork is S3er0i9ng's own, copied unchanged from their v3.75 release.
+
+### Version checking
+
+A recording only fits the release it was made from, so the manager fingerprints
+the pack before using one. If the pack's `catalog.json` does not match what was
+recorded — a newer release, or a repackaged copy — it says so and installs the
+artwork on its own instead of guessing. Writing rows that do not match the
+artwork would not produce an error; it would produce invisible or
+wrong-textured gear, which is worse.
+
+If that happens, either wait for a manager update, or use
+[the long way round](#the-long-way-round) below.
+
+There is a second version involved: **the game's**. A recording is a set of
+changes measured against one build of `masters.db`, and the game does get
+patched. Each recording notes the build it came from, the mod carries that
+forward, and validation compares it against your database — see
+[Mods built for a different game version](#mods-built-for-a-different-game-version).
+
+### Once it is in
+
+Tick it and click **Save Mod List**. From there it behaves like any other mod:
+it layers with the rest, it appears in the **In plain English** tab, it
+conflict-checks against your other mods, and unticking it puts the database
+back and takes the artwork out of the game.
+
+Start the game. Decals come through the **Mushroom Club** draw pool — they are
+not handed to you — and the blueprint quests appear at the normal quest
+interface.
+
+### Credit
+
+The Crossover Content pack is **by S3er0i9ng**, not by me. It is included with
+the manager — artwork and a recording of its database changes — with their
+permission. The artwork and the pack remain theirs.
+
+Their releases are at **<https://letitdiemods.pages.dev/>**.
+
+### The long way round
+
+Only needed when the manager does not recognise your version of the pack. It
+produces two mods instead of one — you let the pack's installer make the
+database changes once, keep the result, and turn *that* into a mod.
+
+The pack comes as two downloads, and for this route you may need both:
+
+| You have                 | Download                                                                                                                               |
+|--------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| **Python 3.11 or newer** | Just the **No-EXE** version (its folder ends in `Source-NoEXE`). It does both jobs.                                                    |
+| **No Python**            | **Both.** The No-EXE version, for its files — dragging them in needs no Python — and the **EXE** version, to run the pack's installer. |
+
+Unzip whichever you downloaded before going on.
+
+#### Part 1 — the model files
+
+1. Drag the **No-EXE folder** onto the DB editor window — the folder that has
+   `assets` and `catalog.json` directly inside it.
+2. In the info window:
+
+   | Field           | What to put                                                  |
+   |-----------------|--------------------------------------------------------------|
+   | **Name**        | `Crossover Content Files` — it fills in the long folder name |
+   | **Description** | `Models and artwork for the Crossover Content pack`          |
+   | **Author**      | Optional — whoever made the pack                             |
+   | **Version**     | The pack's version, e.g. `3.74`                              |
+
+3. Click **Add mod**. A message pops up saying this pack also changes the
+   database — that is Part 2, below.
+4. **Tick `Crossover Content Files` and click Save Mod List.**
+
+Do step 4 before Part 2. The pack's installer copies these same model files
+into the game, and if it gets there first, the manager finds them already in
+place and never keeps track of them — so turning the mod off later would leave
+them behind. Saving first means the manager put them there, so it can take
+them away again.
+
+#### Part 2 — the database changes
+
+The pack's installer does not work on a loose file: you point it at the game
+folder, and it edits the real `masters.db` in place. So the trick is to back
+up the vanilla database, let the installer edit the real one, keep a copy of
+the edited file, and then put the vanilla one back.
+
+**Close LET IT DIE** before you start.
+
+1. **Make sure `masters.db` is vanilla.** In the DB editor, untick every
+   *database* mod you have switched on — leave `Crossover Content Files`
+   ticked — and click **Save Mod List**. Any mod left applied here would get
+   baked into the Crossover mod you are about to make.
+2. **Close the DB editor**, so it does not react while you swap files.
+3. **Back up the vanilla database.** Open
+   `...\steamapps\common\LET IT DIE\BrgGame\Content\`, copy `masters.db`,
+   paste it on your Desktop and rename it `masters-vanilla.db`.
+4. **Run the pack's installer.**
+   - No-EXE: double-click `Launch-Source.cmd` in the No-EXE folder.
+   - EXE: run the EXE download.
+
+   It looks for the game on its own. If it cannot find it, pick the
+   `LET IT DIE` folder — the one containing `BrgGame`, not `CookedPCConsole`.
+   Click **Install / update**, then **Check installation**, then close it.
+5. **Keep the edited database.** Back in `BrgGame\Content\`, copy the
+   now-edited `masters.db`, paste it on your Desktop and rename it
+   `masters-crossover.db`.
+6. **Put the vanilla one back.** Copy `masters-vanilla.db` from your Desktop
+   into `BrgGame\Content\`, rename it to `masters.db`, and say yes to replacing
+   the file that is there.
+7. **Open the DB editor** and drag `masters-crossover.db` onto its window.
+8. In the info window:
+
+   | Field                                    | What to put                                                         |
+   |------------------------------------------|---------------------------------------------------------------------|
+   | **Name**                                 | `Crossover Content Database` — it fills in "Masters Crossover"      |
+   | **Description**                          | `Decals, blueprint quests and items for the Crossover Content pack` |
+   | **Author**                               | Optional — whoever made the pack                                    |
+   | **Version**                              | The pack's version, e.g. `3.74`                                     |
+   | **Companion to game-files mod**          | Pick **`Crossover Content Files`**                                  |
+   | **What to take from it**                 | Leave everything ticked                                             |
+   | **Install each table as a separate mod** | Leave unticked                                                      |
+
+   Picking the companion makes the database mod require the files mod, so you
+   get a warning if you ever switch the database half on without the models it
+   points at.
+9. Click **Add mods**, tick **`Crossover Content Database`**, and click
+   **Save Mod List**.
+
+You can delete the two copies on your Desktop afterwards; the manager keeps its
+own untouched copy as `masters.db.original`.
+
+**From now on, switch it on and off in the DB editor**, not with the pack's
+own installer. Untick both mods and save, and the database goes back to how it
+was and the model files are taken out of the game.
+
+### Recording a new release (maintainers)
+
+When the pack puts out a new version, `tools/build_crossover_recipe.py` records
+it — it runs the pack's own installer against the vanilla database, diffs the
+result, verifies the recording reproduces that result exactly, and writes the
+recipe plus its fingerprint into `lid_db_manager/recipes/`:
+
+```
+py -3 tools/build_crossover_recipe.py --pack "C:\...\LetItDieCrossoverContent-v3.75-Source-NoEXE"
+```
+
+Nothing is written if the verification fails. Players never run this.
+
+## Mods that need a change to the game executable
+
+Some artwork cannot be replaced by copying a file over it, because the game
+checks. `BrgGame-Steam.exe` carries a SHA-1 for most of its own data — on the
+build this was written against, **7,678 of the 7,882 packages on disk**, plus
+221 `.ini` and 139 `.usf` files. Replace a listed file and the game refuses it.
+
+Most artwork mods never run into this. The 204 packages the table does *not*
+list are equipment added after the table was built, which is why the Crossover
+Content pack installs without any of this — 201 of its files are unlisted, and
+the 33 that are listed it ships byte-identical to the originals.
+
+The **Colored PlayStation Buttons** mod, also **by S3er0i9ng**
+(<https://letitdiemods.pages.dev/>), is the other case. It replaces
+`UI_ButtonGuide_STM_SF.upk`, which *is* listed, so the game has to be told the
+new hash or the replacement does nothing. Like the content pack, it is included
+with the manager with their permission.
+
+### How the manager handles it
+
+It ships in `mods/` as `Colored PlayStation Buttons v1.2`, one mod holding both
+halves: the replacement package, and the one hash the game keeps for it. Tick
+it and click **Save Mod List** with the game closed.
+
+When the mod gets an update, the manager has to be updated to include it — a
+new release of this program will carry it.
+
+Unticking it puts the executable back byte for byte.
+
+### What actually changes
+
+Twenty bytes, inside a table of file hashes. No program code.
+
+That is not a promise, it is a check. The executable has a code section with a
+fingerprint of its own, and every edit is verified before it is allowed to
+count:
+
+- the file's length is unchanged,
+- every byte outside those twenty is identical,
+- the code section hashes to exactly what it did before,
+- and the entry now holds the replacement package's real hash.
+
+If any of those fail, nothing is written. The same code refuses a package the
+table does not list, a package listed twice (228 names really are), a hash that
+is not what the recording expected — which means a different game build, or an
+executable something else already changed — and a malformed recording.
+
+### Only recordings that ship with the manager
+
+This is deliberately not a thing mods can do. A mod cannot name a package and a
+pair of hashes; it can only name a recording that ships here:
+
+```json
+{ "type": "exe_checksum_entry", "recipe": "exe-buttons-1.2" }
+```
+
+An unknown name does not load:
+
+> `'exe-made-up' is not a recording this manager ships, so it will not be
+> carried out. Changes to the game executable are limited to recordings that
+> ship with the manager.`
+
+A mod that tries to supply its own `package`, `checksum_before`,
+`checksum_after` or `target` alongside the name is refused too. Everything
+about the change comes from the recording, which is the point of it.
+
+Each recording lives in `lid_db_manager/recipes/` as two committed files: the
+recording itself, and the exact `mod.json` that gets installed. Neither is
+generated at install time — what runs on a player's machine is a file in this
+repository that can be read and diffed.
+
+### Adding a recording (maintainers)
+
+Recording one is deliberately a change to this repository. `tools/build_buttons_recipe.py`
+reads the mod folder and a real game executable, checks the mod's own manifest
+against what the executable actually holds, performs the edit in memory to prove
+it works and is reversible, and only then writes the two files:
+
+```
+py -3 tools/build_buttons_recipe.py --mod "C:\...\buttons" --game "E:\...\LET IT DIE"
+```
+
+The executable is opened read-only and never written. Nothing is recorded if
+any check fails. Then look both files over and commit them — that is what makes
+the recording vetted, and it is the only step that cannot be automated.
+
+Players never run this.
+
+## Editing a mod
+
+**Tools → Edit mod details**, or F2 with a mod selected. Name, description,
+author, version and the readme, all in the window — no hunting for the folder
+and no text editor.
+
+Renaming moves the mod's folder, and takes its place in the load order and its
+undo history with it, so nothing breaks. A mod that is only a bare `.sql` file
+gets a proper `mod.json` written the first time you give it a name, which is
+how it stops showing as *(unknown — .sql only)*.
+
+The comparison is not limited to retuned numbers. Changed values, added rows,
+removed rows and whole tables the game shipped without all come across, with
+their indexes — modders keep finding more they can do to `masters.db`, and a
+manager that quietly drops the parts it does not recognise is worse than one
+that refuses them outright. Reverting such a mod drops the tables it added and
+puts everything else back.
+
+It refuses outright if the file came from a different game version — a database
+missing a vanilla table, or with different columns in one. That difference
+would read as "undo the developers' changes", and applying it would quietly
+roll the game back.
+
+## Mods built for a different game version
+
+A mod made by diffing a database is a set of changes measured against **one
+build of the game**. LET IT DIE gets patched, and when it does, most of those
+changes still land exactly as intended — rows are addressed by name, not by
+position, and a patch rarely touches the same ones.
+
+But when one *doesn't* fit, nothing fails. The mod applies, the save succeeds,
+and something is quietly wrong in game. That is the worst shape a problem can
+take, so the manager says something instead of leaving you to find out.
+
+### How it knows
+
+`masters.db` carries its own build number:
+
+```
+master_const_str.TITLE_VERSION  ->  "5.0.3.0.0 - 1.87"
+```
+
+A mod can record the build it was made against in its `mod.json`:
+
+```json
+{ "game_version": "5.0.3.0.0 - 1.87" }
+```
+
+When both are present and they differ, validation adds a warning naming each:
+
+> built for game 5.0.3.0.0 - 1.87, but your database is 5.0.2.0.0 - 1.86. It
+> will still apply, and usually that is fine — but if the update changed
+> anything this mod touches, the result will be wrong in game rather than
+> reported here.
+
+### A warning, not a refusal
+
+Deliberately. A mod built on the previous build usually works perfectly, and
+refusing would block mods that are fine. The point is that the mismatch stops
+being invisible, not that it stops being allowed.
+
+Two things stay quiet rather than guessing: a mod that records no build, and a
+database that does not report one. Neither is treated as a mismatch.
+
+### If you write mods
+
+Add `game_version` to your `mod.json` when you build one by diffing — the value
+is whatever your database's `TITLE_VERSION` says. It costs nothing, and it means
+anyone on a later build gets told rather than surprised.
+
+Mods that ship with the manager and are recorded from a content pack get it
+filled in automatically, from the baseline the recording was taken against.
+
+## Load order
+
+Enabled mods sit at the top of the list, **numbered**. That number is the order
+they are applied in: **top applies first, bottom wins.** Move things with the
+buttons under the list, or Ctrl+Up / Ctrl+Down.
+
+So if a big rework sets a hundred values and you want one of them different,
+put your small mod **below** it. It applies last, so its value is the one that
+survives, and the other ninety-nine are untouched.
+
+The order is yours. The manager never silently reorders it — if a mod ends up
+above something it declares it `requires`, you get a warning telling you to
+move it rather than having things shuffled behind your back. You also get a
+warning when a required mod is not enabled at all.
+
+Conflict warnings name the two mods and **the rows they share**, not just the
+table. Two mods that both write `master_text` but never touch the same row are
+not a conflict and are not reported — which is what makes the warnings worth
+reading when they do appear.
+
+Before this existed, mods applied in whatever order their checkboxes happened to
+get ticked. That order was invisible, and unticking a mod and ticking it again
+silently changed who won.
+
+## Saving your mod list
+
+**Save Mod List** (the button at the bottom, or Ctrl+S) is the only thing that
+writes to your database. Everything else — enabling, reordering, dropping files
+in — only changes the list. In order, it:
+
+1. **Backs up.** A rolling `masters.db.backup`, plus a dated copy in
+   `backups/` (newest five kept).
+2. **Validates every enabled mod** against your actual database on a read-only
+   connection. Tables and columns must exist, SQL must compile. A mod written
+   for a different game version is reported, not run.
+3. **Snapshots the rows each mod is about to change**, so that mod alone can be
+   undone later.
+4. **Applies the whole list in load order, in one transaction.** If any mod
+   fails, *none* of them are applied — the database is left exactly as it was.
+   You never end up half-modded.
+5. **Records the result**, so the manager can tell later whether the game has
+   replaced the file behind your back.
+
+The log reports how many rows each mod changed and how long the whole thing
+took. Those row counts are worth a glance: a mod claiming far more rows than
+you expected is usually a whole-table dump, and the note under *Making your own
+mods* about `"apply": "diff"` explains what to do about it.
+
+**Re-apply All** (Ctrl+R) runs the same list again without taking a fresh
+backup — it is what the watchdog calls when the game replaces `masters.db`
+after an update. Skipping the backup is deliberate: an automatic re-apply must
+never quietly rotate your good backups away.
+
+## Seeing what a mod does, in plain English
+
+Select a mod and open the **In plain English** tab. Instead of rows and column
+names, it says what the mod changes:
+
+```
+Buffalo Bank (Kill Bank) upgrades
+The store in your Waiting Room that holds your Kill Coins.
+ • Doubles the most Kill Coins it can hold, for levels 1-99.
+     for example, level 1: 50,000 KC → 100,000 KC
+```
+
+Most of it comes from the game itself. Skills, quests and fighter types are
+named from the game's own text, so a mod touching `SKL_EXPUP_02` reads as
+**Nitro Boost**. Where the game writes its own description — *"Increases EXP
+gained by 40%"* — the tab shows that description with the mod's new number
+filled in, which is the only honest way to describe a value that means
+something different on every row.
+
+Long lists are summarised rather than printed: 99 changed levels read as
+*"levels 1-99"*, and a mod that renames every floor reads as *"191 lines of
+text, in 8 languages"* rather than 1,528 rows.
+
+**It never guesses.** A column nobody has described yet is shown under its real
+name, with a note saying so. Some columns are described as *unused* — vanilla
+leaves them at zero on every single row — and ten whole tables are marked as
+left over from when the game was online, so the tab tells you editing them will
+not do anything rather than explaining them.
+
+It is careful about the difference between those ten and a table that is merely
+*empty*. The ten are named nowhere in the game's own executable, which is good
+evidence they are dead. Seven others simply have no rows in vanilla, which
+proves nothing about whether the game would read them — so those say exactly
+that, and leave the question open, rather than telling you not to bother.
+
+**All 221 tables are now described.** Every table in `masters.db` has a title,
+an explanation of what it is for, and plain-English meanings for the columns a
+mod is likely to touch. 155 are covered in full; the other 66 have their main
+columns described and the rarer ones still shown under their real names.
+
+| Area         | What is covered                                                                                      |
+|--------------|------------------------------------------------------------------------------------------------------|
+| Waiting Room | Buffalo Bank, SPLithium Tank, Freezer, Jail, decorations                                             |
+| Quests       | quests, rewards, categories, what each one checks for and the limits it enforces                     |
+| Gear         | weapons and armour, crafting and upgrading, ranks, rage moves, damage and knockback per attack       |
+| Items        | items, mushrooms and what eating them does, beasts, ammunition                                       |
+| Decals       | decals, the draw pool and its odds, caps on stacking, mushrooms that unlock them                     |
+| Fighters     | tiers, level EXP, stats by level, uncapping, weapon mastery, bodies, names, expert points            |
+| Death Metro  | ranks and payouts, the players you raid, team wars, base alarms, abduction                           |
+| The Hunter   | what a hunter brings back, by floor, by hour and by luck                                             |
+| Enemies      | Haters, Screamers, mid-bosses, stage bosses, the Four Forcemen, Jackals, small enemies, beasts       |
+| Stages       | the seven areas, their rooms and every spot things can be placed in                                  |
+| Floors       | what drops and at what level, materials, hazards, how floors join the elevator, the top of the Tower |
+| Pools        | mushrooms by season, beasts, items, treasure boxes, Mystery Bags, Death Boxes                        |
+| Rewards      | daily login bonuses, quest rewards, stamps, magazines, vouchers, Steam DLC                           |
+| Shops        | prices, where shops appear, the vending machine and its schedule                                     |
+| Presentation | game text, subtitles, the radio's tracks and channels, posters, the credits                          |
+| Left over    | ten tables the offline game never reads — it says so instead of describing them                      |
+
+### Describing more of the database
+
+The descriptions live in `lid_db_manager/explain_data.py`, one entry per table.
+You can also add your own without touching the program: put a
+`table-notes.json` next to your `mods` folder, in the same shape:
+
+```json
+{
+  "master_tdm_rank": {
+    "title": "Death Metro ranks",
+    "word": "rank",
+    "columns": { "point_min": ["the points needed to reach it", "pts"] }
+  }
+}
+```
+
+It is merged over the built-in descriptions when the manager starts. A broken
+file is ignored rather than fatal. If you are unsure what a column does, write
+"(not confirmed)" into the wording — saying so is better than a confident guess.
+
+## When a change doesn't show up in game
+
+The manager tells you what it wrote to `masters.db`, and the Diff preview shows
+you the rows. If the game still looks unchanged, the mod probably applied fine
+and the game simply has not re-read it yet.
+
+The clearest case is **shop and vending machine contents**. Those lineups are
+settled by the game's daily reset, so newly added items will not appear until
+the in-game day rolls over — no amount of re-applying will hurry it along.
+
+Before assuming a mod is broken:
+
+- Check the log and the Diff preview. If the rows are listed there, they are in
+  the database.
+- Restart the game. Some tables are read once at launch.
+- For anything shop-related, wait for the daily reset.
+- If you want to be certain, open `masters.db` in a SQLite browser and look at
+  the rows directly.
+
+## Building a mod without writing any SQL
+
+**Tools → Build a mod** (Ctrl+B) opens an editor over a clean copy of the
+database. Pick a heading, pick a table, change the numbers, press **Save as
+mod**. No SQL, no table names to memorise, no text editor.
+
+The headings are the parts people actually ask about:
+
+| Heading                             | What you can change                                                      |
+|-------------------------------------|--------------------------------------------------------------------------|
+| Weapons & Armour                    | craft and upgrade costs, stats, rank requirements                        |
+| Fighters                            | tier prices, level caps, Death Bag size, decal slots                     |
+| Items · Mushrooms · Beasts · Decals | prices, effects, where they appear, draw odds                            |
+| Vending machine                     | what it sells, for how much, on which day                                |
+| Quests · Rewards                    | what quests ask, what they pay, login bonuses, Mystery Bags              |
+| Enemies                             | Screamers, small enemies, mid-bosses, the Four Forcemen, Haters, Jackals |
+| Tokyo Death Metro                   | ranks and payouts, the players you raid, team wars                       |
+| Everything else                     | the other 170-odd tables, for when you know what you want                |
+
+### Two ways to look at anything
+
+Because one shape doesn't fit both kinds of table:
+
+- **As a list** — pick a weapon from the list, see everything about it on a
+  form. Right for tables where each row is a *thing*, and the only readable
+  option for the wide ones: a weapon has 90 columns, and no grid that wide is
+  worth looking at.
+- **As a table** — a grid, for the tables where each row is a *number in a
+  series*, like the bank's 99 levels, where you want to see the whole curve.
+
+It picks for you based on the table's shape, and the dropdown switches.
+
+Every column is labelled with what it *means* rather than its database name —
+"the cost to unlock it (KC)", not `price` — and the described ones are shown
+first, so the handful worth touching aren't buried behind ninety that aren't.
+Rows are named the same way: **All-rounder, grade 2**, not `BAL / 2 / 0`.
+
+### Item artwork
+
+The builder can show a picture beside each weapon, decal, material and
+blueprint. **None of it ships with this program.** The game's artwork belongs to
+Grasshopper Manufacture, not to this project and not to whoever extracted it, so
+there is none in this repository and none in any release.
+
+What it does instead: **Tools -> Set item artwork folder...** points it at a
+copy you already have on your own machine. If the folder carries an
+`icon_map.json` keyed by the game's own ids it uses that; otherwise it matches
+filenames, either the id (`pt_arm_wp001_002.png`) or the name
+(`battle_machete.png`). Blueprints borrow the picture of the gear they make.
+
+Leave it unset and everything works exactly as before, with no pictures.
+
+Pictures are scaled to 40px once and kept in `icon-cache/` so lists stay quick -
+about 2 KB each. That folder is yours, is never uploaded anywhere, and can be
+deleted at any time.
+
+### Stocking the vending machine
+
+Open the vending machine and there's an **Add things to the machine...** button.
+It opens a catalogue of everything the machine can sell — search it, tick what
+you want, choose a day, and optionally set a price.
+
+Three things it knows that you'd otherwise have to work out yourself:
+
+- **Blueprints have no names.** All 1,899 of them are called "RMAP" in the
+  game's text, so each is shown as *the weapon or armour it makes* — "Battle
+  Machete — blueprint" — which is what you'd actually search for. The
+  unidentified variants are marked as such.
+- **The day of the week is the tab.** `MON` through `SUN`, plus an always-in-
+  stock tab and the recycle tab, spelled out in words.
+- **The machine carries no price of its own.** Every price and discount column
+  is zero on all 315 vanilla rows, so what it charges is the *item's* price —
+  which is what setting a price here changes, everywhere that item is sold. The
+  window says so before you do it.
+
+It also copies the settings of whatever tab you're adding to, rather than asking
+you to pick a "currency type" whose meaning isn't recorded anywhere.
+
+Two things make bulk edits painless. **Set every shown row to...** applies one
+value to everything currently listed, and **Multiply by...** scales it — so
+"every revive costs 1 KC" or "double the bank at every level" is one action, not
+ninety-nine edits. Search first to narrow what "shown" means.
+
+### What it will not let you do
+
+- **Change a key column.** That would move the row rather than edit it.
+- **Type words into a number.** It says so, using the column's real meaning.
+- **Turn a whole number into a decimal.** Multiplying an integer column rounds,
+  because writing `75000.5` where the game expects a whole number is how you get
+  a crash instead of a mod.
+- **Wreck a list column.** `skill_slots` holds `1,2,3` — three open decal slots,
+  not the number three. Those columns are edited as text and say so.
+
+### It cannot produce a broken mod
+
+The editor never writes a mod file. It edits a scratch copy of your
+`masters.db.original`, and when you save, that copy goes through **exactly the
+same import path** as a modded database someone sends you. So it inherits
+validation, snapshots, load order, switchable parts and untick-to-undo — there
+is no second code path that could get any of it wrong.
+
+Your real database is never touched while you edit, and the scratch copy is
+deleted when you close the window. What you get is an ordinary mod, sitting in
+the list **switched off**, with its own diff and plain-English tab to check
+before you tick it.
+
+## Making your own mods
+
+A mod is either a `mod.json` or just a `.sql` file — both work, and there are
+two templates to copy.
+
+**[mods/README.md](mods/README.md) is the full guide**: every folder layout,
+every patch type, how revert and conflict detection see your mod, and the traps
+worth knowing about.
+
+## Command line
+
+Everything the window does also works headless — useful for testing a mod, or on
+a machine without PySide6:
+
+```bash
+python run.py set-db "D:\...\Content\masters.db"
+python run.py list
+python run.py enable revive-cost-1kc
+python run.py preview revive-cost-1kc     # what it would change, no writes
+python run.py apply
+python run.py revert revive-cost-1kc
+python run.py backups
+python run.py watch                       # poll and re-apply on change
+```
+
+`python run.py --help` lists the rest.
+
+## Where files live
+
+```
+mods/          mod folders, yours and the shipped ones
+snapshots/     per-mod row snapshots, used by Revert
+backups/       dated database backups, newest five kept
+logs/          one plain-text log per session, newest 30 kept
+state.json     enabled mods, modpacks, settings, last-seen database hash
+```
+
+All created on first run. Set `LID_DB_MANAGER_HOME` to put them somewhere else.
+
+## Building an .exe
+
+There is a release with an exe already compiled. If you want to build it
+yourself for whatever reason, keep reading.
+
+```bash
+pip install pyinstaller
+python build.py              # -> dist/LID DB Mod Manager/
+python build.py --onefile    # -> dist/LID DB Mod Manager.exe
+```
+
+Use the interpreter PySide6 is installed in. `build.py` runs PyInstaller and
+then copies `mods/` next to the finished executable, which is the part a bare
+`pyinstaller run.py` gets wrong: a frozen build treats the folder the `.exe`
+sits in as its home, so `mods/`, `logs/`, `snapshots/`, `backups/` and
+`state.json` all live there. **Put it somewhere writable — not Program Files.**
+
+|                | Folder (default) | `--onefile`             |
+|----------------|------------------|-------------------------|
+| On disk        | 117 MB           | 47 MB                   |
+| Startup        | 0.2 s            | 0.9 s (unpacks on load) |
+| Zipped release | 60 MB            | 46 MB                   |
+
+The folder build starts four times faster and is far easier to diagnose when
+someone reports it not launching, which is why it is the default. `--onefile`
+is a 14 MB smaller download. Either way you ship a zip, because `mods/` has to
+travel alongside the executable.
+
+**Do not run the app out of `dist/`.** That folder is build output — rebuilding
+wipes it, and the app keeps its `state.json`, `snapshots/` and database backups
+next to itself. Copy the build somewhere permanent and run it from there.
+
+Other flags: `--icon path.ico`, and `--console` if you want the command line to
+work from the `.exe` (a windowed build still writes to a redirected pipe, but
+prints nothing into a `cmd` window).
+
+### What the people you send it to need
+
+Nothing. Python, PySide6, Qt and the Visual C++ runtime are all inside the
+bundle — verified by running it on a path with no Python anywhere on `PATH`.
+
+What they do need to know:
+
+- **It is 64-bit Windows only.** Building on Windows produces a Windows binary;
+  macOS and Linux users run it from source, which works fine.
+- **Ship the whole folder.** The `.exe` from a folder build will not start
+  without `_internal/` beside it, and neither build has any mods without
+  `mods/`. Zip the lot.
+- **Unzip somewhere writable** — not Program Files. The app keeps its settings,
+  logs and backups next to itself.
+- **SmartScreen will warn them.** The build is unsigned, so the first people to
+  run it get "Windows protected your PC" and have to click More info → Run
+  anyway. Some antivirus also flags PyInstaller executables. Both are normal for
+  an unsigned hobby release; avoiding them needs a paid code-signing
+  certificate.
+
+## Running the tests
+
+```bash
+python -m unittest discover -s tests -t tests
+```
+
+553 tests. They build a miniature `masters.db` from `tests/fixtures.py`, so no
+game files are needed. The GUI tests run offscreen and skip themselves if
+PySide6 is not installed.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script>
+(function(){
+  var raw = document.getElementById('src').textContent;
+  var doc = document.getElementById('doc');
+
+  // The README opens with its own H1; the page header already says that.
+  raw = raw.replace(/^#\s+.*\n+/, '');
+
+  if (!window.marked) {
+    var pre = document.createElement('pre');
+    pre.textContent = raw;
+    doc.appendChild(pre);
+    return;
+  }
+  marked.setOptions({gfm:true, breaks:false});
+  doc.innerHTML = marked.parse(raw);
+
+  // GitHub-style slugs, so links written inside the README still land.
+  function slug(s){
+    return s.toLowerCase().trim()
+      .replace(/[^\w\- ]+/g,'').replace(/\s+/g,'-').replace(/^-+|-+$/g,'');
+  }
+  var used = {};
+  doc.querySelectorAll('h2,h3').forEach(function(h){
+    var base = slug(h.textContent), id = base, n = 1;
+    while (used[id]) { id = base + '-' + (++n); }
+    used[id] = 1; h.id = id;
+    var a = document.createElement('a');
+    a.className = 'anchor'; a.href = '#' + id; a.textContent = '#';
+    a.setAttribute('aria-label','Link to this section');
+    h.insertBefore(a, h.firstChild);
+  });
+
+  // Tables need their own scroller so the page never slides sideways.
+  doc.querySelectorAll('table').forEach(function(t){
+    var w = document.createElement('div'); w.className = 'tablewrap';
+    t.parentNode.insertBefore(w, t); w.appendChild(t);
+  });
+
+  // Copy buttons - this manual is full of commands and paths.
+  doc.querySelectorAll('pre').forEach(function(pre){
+    var b = document.createElement('button');
+    b.className = 'copy'; b.type = 'button'; b.textContent = 'Copy';
+    b.addEventListener('click', function(){
+      var code = pre.querySelector('code');
+      navigator.clipboard.writeText((code||pre).textContent).then(function(){
+        b.textContent = 'Copied'; setTimeout(function(){ b.textContent = 'Copy'; }, 1400);
+      }, function(){ b.textContent = 'Press Ctrl+C'; });
+    });
+    pre.appendChild(b);
+  });
+
+  // ---- sections -----------------------------------------------------------
+  // Each H2 owns everything up to the next H2. Searching counts matches inside
+  // a whole section, so a section still surfaces when the words are in its
+  // body rather than its title.
+  var sections = [];
+  (function(){
+    var current = null;
+    Array.prototype.forEach.call(doc.children, function(node){
+      if (node.tagName === 'H2') {
+        current = {id:node.id, title:node.textContent.replace(/^#/,''), nodes:[node], subs:[]};
+        sections.push(current);
+      } else if (current) {
+        current.nodes.push(node);
+        if (node.tagName === 'H3') {
+          current.subs.push({id:node.id, title:node.textContent.replace(/^#/,'')});
+        }
+      }
+    });
+    sections.forEach(function(s){
+      s.text = s.nodes.map(function(n){ return n.textContent; }).join(' ').toLowerCase();
+    });
+  })();
+
+  // ---- order --------------------------------------------------------------
+  // Twenty-four flat sections is a list you scroll past. These five groups are
+  // how people actually arrive: set up, use, big packs, build, look up. The
+  // body is rebuilt in this order too, so reading down the page and working
+  // down the contents follow the same path.
+  var GROUPS = [
+    ['Start here', ['what-it-does','requirements','running-it','point-it-at-a-clean-mastersdb']],
+    ['Using mods', ['mods-included','adding-mods','switching-a-mod-off','undoing-things',
+                    'load-order','saving-your-mod-list','seeing-what-a-mod-does-in-plain-english',
+                    'when-a-change-doesnt-show-up-in-game']],
+    ['Packs and game files', ['mods-that-replace-game-files-upk','the-crossover-content-pack',
+                    'mods-that-need-a-change-to-the-game-executable',
+                    'mods-built-for-a-different-game-version']],
+    ['Making mods', ['building-a-mod-without-writing-any-sql','editing-a-mod','making-your-own-mods']],
+    ['Reference', ['command-line','where-files-live','building-an-exe','running-the-tests','license']]
+  ];
+
+  var byId = {}; sections.forEach(function(s){ byId[s.id] = s; });
+  var ordered = [], placed = {};
+  GROUPS.forEach(function(g){
+    g[1].forEach(function(id){
+      if (byId[id] && !placed[id]) { placed[id] = 1; ordered.push({group:g[0], sec:byId[id]}); }
+    });
+  });
+  // Anything the groups do not name keeps its place, at the end.
+  sections.forEach(function(s){
+    if (!placed[s.id]) ordered.push({group:'Also in here', sec:s});
+  });
+
+  // Rebuild the body in that order. Appending a node moves it, so this both
+  // empties the old arrangement and builds the new one.
+  (function(){
+    var frag = document.createDocumentFragment(), last = null;
+    ordered.forEach(function(o){
+      if (o.group !== last) {
+        last = o.group;
+        var mark = document.createElement('p');
+        mark.className = 'groupmark';
+        mark.textContent = o.group;
+        frag.appendChild(mark);
+      }
+      o.sec.nodes.forEach(function(n){ frag.appendChild(n); });
+    });
+    doc.appendChild(frag);
+  })();
+
+  // ---- contents -----------------------------------------------------------
+  var rail = document.getElementById('rail');
+  var links = [];
+
+  function addLink(sec, into){
+    var a = document.createElement('a');
+    a.href = '#' + sec.id;
+    var label = document.createElement('span'); label.textContent = sec.title;
+    var n = document.createElement('span'); n.className = 'hit'; n.hidden = true;
+    a.appendChild(label); a.appendChild(n);
+    a.dataset.sec = sec.id;
+    into.appendChild(a);
+    links.push({el:a, count:n, sec:sec});
+    sec.subs.forEach(function(sub){
+      var s = document.createElement('a');
+      s.href = '#' + sub.id; s.className = 'sub'; s.textContent = sub.title;
+      s.dataset.sub = sub.id;
+      into.appendChild(s);
+      links.push({el:s, sec:sec, isSub:true, id:sub.id});
+    });
+  }
+
+  (function(){
+    var box = null, last = null;
+    ordered.forEach(function(o){
+      if (o.group !== last) {
+        last = o.group;
+        box = document.createElement('div'); box.className = 'grp';
+        var h = document.createElement('h4'); h.textContent = o.group;
+        box.appendChild(h); rail.appendChild(box);
+      }
+      addLink(o.sec, box);
+    });
+  })();
+
+  var empty = document.createElement('p');
+  empty.className = 'noresult'; empty.hidden = true;
+  empty.textContent = 'Nothing matches that.';
+  rail.appendChild(empty);
+
+  // ---- search -------------------------------------------------------------
+  var q = document.getElementById('q'), clearq = document.getElementById('clearq');
+
+  function unmark(){
+    doc.querySelectorAll('mark').forEach(function(m){
+      var t = document.createTextNode(m.textContent);
+      m.parentNode.replaceChild(t, m);
+      t.parentNode.normalize();
+    });
+  }
+
+  function highlight(term){
+    var walker = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT, {
+      acceptNode: function(node){
+        if (!node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+        if (node.parentNode.classList && node.parentNode.classList.contains('copy'))
+          return NodeFilter.FILTER_REJECT;
+        return node.nodeValue.toLowerCase().indexOf(term) > -1
+          ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      }
+    });
+    var found = [], n;
+    while ((n = walker.nextNode())) found.push(n);
+    found.forEach(function(node){
+      var frag = document.createDocumentFragment(), text = node.nodeValue, at = 0, low = text.toLowerCase(), i;
+      while ((i = low.indexOf(term, at)) > -1) {
+        if (i > at) frag.appendChild(document.createTextNode(text.slice(at, i)));
+        var m = document.createElement('mark');
+        m.textContent = text.slice(i, i + term.length);
+        frag.appendChild(m);
+        at = i + term.length;
+      }
+      if (at < text.length) frag.appendChild(document.createTextNode(text.slice(at)));
+      node.parentNode.replaceChild(frag, node);
+    });
+  }
+
+  function count(hay, needle){
+    var n = 0, at = 0, i;
+    while ((i = hay.indexOf(needle, at)) > -1) { n++; at = i + needle.length; }
+    return n;
+  }
+
+  function runSearch(){
+    var term = q.value.trim().toLowerCase();
+    clearq.hidden = !term;
+    unmark();
+    if (!term) {
+      links.forEach(function(l){ l.el.hidden = false; if (l.count) l.count.hidden = true; });
+      rail.querySelectorAll('.grp').forEach(function(g){ g.hidden = false; });
+      empty.hidden = true;
+      spy();
+      return;
+    }
+    var any = false;
+    links.forEach(function(l){
+      var hits = count(l.sec.text, term);
+      if (l.isSub) { l.el.hidden = hits === 0; return; }
+      l.el.hidden = hits === 0;
+      l.count.hidden = hits === 0;
+      l.count.textContent = hits;
+      if (hits) any = true;
+    });
+    rail.querySelectorAll('.grp').forEach(function(g){
+      g.hidden = !g.querySelector('a:not([hidden])');
+    });
+    empty.hidden = any;
+    highlight(term);
+  }
+
+  var timer;
+  q.addEventListener('input', function(){ clearTimeout(timer); timer = setTimeout(runSearch, 120); });
+  clearq.addEventListener('click', function(){ q.value = ''; runSearch(); q.focus(); });
+  q.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') { q.value = ''; runSearch(); }
+    if (e.key === 'Enter') {
+      var first = rail.querySelector('a:not([hidden])');
+      if (first) { first.click(); q.blur(); }
+    }
+  });
+  document.addEventListener('keydown', function(e){
+    if ((e.key === '/' || ((e.ctrlKey||e.metaKey) && e.key === 'k')) &&
+        document.activeElement !== q) {
+      e.preventDefault(); q.focus(); q.select();
+    }
+  });
+
+  // ---- where am I ---------------------------------------------------------
+  // Measured from the page as laid out, not from the order the README happened
+  // to be written in - the body was reordered above, so reading positions off
+  // the original section list highlighted the wrong entry half the time.
+  var marks = [];
+  function measure(){
+    marks = [];
+    ordered.forEach(function(o){
+      marks.push({sec:o.sec.id, sub:null, el:document.getElementById(o.sec.id)});
+      o.sec.subs.forEach(function(sub){
+        marks.push({sec:o.sec.id, sub:sub.id, el:document.getElementById(sub.id)});
+      });
+    });
+    marks = marks.filter(function(m){ return m.el; });
+    marks.forEach(function(m){
+      m.top = m.el.getBoundingClientRect().top + window.scrollY - 96;
+    });
+    marks.sort(function(a, b){ return a.top - b.top; });
+  }
+
+  var lastActive = null;
+  function spy(){
+    if (!marks.length) return;
+    var y = window.scrollY;
+    // At the very bottom nothing below can win, so the last heading owns it -
+    // otherwise a short final section never lights up at all.
+    var atEnd = y + window.innerHeight >= document.documentElement.scrollHeight - 2;
+    var here = atEnd ? marks[marks.length - 1] : marks[0];
+    if (!atEnd) {
+      for (var i = 0; i < marks.length; i++) {
+        if (y >= marks[i].top) here = marks[i]; else break;
+      }
+    }
+    links.forEach(function(l){
+      l.el.classList.toggle('on',
+        l.isSub ? l.id === here.sub : l.el.dataset.sec === here.sec && !l.isSub);
+    });
+    // With two dozen entries the rail scrolls; keep the current one in sight.
+    var key = here.sub || here.sec;
+    if (key !== lastActive) {
+      lastActive = key;
+      var on = rail.querySelector('a.on');
+      if (on && rail.scrollHeight > rail.clientHeight) {
+        var r = on.getBoundingClientRect(), box = rail.getBoundingClientRect();
+        if (r.top < box.top + 8 || r.bottom > box.bottom - 8) {
+          rail.scrollTop += r.top - box.top - box.height / 2 + r.height / 2;
+        }
+      }
+    }
+  }
+
+  measure(); spy();
+  var ticking = false;
+  window.addEventListener('scroll', function(){
+    if (ticking) return; ticking = true;
+    requestAnimationFrame(function(){ spy(); ticking = false; });
+  }, {passive:true});
+  window.addEventListener('resize', function(){ measure(); spy(); });
+  if (document.fonts && document.fonts.ready)
+    document.fonts.ready.then(function(){ measure(); spy(); });
+  // Images and late layout shifts move everything; re-measure once settled.
+  window.addEventListener('load', function(){ measure(); spy(); });
+
+  // ---- chrome -------------------------------------------------------------
+  var menu = document.getElementById('menu');
+  menu.addEventListener('click', function(){
+    var open = rail.classList.toggle('open');
+    menu.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  rail.addEventListener('click', function(e){
+    if (e.target.closest('a') && window.innerWidth <= 940) {
+      rail.classList.remove('open'); menu.setAttribute('aria-expanded','false');
+    }
+  });
+
+  var root = document.documentElement, themeBtn = document.getElementById('theme');
+  try {
+    var saved = localStorage.getItem('lid-manual-theme');
+    if (saved) root.setAttribute('data-theme', saved);
+  } catch (e) {}
+  themeBtn.addEventListener('click', function(){
+    var dark = matchMedia('(prefers-color-scheme: dark)').matches;
+    var now = root.getAttribute('data-theme') || (dark ? 'dark' : 'light');
+    var next = now === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('lid-manual-theme', next); } catch (e) {}
+  });
+})();
+</script>
+</body>
+</html>
