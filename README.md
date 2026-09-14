@@ -1,5 +1,5 @@
-## VirusTotal scan of the current code of BETA V0.4.0
-https://www.virustotal.com/gui/url/63368c8eb96033d99a7a4bc4788535a4810c7ddc300b740e84036b356da2371e/detection
+## VirusTotal scan of the current code of BETA V0.5.0
+https://www.virustotal.com/gui/url/63368c8eb96033d99a7a4bc4788535a4810c7ddc300b740e84036b356da2371e?nocache=1
 
 # LET IT DIE DB Mod Manager
 
