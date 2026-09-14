@@ -43,9 +43,10 @@ program file is ever added to the game.
 - **Handles game files too.** Mods that ship new models and artwork as `.upk`
   files are copied into the game while switched on and taken back out when
   switched off.
-- **Installs the Crossover Content pack in one drop.** Artwork and the database
-  changes that make it reachable go in together as a single mod you can switch
-  off again — no running its installer, no swapping `masters.db` by hand.
+- **Comes with the Crossover Content pack and Colored PlayStation Buttons.**
+  Both by S3er0i9ng, included with their permission and ready to tick. Artwork
+  and the database changes that make it reachable switch on and off together —
+  no running an installer, no swapping `masters.db` by hand.
 - **Handles artwork the game checks.** Most packages carry a checksum inside the
   game executable, so replacing one normally fails. For a short, hand-vetted list
   of mods the manager updates that one value too — twenty bytes of data, no code,
@@ -155,7 +156,9 @@ away.
 
 ## Mods included
 
-Eighteen, in `mods/`, each with its own `readme.md`.
+Twenty, in `mods/`, each with its own `readme.md`: eighteen tweaks of mine, and
+two larger mods by S3er0i9ng included with their permission
+([below](#by-s3er0i9ng)).
 
 ### Costs and rewards
 
@@ -213,6 +216,24 @@ Two caveats worth knowing before you enable them:
   Spanish, French, Italian and Portuguese. Japanese, Chinese and Korean keep
   the stock wording. That half is a separate patch inside the mod, so you can
   untick it and keep the number change on its own.
+
+### By S3er0i9ng
+
+| Mod                                  | What it does                                                                                     |
+|--------------------------------------|--------------------------------------------------------------------------------------------------|
+| `LET IT DIE Crossover Content v3.75` | Restores cut crossover gear: Mushroom Club decals, blueprint quests, and 234 artwork packages    |
+| `Colored PlayStation Buttons v1.2`   | Colored PlayStation button prompts, plus the one hash the game keeps for that file               |
+
+Both are included with their author's permission; the originals are at
+<https://letitdiemods.pages.dev/>. See
+[The Crossover Content pack](#the-crossover-content-pack) and
+[Mods that need a change to the game executable](#mods-that-need-a-change-to-the-game-executable).
+
+Ticking the Crossover pack alongside the durability, ammo or magazine mods, or
+Nitro Boost, shows a "both write table" warning. The manager can only compare
+the pack's SQL a whole table at a time; they share a table but no rows — the
+pack switches hidden gear on and adds new rows, and those mods change other
+columns and other text.
 
 ## Adding mods
 
@@ -361,8 +382,8 @@ It has **two halves**, and both have to arrive or nothing shows up in game:
 - **Database changes** — the decal-pool entries and blueprint quests that make
   that artwork reachable. Without them the artwork sits in the game unused.
 
-**Drag the pack's folder onto the window.** The manager recognises it and adds
-both halves as one mod. That is the whole procedure.
+**It comes with the manager.** Tick `LET IT DIE Crossover Content v3.75` in
+the mod list and click **Save Mod List**. That is the whole procedure.
 
 You do not need to run the pack's own installer, and you should not. The
 manager rebuilds `masters.db` from your mod list every time you save, so
@@ -370,28 +391,10 @@ anything written to the game from outside that list is replaced the next time
 you tick something. That is why the two tools used to undo each other, and why
 the content has to be a mod in the list to survive.
 
-### Getting it
+### Updates
 
-1. Go to **<https://letitdiemods.pages.dev/>**
-2. Download **LET IT DIE Mod Manager v1.2**. That one download carries both
-   the Crossover Content pack *and* the Colored PlayStation Buttons mod.
-3. Open the ZIP and pull out the two folders inside it: **`crossover`** and
-   **`buttons`**.
-4. Drag each one onto the DB editor window **separately**. Each installs as its
-   own mod.
-
-You do not need Python, and you do not need to run anything in that download.
-Only the artwork is taken out of it, so once both mods are installed you can
-delete the ZIP and the extracted folders if you want the space back.
-
-`buttons` is a different mod with different rules — it replaces artwork the
-game checksums, so it also updates one value inside the executable. See
-[Mods that need a change to the game executable](#mods-that-need-a-change-to-the-game-executable).
-That is why the two are dragged in separately rather than as one drop.
-
-**If you drag the whole extracted folder instead**, the manager looks one level
-down, finds the crossover pack and installs that — then tells you the buttons
-mod was in there too and to drop it on its own. Nothing is taken silently.
+The manager ships v3.75. When the pack gets an update, the manager has to be
+updated to include it — a new release of this program will carry it.
 
 ### Where the database changes come from
 
@@ -403,8 +406,7 @@ is 476 added rows and 120 changed ones across 16 tables, and nothing deleted.
 The 120 changed rows are not edits to the pack's content — they switch on
 collab items the game already shipped but left hidden on PC.
 
-The artwork itself is **not** redistributed here. It comes from the download
-above, from its author.
+The artwork is S3er0i9ng's own, copied unchanged from their v3.75 release.
 
 ### Version checking
 
@@ -437,11 +439,11 @@ interface.
 
 ### Credit
 
-The Crossover Content pack is **by S3er0i9ng**, not by me, and is not part of
-this manager. The artwork is theirs and is not redistributed here — only a
-recording of the database changes, with their permission.
+The Crossover Content pack is **by S3er0i9ng**, not by me. It is included with
+the manager — artwork and a recording of its database changes — with their
+permission. The artwork and the pack remain theirs.
 
-Get the pack itself from **<https://letitdiemods.pages.dev/>**.
+Their releases are at **<https://letitdiemods.pages.dev/>**.
 
 ### The long way round
 
@@ -565,20 +567,17 @@ the 33 that are listed it ships byte-identical to the originals.
 The **Colored PlayStation Buttons** mod, also **by S3er0i9ng**
 (<https://letitdiemods.pages.dev/>), is the other case. It replaces
 `UI_ButtonGuide_STM_SF.upk`, which *is* listed, so the game has to be told the
-new hash or the replacement does nothing. As with the content pack, the mod
-itself is not redistributed here — download it from them.
-
-### Getting it
-
-It is in the same download as the Crossover Content pack: **LET IT DIE Mod
-Manager v1.2** from <https://letitdiemods.pages.dev/>. Open the ZIP and pull out
-the **`buttons`** folder.
+new hash or the replacement does nothing. Like the content pack, it is included
+with the manager with their permission.
 
 ### How the manager handles it
 
-Drop that folder on the window. It is recognised, and goes in as one mod
-holding both halves: the replacement package, and the one hash the game keeps
-for it.
+It ships in `mods/` as `Colored PlayStation Buttons v1.2`, one mod holding both
+halves: the replacement package, and the one hash the game keeps for it. Tick
+it and click **Save Mod List** with the game closed.
+
+When the mod gets an update, the manager has to be updated to include it — a
+new release of this program will carry it.
 
 Unticking it puts the executable back byte for byte.
 

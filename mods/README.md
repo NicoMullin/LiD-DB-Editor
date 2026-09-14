@@ -252,17 +252,22 @@ whole content pack that has an `assets/` folder (a `catalog.json` next to it is
 fine, it's ignored) — onto the window, or use **Tools ▸ Add a mod from a
 folder**. The manager writes the `mod.json` below for you and asks for a name.
 
-**A pack that also changes `masters.db`** (items, quests, drop pools — the
-Crossover Content pack is one) needs a second step: those changes are the
-pack's own installer logic, not data the manager can read. Such installers
-usually work on the game folder and edit the real `masters.db` in place, so:
-enable and save the files mod first, back up the vanilla `masters.db`, let the
-pack's installer edit the real one, copy the edited file out, and put the
-vanilla one back. Then drag the edited copy onto the window. The manager diffs
-it against your vanilla copy and writes the database changes as a **companion
-mod** you enable next to the files mod. Two mods, two checkboxes — so you can
-see each half loaded. The main README walks through this step by step for the
-Crossover Content pack.
+**A pack that also changes `masters.db`** (items, quests, drop pools) needs its
+database half too, and those changes are the pack's own installer logic, not
+data the manager can read.
+
+The Crossover Content pack is handled for you: v3.75 already ships in this
+folder with both halves as one mod. An update to the pack needs an update to
+the manager.
+
+For any other pack there is a second step. Such installers usually work on the
+game folder and edit the real `masters.db` in place, so: enable and save the
+files mod first, back up the vanilla `masters.db`, let the pack's installer
+edit the real one, copy the edited file out, and put the vanilla one back. Then
+drag the edited copy onto the window. The manager diffs it against your vanilla
+copy and writes the database changes as a **companion mod** you enable next to
+the files mod. Two mods, two checkboxes — so you can see each half loaded. The
+main README walks through this under "The long way round".
 
 ```json
 {

@@ -328,7 +328,18 @@ class ShippedModTests(unittest.TestCase):
         "tdm-rewards-2x",
         "tdm-rewards-5x",
         "tdm-rewards-10x",
+        "LET IT DIE Crossover Content v3.75",
+        "Colored PlayStation Buttons v1.2",
     }
+
+    # By S3er0i9ng, shipped with their permission. Named exactly as a drop of
+    # the pack's own folder installs them, so a player who already dropped one
+    # in gets the same folder rather than a second copy.
+    BUNDLED = {
+        "LET IT DIE Crossover Content v3.75",
+        "Colored PlayStation Buttons v1.2",
+    }
+    VANILLA_DB = PROJECT_ROOT / "LiD Vanilla DB" / "5.0.3.0" / "masters.db"
 
     # Pairs that are the same change at two strengths. They are meant to
     # collide - you pick one - and each declares the other in conflicts_with,
@@ -370,8 +381,23 @@ class ShippedModTests(unittest.TestCase):
     def test_every_shipped_mod_validates_against_the_test_schema(self) -> None:
         from lid_db_manager.validator import validate
 
-        mods = scan_mods(PROJECT_ROOT / "mods").mods
+        # The bundled pack writes tables the test schema does not have; it is
+        # checked against the real database below instead.
+        mods = [m for m in scan_mods(PROJECT_ROOT / "mods").mods if m.id not in self.BUNDLED]
         report = validate(self.db, mods)
+        errors = {r.mod_id: r.errors for r in report.results if r.errors}
+        self.assertEqual(errors, {})
+
+    def test_the_bundled_mods_validate_against_the_real_vanilla_database(self) -> None:
+        from lid_db_manager.validator import validate
+
+        if not self.VANILLA_DB.is_file():
+            self.skipTest(f"no vanilla database at {self.VANILLA_DB}")
+        copy = Path(self._tmp.name) / "vanilla.db"
+        shutil.copy2(self.VANILLA_DB, copy)
+        mods = [m for m in scan_mods(PROJECT_ROOT / "mods").mods if m.id in self.BUNDLED]
+        self.assertEqual({m.id for m in mods}, self.BUNDLED)
+        report = validate(copy, mods)
         errors = {r.mod_id: r.errors for r in report.results if r.errors}
         self.assertEqual(errors, {})
 
@@ -399,10 +425,17 @@ class ShippedModTests(unittest.TestCase):
 
     def test_the_real_mods_do_not_conflict_with_each_other(self) -> None:
         """Apart from the x2/x5 pairs, which are alternatives on purpose."""
+        # The Crossover pack is raw SQL, so it can only be compared a whole table
+        # at a time, and it shares master_part and master_text with the
+        # multipliers and Nitro Boost. It shares no rows with them: its
+        # master_part updates only set `platform` to unhide existing gear, and
+        # its master_text rows are new ids. Those table-wide warnings are the
+        # only overlap it is allowed.
         report = self._analyze(self._real_mods())
         unexpected = [
             c.message() for c in report.conflicts
             if frozenset({c.first, c.second}) not in self.ALTERNATIVES
+            and not ({c.first, c.second} & self.BUNDLED and "both write table" in c.message())
         ]
         self.assertEqual(unexpected, [])
         self.assertEqual([r.message() for r in report.missing_requirements], [])
