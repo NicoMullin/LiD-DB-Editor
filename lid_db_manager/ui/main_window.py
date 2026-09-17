@@ -20,30 +20,36 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
-from .. import APP_NAME, DB_FILENAME, DEFAULT_DB_HINT, __version__
+from .. import APP_NAME, DB_FILENAME, DEFAULT_DB_HINT, __version__, steam_locate
 from .. import backup as backup_module
 from ..backup import BACKUP_SUFFIX, ORIGINAL_SUFFIX
 from ..install import (
     KIND_ASSET_FOLDER,
     KIND_CONTENT_PACK,
+    KIND_DATABASE,
     KIND_VETTED_MOD,
+    InstallCandidate,
     InstallError,
 )
+from ..errors import ModManagerError
 from ..modedit import ModEditError
 from ..manager import Manager
 from ..watchdog import STATUS_OK, STATUS_STALE, DbStatus
+from .adopt_dialog import AdoptDialog
 from .diff_view import DiffView
 from .edit_dialog import EditModDialog
 from .install_dialog import InstallDialog
 from .log_panel import LogPanel
-from .mod_list import ModListWidget
+from .mod_list import MOD_ID_ROLE, ModListWidget
 from .theme import apply_theme, colors
 from .workers import TaskThread, WatchThread
 
@@ -129,8 +135,12 @@ class MainWindow(QMainWindow):
         self.mod_list.partToggled.connect(self._on_part_toggled)
         self.mod_list.togglesApplied.connect(self._after_mods_toggled)
         self.mod_list.selectionChangedTo.connect(self._on_mod_selected)
+        # Right-clicking a mod is where people look for what they can do to it.
+        self.mod_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.mod_list.customContextMenuRequested.connect(self._mod_context_menu)
 
         self.diff_view = DiffView(self.manager, self.dark)
+        self.diff_view.settingChanged.connect(self._on_setting_changed)
         self.log_panel = LogPanel(self.manager.log, self.dark)
 
         # The list plus its load-order controls, as one panel.
@@ -259,6 +269,17 @@ class MainWindow(QMainWindow):
         self._add_action(tools, "Add a mod from a file...", self.add_mod_from_file)
         self._add_action(tools, "Add a mod from a folder...", self.add_mod_from_folder)
         self._add_action(tools, "Edit mod details...", self.edit_selected_mod, "F2")
+        self._add_action(tools, "Delete mod...", self.delete_selected_mod)
+        tools.addSeparator()
+        self._add_action(tools, "Expand all mods", lambda: self.mod_list.set_all_expanded(True))
+        self._add_action(
+            tools, "Collapse all mods", lambda: self.mod_list.set_all_expanded(False)
+        )
+        tools.addSeparator()
+        self._add_action(
+            tools, "Scan my database for mods already in it...", self.scan_for_existing_mods
+        )
+        self._add_action(tools, "Clean database to compare against...", self.choose_vanilla)
         tools.addSeparator()
         self._add_action(tools, "Set item artwork folder...", self.set_icon_folder)
         self._add_action(tools, "Set game folder...", self.set_game_folder)
@@ -341,8 +362,23 @@ class MainWindow(QMainWindow):
 
     # -- database ----------------------------------------------------------
 
+    def _database_hint(self) -> tuple[str, bool]:
+        """Where masters.db probably is, and whether it was actually found there.
+
+        Looked up once: Steam can put the game in a library on any drive, and
+        the picker should open in the right one rather than on C: regardless.
+        """
+        if not hasattr(self, "_found_database"):
+            try:
+                self._found_database = steam_locate.find_game_database()
+            except Exception:
+                self._found_database = None
+        if self._found_database is not None:
+            return str(self._found_database), True
+        return DEFAULT_DB_HINT, False
+
     def choose_database(self) -> None:
-        start = str(self.manager.db_path or DEFAULT_DB_HINT)
+        start = str(self.manager.db_path or self._database_hint()[0])
         path, _ = QFileDialog.getOpenFileName(
             self, f"Locate {DB_FILENAME}", start, f"{DB_FILENAME} (*.db);;All files (*)"
         )
@@ -378,6 +414,157 @@ class MainWindow(QMainWindow):
 
     def _on_mod_selected(self, mod_id: str) -> None:
         self.diff_view.show_mod(mod_id)
+
+    def _on_setting_changed(self, mod_id: str, setting_id: str, value) -> None:
+        """A value was chosen in a mod's row. Takes effect on the next save."""
+        try:
+            number = self.manager.set_mod_setting(mod_id, setting_id, value)
+        except (ValueError, ModManagerError) as exc:
+            QMessageBox.warning(self, "That value is not allowed", str(exc))
+            self.mod_list.refresh()
+            return
+        self.unsaved = True
+        self.mod_list.refresh()
+        self.diff_view.refresh()
+        self._refresh_header()
+        mod = self.manager.configured_mod(mod_id)
+        setting = mod.setting(setting_id) if mod is not None else None
+        if mod is None or setting is None:
+            return
+        if self.manager.state.is_enabled(mod_id):
+            tail = " - click Save Mod List to apply it."
+        else:
+            tail = " - tick the mod and click Save Mod List to apply it."
+        self.statusBar().showMessage(
+            f"{mod.name}: {setting.label} is now {setting.display(number)}{tail}", 12000
+        )
+
+    def _open_configuration(self, mod_id: str) -> None:
+        """Show a mod's Configuration tab, ready to type in."""
+        self.mod_list.select_mods([mod_id])
+        self.diff_view.show_mod(mod_id)
+        self.diff_view.show_configuration()
+
+    def _commit_setting_edits(self) -> None:
+        """Take any value still being typed as it stands, before a save."""
+        for mod_id, setting_id, value in self.diff_view.pending_setting_edits():
+            try:
+                self.manager.set_mod_setting(mod_id, setting_id, value)
+            except (ValueError, ModManagerError) as exc:
+                self.manager.log.warn(str(exc))
+
+    # -- right-click menu --------------------------------------------------
+
+    def _mod_context_menu(self, point) -> None:
+        item = self.mod_list.itemAt(point)
+        menu = self._build_mod_menu(item)
+        menu.exec(self.mod_list.viewport().mapToGlobal(point))
+
+    def _build_mod_menu(self, item) -> QMenu:
+        """The menu for a right-clicked row. Built apart from showing it so a
+        test can read what it offers without a window manager involved."""
+        menu = QMenu(self)
+        mod_id = item.data(0, MOD_ID_ROLE) if item is not None else None
+        if mod_id:
+            # Act on what was right-clicked, not on some older selection.
+            if mod_id not in self.mod_list.selected_mod_ids():
+                self.mod_list.select_mods([mod_id])
+            enabled = self.manager.state.is_enabled(mod_id)
+            menu.addAction(
+                "Disable" if enabled else "Enable",
+                lambda: self._set_enabled_from_menu(mod_id, not enabled),
+            )
+            menu.addSeparator()
+            menu.addAction("Edit details...", self.edit_selected_mod)
+            mod = self.manager.scan.get(mod_id)
+            if mod is not None and mod.settings:
+                menu.addAction("Change values...", lambda: self._open_configuration(mod_id))
+            if mod is not None:
+                menu.addAction("Open mod folder", lambda: _open_folder(mod.folder))
+            menu.addSeparator()
+            menu.addAction("Move up the load order", lambda: self.move_selected(-1))
+            menu.addAction("Move down the load order", lambda: self.move_selected(+1))
+            menu.addSeparator()
+            menu.addAction("Revert - put its rows back", self.revert_selected)
+            menu.addAction("Delete mod...", self.delete_selected_mod)
+            menu.addSeparator()
+        else:
+            menu.addAction("Rescan mods folder", lambda: self.refresh(rescan=True))
+            menu.addSeparator()
+        menu.addAction("Expand all", lambda: self.mod_list.set_all_expanded(True))
+        menu.addAction("Collapse all", lambda: self.mod_list.set_all_expanded(False))
+        return menu
+
+    def _set_enabled_from_menu(self, mod_id: str, enabled: bool) -> None:
+        self.manager.set_enabled(mod_id, enabled)
+        self.unsaved = True
+        self._after_mods_toggled()
+
+    def delete_selected_mod(self) -> None:
+        """Remove a mod's folder. Offers to put its rows back first."""
+        mods = [
+            mod for mod in (self.manager.scan.get(m) for m in self.mod_list.selected_mod_ids())
+            if mod is not None
+        ]
+        if not mods:
+            QMessageBox.information(self, "Delete mod", "Pick a mod in the list first.")
+            return
+        names = "\n  ".join(mod.name for mod in mods)
+        ids = [mod.id for mod in mods]
+        applied = [mod_id for mod_id in ids if mod_id in self.manager.state.applied]
+        if applied:
+            choice = QMessageBox.question(
+                self,
+                "Delete mod",
+                f"Delete these mods?\n\n  {names}\n\n"
+                "Their changes are still in your database. Put those rows back first?\n\n"
+                "Yes - undo the changes, then delete\n"
+                "No - delete anyway and leave the changes in place",
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No
+                | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Yes,
+            )
+            if choice == QMessageBox.StandardButton.Cancel:
+                return
+            if choice == QMessageBox.StandardButton.Yes:
+                self._pending_delete = ids
+                self._run(lambda: self.manager.revert(applied), self._after_revert_then_delete)
+                return
+        else:
+            confirm = QMessageBox.question(
+                self,
+                "Delete mod",
+                f"Delete these mod folders?\n\n  {names}\n\nThis removes them from disk.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
+        self._delete_mods(ids)
+
+    def _after_revert_then_delete(self, results) -> None:
+        self._after_revert(results)
+        ids = getattr(self, "_pending_delete", [])
+        self._pending_delete = []
+        if ids:
+            self._delete_mods(ids)
+
+    def _delete_mods(self, mod_ids: list[str]) -> None:
+        failed = []
+        for mod_id in mod_ids:
+            try:
+                self.manager.delete_mod(mod_id)
+            except Exception as exc:  # a locked folder, a vanished mod
+                failed.append(f"{mod_id}: {exc}")
+        self.refresh()
+        if failed:
+            QMessageBox.warning(self, "Could not delete", "\n".join(failed))
+        else:
+            self.statusBar().showMessage(
+                f"Deleted {len(mod_ids)} mod(s)" if len(mod_ids) > 1 else f"Deleted {mod_ids[0]}",
+                6000,
+            )
 
     def move_selected(self, delta: int) -> None:
         """Shift the selected mods up or down the load order."""
@@ -419,16 +606,48 @@ class MainWindow(QMainWindow):
         else:
             QGuiApplication.restoreOverrideCursor()
 
-    def _run(self, work, on_done) -> None:
+    def _show_progress(self, message: str) -> None:
+        """A small window naming the slow thing that is happening.
+
+        Reading a 60 MB database, or rebuilding one and applying a content pack
+        to it, takes seconds. With the buttons greyed out and nothing moving,
+        that reads as a hang - and the natural response is to kill the program
+        half way through writing a database.
+        """
+        self._close_progress()
+        if not message:
+            return
+        dialog = QProgressDialog(message, "", 0, 0, self)  # 0..0 = no known length
+        dialog.setWindowTitle(APP_NAME)
+        dialog.setCancelButton(None)
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        dialog.setMinimumDuration(0)
+        dialog.setAutoClose(False)
+        dialog.setAutoReset(False)
+        dialog.setMinimumWidth(460)
+        dialog.show()
+        QApplication.processEvents()  # paint it before the work starts
+        self._progress = dialog
+
+    def _close_progress(self) -> None:
+        progress = getattr(self, "_progress", None)
+        if progress is not None:
+            progress.close()
+            progress.deleteLater()
+        self._progress = None
+
+    def _run(self, work, on_done, message: str = "") -> None:
         if self.task is not None and self.task.isRunning():
             return
         self._busy(True)
+        self._show_progress(message)
         self.task = TaskThread(work, self)
         self.task.succeeded.connect(lambda result: self._finish(on_done, result, ""))
         self.task.failed.connect(lambda trace: self._finish(on_done, None, trace))
         self.task.start()
 
     def _finish(self, on_done, result, trace: str) -> None:
+        self._close_progress()
         self._busy(False)
         self.task = None
         if trace:
@@ -445,6 +664,7 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def save_mod_list(self) -> None:
+        self._commit_setting_edits()
         if not self._check_database():
             return
         self._run(self.manager.save_mod_list, self._after_apply)
@@ -999,24 +1219,196 @@ class MainWindow(QMainWindow):
             box.setIcon(QMessageBox.Icon.Information)
             box.setWindowTitle(f"Point me at your {DB_FILENAME}")
             box.setText(f"{APP_NAME} needs to know where {DB_FILENAME} lives.")
-            box.setInformativeText(
-                "<b>Use a clean, unmodified copy.</b><br><br>"
-                "The moment you pick it, this tool keeps a copy as "
-                f"<code>{DB_FILENAME}{ORIGINAL_SUFFIX}</code> and never overwrites it "
-                "again — that is your permanent way back to vanilla. If the file "
-                "has already been edited by hand or by another tool, that "
-                "\"original\" is a copy of the edited version, and no amount of "
-                "reverting will get you back to stock.<br><br>"
-                "If you are not sure yours is clean, replace it <i>before</i> pointing "
-                "this tool at it: delete it and let Steam re-download it "
-                "(Properties &gt; Installed Files &gt; Verify integrity of game files). "
-                "Doing that afterwards means downloading it all over again.<br><br>"
-                f"It is usually under:<br><code>{DEFAULT_DB_HINT}</code>"
-            )
+            hint, found = self._database_hint()
+            where = "Found your game here:" if found else "It is usually under:"
+            builds = self.manager.vanilla_builds()
+            if builds:
+                # Clean copies ship with the manager, so the file being picked
+                # no longer has to be a clean one - that is the whole point of
+                # the scan that follows.
+                box.setInformativeText(
+                    "<b>Any copy will do — modded or not.</b><br><br>"
+                    "This build carries clean copies of the game's database "
+                    f"({len(builds)} of them), so yours is compared against the one "
+                    "matching your game build. If it turns out to have mods in it "
+                    "already, you are shown what they are and asked what to keep.<br><br>"
+                    f"{where}<br><code>{hint}</code>"
+                )
+            else:
+                box.setInformativeText(
+                    "<b>Use a clean, unmodified copy.</b><br><br>"
+                    "The moment you pick it, this tool keeps a copy as "
+                    f"<code>{DB_FILENAME}{ORIGINAL_SUFFIX}</code> and never overwrites it "
+                    "again — that is your permanent way back to vanilla. If the file "
+                    "has already been edited by hand or by another tool, that "
+                    "\"original\" is a copy of the edited version, and no amount of "
+                    "reverting will get you back to stock.<br><br>"
+                    "If you are not sure yours is clean, replace it <i>before</i> pointing "
+                    "this tool at it: delete it and let Steam re-download it "
+                    "(Properties &gt; Installed Files &gt; Verify integrity of game files). "
+                    "Doing that afterwards means downloading it all over again.<br><br>"
+                    f"{where}<br><code>{hint}</code>"
+                )
             box.exec()
             self.choose_database()
         self._offer_to_revert_deleted_mods()
         self._validate_quietly()
+        self._offer_adoption()
+
+    def _offer_adoption(self) -> None:
+        """First run: if their database is already modded, say so and offer to
+        take it over. Asked once - after that it lives in the Tools menu."""
+        if self.manager.state.adoption_offered:
+            return
+        if not self.manager.db_path or not self.manager.db_path.is_file():
+            return
+        if self.manager.state.applied:
+            # Someone already using the manager: their database is this tool's
+            # own work, and offering to "take it over" would be asking them
+            # about mods they applied themselves five minutes ago.
+            self.manager.state.adoption_offered = True
+            self.manager.state.save()
+            return
+        if self.manager.chosen_vanilla() is None:
+            # Nothing safe to compare against; leave them to the old way rather
+            # than nagging about a build we do not ship.
+            return
+        self.scan_for_existing_mods()
+
+    # -- adopting a database that was modded before the manager saw it -----
+
+    def choose_vanilla(self) -> None:
+        """Pick which clean database everything is measured against."""
+        builds = self.manager.vanilla_builds()
+        if not builds:
+            QMessageBox.information(
+                self,
+                "No clean database",
+                "No clean copy of masters.db ships with this build, and none was found "
+                f"in {self.manager.paths.vanilla_dir}.\n\n"
+                "Put one in a folder named after its game build, like\n"
+                f"{self.manager.paths.vanilla_dir / '5.0.3.0' / DB_FILENAME}",
+            )
+            return
+        automatic = "Whichever matches my database"
+        labels = [automatic] + [build.description for build in builds]
+        current = self.manager.state.settings.vanilla_choice
+        index = 0
+        for position, build in enumerate(builds, start=1):
+            if current and current in (build.version, build.label):
+                index = position
+        picked, ok = QInputDialog.getItem(
+            self, "Clean database", "Compare my database against:", labels, index, False
+        )
+        if not ok:
+            return
+        if picked == automatic:
+            self.manager.set_vanilla_choice("")
+        else:
+            build = builds[labels.index(picked) - 1]
+            self.manager.set_vanilla_choice(build.version or build.label)
+        self.refresh()
+
+    def scan_for_existing_mods(self) -> None:
+        """Read the chosen database and say which mods are already in it."""
+        if not self._check_database():
+            return
+        if self.manager.chosen_vanilla() is None:
+            QMessageBox.information(
+                self,
+                "Nothing to compare against",
+                "Working out which mods are already in your database means comparing it "
+                "with a clean copy of the same game build, and none of the copies "
+                "available matches it.\n\n"
+                "Tools > Clean database to compare against... lists what there is.",
+            )
+            return
+        self._run(
+            self.manager.adopt_scan,
+            self._after_adopt_scan,
+            message=(
+                "Reading your database and comparing it with the clean copy, to see "
+                "which mods are already in it.\n\n"
+                "This takes a few seconds on a real masters.db. The program has not "
+                "frozen - nothing is being written yet."
+            ),
+        )
+
+    def _after_adopt_scan(self, report) -> None:
+        if report is None:
+            return
+        self.manager.state.adoption_offered = True
+        self.manager.state.save()
+        if not report.ok:
+            QMessageBox.warning(self, "Could not read your database", report.error)
+            return
+        if report.total.empty:
+            QMessageBox.information(
+                self,
+                "Nothing has been modded",
+                "Your database matches the clean copy exactly, so there is nothing to "
+                "take over - tick the mods you want and click Save Mod List.",
+            )
+            return
+
+        dialog = AdoptDialog(report, self.dark, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            self.statusBar().showMessage(
+                "Left your database alone. Tools > Scan my database for mods "
+                "already in it... runs this again.",
+                12000,
+            )
+            return
+        choice = dialog.choice()
+
+        mod_ids = list(choice.mod_ids)
+        if choice.make_custom and report.has_leftover:
+            try:
+                mod_ids += self._keep_leftover_as_mod(report, choice)
+            except InstallError as exc:
+                QMessageBox.warning(self, "Could not keep those changes", str(exc))
+                return
+            except Exception as exc:  # pragma: no cover - unexpected, must not crash
+                QMessageBox.critical(self, "Could not keep those changes", str(exc))
+                return
+
+        self._run(
+            lambda: self.manager.adopt_rebuild(mod_ids, choice.values),
+            self._after_apply,
+            message=(
+                "Rebuilding your database from the clean copy and applying the mods "
+                "you kept, including any game files they install.\n\n"
+                "This can take a minute. The program has not frozen - please do not "
+                "close it until it finishes."
+            ),
+        )
+
+    def _keep_leftover_as_mod(self, report, choice) -> list[str]:
+        """Turn the changes no mod accounts for into an ordinary mod.
+
+        Straight through the same path as a dropped modded database, so what
+        comes out is a normal mod folder with a switch per table.
+        """
+        candidate = InstallCandidate(
+            source=self.manager.db_path,
+            kind=KIND_DATABASE,
+            suggested_name=choice.custom_name,
+            note=report.leftover.summary(),
+            delta=report.leftover,
+        )
+        mods = self.manager.install_database(
+            candidate,
+            choice.custom_name,
+            description=(
+                "Changes found in your own masters.db that matched no installed mod, "
+                "kept so they can be switched off like any other."
+            ),
+            author="",
+            version="1.0.0",
+            selection=choice.selection,
+            split_by_table=False,
+        )
+        return [mod.id for mod in mods]
 
     def _validate_quietly(self) -> None:
         """Populate per-mod warnings on startup, without a dialog.

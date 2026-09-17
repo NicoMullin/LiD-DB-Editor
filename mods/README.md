@@ -7,15 +7,16 @@ You do not have to find this folder by hand: dragging a `.sql`, a mod folder or
 a `.zip` onto the manager's window does the same thing, and asks you to name the
 mod as it goes.
 
-Three starting points are already here — copy one and rename the copy:
+Four starting points are already here — copy one and rename the copy:
 
-| Copy this         | If you want                                                    |
-|-------------------|----------------------------------------------------------------|
-| `_example/`       | The full form: metadata, dependencies, all four DB patch types |
-| `_example-sql/`   | Just SQL, no metadata                                          |
-| `_example-asset/` | A mod that replaces game files (`.upk`), not database rows     |
+| Copy this            | If you want                                                                                                    |
+|----------------------|----------------------------------------------------------------------------------------------------------------|
+| `_example/`          | The full form: metadata, dependencies, all four DB patch types                                                 |
+| `_example-sql/`      | Just SQL, no metadata                                                                                          |
+| `_example-asset/`    | A mod that replaces game files (`.upk`), not database rows                                                     |
+| `_example-settings/` | A mod with a number the player chooses - see [Letting players choose a value](#letting-players-choose-a-value) |
 
-Folders whose name starts with `_` or `.` are skipped, which is why those three
+Folders whose name starts with `_` or `.` are skipped, which is why those four
 never show up in the mod list. Your copy must not start with `_`.
 
 ---
@@ -125,7 +126,7 @@ my-cool-mod/
 
 This is the best of both: your SQL stays exactly as written, and the manager
 still knows the name, the author and the dependencies.
-`mods/nitro-boost-100000pct/` is a working example - it mixes two `update_set`
+`mods/nitro-boost-exp/` is a working example - it mixes two `update_set`
 patches with a `raw_sql_file` one.
 
 The `.sql` file can be called anything — the `path` in the patch decides. It
@@ -155,6 +156,96 @@ parts. Set one on anything you expect people to switch off. Ids only have to be
 unique inside the mod.
 
 A single-patch mod gets no extra rows; there is nothing to choose between.
+
+## Letting players choose a value
+
+If your mod comes down to a number — a multiplier, a price, a limit — do not
+ship one mod per number. Declare the number as a **setting**, and the player
+gets a box for it in the mod's **Configuration** tab:
+
+```json
+{
+  "id": "weapon-durability",
+  "name": "Weapon Durability",
+  "description": "Every weapon lasts {{multiplier}} times as long before it breaks.",
+  "version": "1.0.0",
+  "author": "you",
+  "apply": "diff",
+  "settings": [
+    {
+      "id": "multiplier",
+      "label": "Durability multiplier",
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 100,
+      "unit": "x",
+      "help": "Shown when the player hovers over the box."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "description": "dur x{{multiplier}}",
+      "sql": "UPDATE master_part SET dur = dur * {{multiplier}} WHERE type = 'PTTP_ARM';"
+    }
+  ]
+}
+```
+
+A copy of this lives in `mods/_example-settings/`.
+
+### The setting
+
+| Field     | Required | Meaning                                                           |
+|-----------|----------|-------------------------------------------------------------------|
+| `id`      | yes      | Lower-case letters, digits and `_`, starting with a letter        |
+| `label`   | no       | What the box is called. Defaults to the id                        |
+| `type`    | no       | `integer` (the default) or `number` for decimals                  |
+| `default` | yes      | What the player gets without touching it                          |
+| `min`     | yes      | The lowest the box allows                                         |
+| `max`     | yes      | The highest the box allows                                        |
+| `step`    | no       | How far one click of the arrows moves it. Defaults to 1           |
+| `unit`    | no       | `x` shows "x2", `%` shows "40%", anything else follows the number |
+| `help`    | no       | Hover text                                                        |
+
+### Using it
+
+Write `{{id}}` wherever the number goes. It works in:
+
+- `sql` of a `raw_sql` patch, and inside the file of a `raw_sql_file` patch
+- `set` and `where` of an `update_set` patch
+- any `description`, and the mod's own `description`
+
+A value that is **nothing but** the placeholder becomes the number itself, so
+`"set": {"price": "{{price}}"}` writes a number, not text.
+
+Game text writes numbers the way each language does, so a placeholder can ask
+for a style:
+
+| Placeholder         | Gives     | For                                          |
+|---------------------|-----------|----------------------------------------------|
+| `{{percent}}`       | `100000`  | SQL                                          |
+| `{{percent:comma}}` | `100,000` | English                                      |
+| `{{percent:dot}}`   | `100.000` | German, Spanish, French, Italian, Portuguese |
+
+### The rules
+
+- **Numbers only.** A value is checked against your `min` and `max` and turned
+  into digits before it is written into anything. A player cannot type SQL into
+  a setting.
+- **Pick `integer` for whole-number columns.** Most of `masters.db` is whole
+  numbers, and a decimal written into one is a crash waiting to happen.
+- **Multiplying? Use `"apply": "diff"`.** Otherwise saving twice multiplies
+  twice, and changing x2 to x5 gives x10.
+- **A placeholder naming no setting stops the mod loading**, with the name you
+  typed in the message, so a typo cannot slip into the database as literal
+  braces.
+- **A setting you never use** loads, with a warning.
+- **A mod with no `settings` is left exactly as it is**, braces and all.
+- What the player chose is kept in `state.json`, not in your folder, so shipping
+  a new version of the mod does not reset it. Change a `default` and players who
+  never touched the box get the new one.
 
 ## The patch types
 
@@ -256,7 +347,7 @@ folder**. The manager writes the `mod.json` below for you and asks for a name.
 database half too, and those changes are the pack's own installer logic, not
 data the manager can read.
 
-The Crossover Content pack is handled for you: v3.75 already ships in this
+The Crossover Content pack is handled for you: v3.79 already ships in this
 folder with both halves as one mod. An update to the pack needs an update to
 the manager.
 

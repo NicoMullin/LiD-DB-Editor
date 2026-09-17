@@ -92,6 +92,17 @@ class Warning(Base):
         warning = game_version_warning(self.con, a_mod("5.0.2.0.0 - 1.86"))
         self.assertIn("still apply", warning)
 
+    def test_any_build_a_mod_lists_says_nothing(self) -> None:
+        mod = a_mod("5.0.4.0.0 - 1.88")
+        mod.game_versions = [BUILD, "5.0.4.0.0 - 1.88"]
+        self.assertEqual(game_version_warning(self.con, mod), "")
+
+    def test_a_build_none_of_them_match_names_them_all(self) -> None:
+        mod = a_mod("5.0.2.0.0 - 1.86")
+        mod.game_versions = ["5.0.1.0.0 - 1.85", "5.0.2.0.0 - 1.86"]
+        warning = game_version_warning(self.con, mod)
+        self.assertIn("5.0.1.0.0 - 1.85 and 5.0.2.0.0 - 1.86", warning)
+
     def test_a_database_that_does_not_say_stays_quiet(self) -> None:
         path = self.root / "quiet.sqlite"
         a_database(path, version=None)
@@ -126,6 +137,22 @@ class ItSurvivesModJson(Base):
             "author": "x", "game_version": BUILD, "patches": [{"type": "raw_sql", "sql": "SELECT 1;"}],
         }), encoding="utf-8")
         self.assertEqual(load_mod_json(folder).game_version, BUILD)
+
+    def test_a_list_of_builds_loads_with_the_newest_last(self) -> None:
+        import json
+
+        from lid_db_manager.mod import load_mod_json
+
+        folder = self.root / "c-mod"
+        folder.mkdir()
+        (folder / "mod.json").write_text(json.dumps({
+            "id": "c-mod", "name": "C", "description": "d", "version": "1",
+            "author": "x", "game_version": [BUILD, "5.0.4.0.0 - 1.88"],
+            "patches": [{"type": "raw_sql", "sql": "SELECT 1;"}],
+        }), encoding="utf-8")
+        mod = load_mod_json(folder)
+        self.assertEqual(mod.game_versions, [BUILD, "5.0.4.0.0 - 1.88"])
+        self.assertEqual(mod.game_version, "5.0.4.0.0 - 1.88")
 
     def test_a_mod_without_it_loads_fine(self) -> None:
         import json

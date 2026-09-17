@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .asset_runner import AssetApplyReport
 
+from . import db_record
 from . import snapshot as snapshot_module
 from .errors import ApplyError, RevertError, ValidationError
 from .mod import APPLY_DIFF, Mod
@@ -190,8 +191,14 @@ def apply_mods(
     installed_ids: set[str] | None = None,
     deltas: dict[str, object] | None = None,
     keep_snapshots: set[str] | None = None,
+    record: bool = False,
 ) -> ApplyReport:
-    """Validate, snapshot and apply every mod in ``mods`` as one transaction."""
+    """Validate, snapshot and apply every mod in ``mods`` as one transaction.
+
+    With ``record``, the manager's note inside the database (db_record) is
+    rewritten to list exactly ``mods`` in the same transaction - only right
+    when ``mods`` is the whole of what the database is meant to hold.
+    """
     log = log or SessionLog()
     db_path = Path(db_path)
     report = ApplyReport()
@@ -280,6 +287,17 @@ def apply_mods(
                     log.warn(f"{mod.id}: {warning}")
                 log.info(f"{mod.id}: {result.rows_changed} row(s) changed")
 
+            if record:
+                db_record.write(
+                    con,
+                    [
+                        db_record.RecordedMod(
+                            mod_id=mod.id, name=mod.name, version=mod.version,
+                            values=dict(mod.values),
+                        )
+                        for mod in ordered
+                    ],
+                )
             con.execute("COMMIT")
         except (ApplyError, ValidationError, sqlite3.Error) as exc:
             con.execute("ROLLBACK")
@@ -346,11 +364,16 @@ def revert_mods(
     snapshots_dir: Path,
     mods_by_id: dict[str, Mod] | None = None,
     log: SessionLog | None = None,
+    record_after=None,
 ) -> list[RevertResult]:
     """Undo mods, newest first, in one transaction.
 
     A mod that ships ``inverse.sql`` uses it; everything else replays its
     pre-apply snapshot. Either way the whole batch is atomic.
+
+    ``record_after(reverted_ids)`` gives the mods still in the database once
+    those are off; the note inside it is rewritten to match, in the same
+    transaction.
     """
     log = log or SessionLog()
     mods_by_id = mods_by_id or {}
@@ -405,6 +428,8 @@ def revert_mods(
                 result.rows_restored += restored
                 result.warnings.extend(warnings)
             result.ok = True
+        if record_after is not None:
+            db_record.write(con, record_after({result.mod_id for result, _, _ in plans}))
         con.execute("COMMIT")
     except (sqlite3.Error, RevertError) as exc:
         con.execute("ROLLBACK")
@@ -511,6 +536,7 @@ def record_apply(state: State, mods: list[Mod], report: ApplyReport) -> None:
                 version=mod.version if mod else "",
                 name=mod.name if mod else result.mod_id,
                 parts=[patch.key for patch in mod.patches] if mod else [],
+                values=dict(mod.values) if mod else {},
             ),
         )
 

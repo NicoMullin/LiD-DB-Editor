@@ -77,13 +77,14 @@ def game_version_warning(con: sqlite3.Connection, mod: Mod) -> str:
     Only mods that say which build they were made for are checked. A mod that
     says nothing is not guessed about.
     """
-    if not mod.game_version:
+    builds = list(mod.game_versions) or ([mod.game_version] if mod.game_version else [])
+    if not builds:
         return ""
     actual = database_game_version(con)
-    if not actual or actual == mod.game_version:
+    if not actual or actual in builds:
         return ""
     return (
-        f"built for game {mod.game_version}, but your database is {actual}. "
+        f"built for game {' and '.join(builds)}, but your database is {actual}. "
         "It will still apply, and usually that is fine - but if the update "
         "changed anything this mod touches, the result will be wrong in game "
         "rather than reported here. Check what it does in the In plain English "

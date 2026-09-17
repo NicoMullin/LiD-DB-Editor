@@ -1,0 +1,34 @@
+{
+  "id": "reward-box-limit",
+  "name": "Reward Box Limit",
+  "description": "The reward box holds {{slots:comma}} instead of 50.",
+  "version": "2.0.0",
+  "author": "KSFA",
+  "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "slots",
+      "label": "Reward box slots",
+      "type": "integer",
+      "default": 250,
+      "min": 50,
+      "max": 9999,
+      "step": 50,
+      "unit": "slots",
+      "help": "Stock is 50. It cannot go lower, so nothing waiting in the box is lost."
+    }
+  ],
+  "patches": [
+    {
+      "type": "update_set",
+      "description": "Reward box holds {{slots:comma}}",
+      "table": "master_const_int",
+      "set": {
+        "value": "{{slots}}"
+      },
+      "where": "id = 'REWARD_BOX_LIMIT'"
+    }
+  ]
+}

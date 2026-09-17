@@ -100,6 +100,49 @@ class LoadingRecordings(Base):
         self.assertIn("exe-buttons-1.2", str(caught.exception))
 
 
+class PuttingTheExecutableBack(Base):
+    """A mod already installed by hand still has a way back.
+
+    The recording carries the stock hash, so the patch can hand the runner the
+    stock bytes even when the file it was given is already modified. Without
+    that, the copy kept as "the original" would be the modified file.
+    """
+
+    def a_patch(self):
+        self.write("exe-buttons-1.2")
+        real = vetted.exe_recipe
+        with mock.patch.object(
+            vetted, "exe_recipe",
+            side_effect=lambda name, directory=None: real(name, self.recipes),
+        ):
+            return patch.ExeChecksumPatch(
+                {"type": "exe_checksum_entry", "recipe": "exe-buttons-1.2"}, self.root, 0
+            )
+
+    def test_it_can_undo_its_own_change(self) -> None:
+        from test_exe_checksums import an_executable
+
+        exe_patch = self.a_patch()
+        stock = an_executable([(GOOD["package"], GOOD["checksum_before"])])
+        modified = exe_patch.transform(stock)
+        self.assertNotEqual(modified, stock)
+        self.assertEqual(exe_patch.to_pristine(modified), stock)
+
+    def test_a_file_already_carrying_the_change_is_left_as_it_is(self) -> None:
+        from test_exe_checksums import an_executable
+
+        exe_patch = self.a_patch()
+        modified = an_executable([(GOOD["package"], GOOD["checksum_after"])])
+        self.assertEqual(exe_patch.transform(modified), modified)
+
+    def test_a_stock_file_is_already_pristine(self) -> None:
+        from test_exe_checksums import an_executable
+
+        exe_patch = self.a_patch()
+        stock = an_executable([(GOOD["package"], GOOD["checksum_before"])])
+        self.assertEqual(exe_patch.to_pristine(stock), stock)
+
+
 class TheGate(Base):
     """A mod folder cannot reach the capability except by a vetted name."""
 

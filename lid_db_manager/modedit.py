@@ -201,4 +201,8 @@ def _move_state(state, snapshots_dir: Path, old_id: str, new_id: str) -> None:
         state.disabled_patches[new_id] = state.disabled_patches.pop(old_id)
     for pack, mod_ids in state.modpacks.items():
         state.modpacks[pack] = [new_id if m == old_id else m for m in mod_ids]
+    if old_id in state.mod_settings:
+        # The values the player chose follow the mod, as its place in the
+        # load order does.
+        state.mod_settings[new_id] = state.mod_settings.pop(old_id)
     state.save()

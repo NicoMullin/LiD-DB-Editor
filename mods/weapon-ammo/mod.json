@@ -1,0 +1,30 @@
+{
+  "id": "weapon-ammo",
+  "name": "Weapon Spare Ammo",
+  "description": "Every gun carries {{multiplier}} times as much spare ammo.",
+  "version": "2.0.0",
+  "author": "KSFA",
+  "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "multiplier",
+      "label": "Spare ammo multiplier",
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 100,
+      "unit": "x",
+      "help": "Whole numbers only - these are whole-number columns in the game. 1 leaves it at stock."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "description": "spare x{{multiplier}} on 117 row(s)",
+      "sql": "UPDATE master_part SET spare = spare * {{multiplier}} WHERE type = 'PTTP_ARM' AND spare > 0;"
+    }
+  ]
+}

@@ -20,7 +20,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import builder_data, explain, install
+from . import builder_data, db_record, explain, install
 from .sqlutil import quote_ident
 
 # Rows read in one go. Above this the table is paged, so the quest list does not
@@ -132,7 +132,7 @@ class ModBuilder:
             if live:
                 out.append((name, note, live))
         rest = sorted(present - builder_data.grouped_tables())
-        rest = [t for t in rest if not t.startswith("sqlite_")]
+        rest = [t for t in rest if not t.startswith("sqlite_") and not db_record.is_ours(t)]
         if rest:
             out.append((builder_data.EVERYTHING_ELSE,
                         builder_data.EVERYTHING_ELSE_NOTE, rest))

@@ -1,0 +1,37 @@
+{
+  "id": "tdm-rewards",
+  "name": "TDM Rewards",
+  "description": "Every Kill Coin and SP reward from Tokyo Death Metro is multiplied by {{multiplier}}.",
+  "version": "2.0.0",
+  "author": "KSFA",
+  "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "multiplier",
+      "label": "Reward multiplier",
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 100,
+      "unit": "x",
+      "help": "Whole numbers only - these are whole-number columns in the game. 1 leaves it at stock."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "rank-bonuses",
+      "description": "master_tdm_rank rank bonuses x{{multiplier}} (15 ranks)",
+      "sql": "UPDATE master_tdm_rank SET win_bns_spirit = win_bns_spirit * {{multiplier}}, win_bns_money = win_bns_money * {{multiplier}}, def_bns_spirit = def_bns_spirit * {{multiplier}}, def_bns_money = def_bns_money * {{multiplier}}, def_bns_spirit_limit = def_bns_spirit_limit * {{multiplier}}, def_bns_money_limit = def_bns_money_limit * {{multiplier}}, weekly_bns_spirit = weekly_bns_spirit * {{multiplier}}, weekly_bns_money = weekly_bns_money * {{multiplier}};"
+    },
+    {
+      "type": "raw_sql",
+      "id": "battle-rewards",
+      "description": "master_war_reward win/lose payouts x{{multiplier}} (48 rows)",
+      "sql": "UPDATE master_war_reward SET win_spirit = win_spirit * {{multiplier}}, win_money = win_money * {{multiplier}}, lose_spirit = lose_spirit * {{multiplier}}, lose_money = lose_money * {{multiplier}};"
+    }
+  ]
+}

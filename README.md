@@ -40,14 +40,20 @@ program file is ever added to the game.
 - **Lets you build your own, without SQL.** An editor over a clean copy of the
   database, grouped into the parts people actually mod, with every column
   labelled by what it means. Change the numbers, press save, get a mod.
+- **Takes over a database that was already modded.** On the first run it
+  compares your `masters.db` with a clean copy of the same game build, says
+  which of your mods it recognises in there, and offers to keep the rest as a
+  mod of your own — so you do not have to start from a fresh file to start
+  using it.
 - **Takes mods however they arrive.** Drag a `.sql`, a mod folder or a `.zip`
   onto the window. Hand it somebody else's already-modded `masters.db` and it
   works out the difference and turns that into a mod you can switch off again.
 - **Handles game files too.** Mods that ship new models and artwork as `.upk`
   files are copied into the game while switched on and taken back out when
   switched off.
-- **Comes with the Crossover Content pack and Colored PlayStation Buttons.**
-  Both by S3er0i9ng, included with their permission and ready to tick. Artwork
+- **Comes with the Crossover Content pack, Colored PlayStation Buttons and the
+  Tower Static radio station.** All by S3er0i9ng, included with their permission
+  and ready to tick. Artwork
   and the database changes that make it reachable switch on and off together —
   no running an installer, no swapping `masters.db` by hand.
 - **Handles artwork the game checks.** Most packages carry a checksum inside the
@@ -118,6 +124,122 @@ Installed Files → Verify integrity of game files). Doing that afterwards means
 downloading it all over again, which is exactly what the `.original` exists to
 spare you.
 
+## Already modded? It can take that over
+
+If your `masters.db` has been modded before the manager ever saw it — by another
+tool, by a pack's own installer, or by a copy of this one you have since
+reinstalled — you do not have to throw it away and start clean.
+
+On the first run it compares your database with a **clean copy of the same game
+build**, which ships with the manager, and tells you what is in there:
+
+```
+This database is not stock.
+1,204 changed value(s), 476 added row(s) across 17 table(s) in all;
+2 mod(s) recognised; 63 change(s) belonging to no mod
+
+Mods it found in there
+  [x] LET IT DIE Crossover Content v3.79   1,141 of 1,141 database change(s), 287 of 287 game file(s)
+  [x] Weapon Durability   x2               385 of 385 database change(s)
+  [ ] Armor Durability    x5               120 of 979 database change(s)
+
+Changes that match no mod
+  [x] Keep these as a mod I can switch off      [ My existing changes        ]
+```
+
+- **Recognised mods** are matched on the values themselves, not on row counts,
+  so a mod that only half-applied reads as *partly* there and is left unticked
+  rather than quietly claimed.
+- **Mods with a value are found at whatever value they have.** Weapon Durability
+  at x7 is recognised as Weapon Durability at x7, not as a pile of changes
+  nobody owns — and the rebuild keeps it at x7. The value comes from the
+  database's own note when there is one (see *Saving your mod list*), otherwise
+  from what you have chosen, otherwise it is worked out from the numbers in the
+  database. Whichever it is, every value has to match before the mod counts. If
+  no single setting explains them all, usually the mod plus a hand edit, the mod
+  is listed but left unticked and those changes stay under *Changes that match
+  no mod*, so nothing is lost.
+- **A mod the database lists that you do not have installed** is named, and its
+  changes are counted as belonging to no mod.
+- **Changes no mod accounts for** become an ordinary mod with the name you give
+  it, holding a switch per table — you can untick the parts you do not want,
+  now or later, exactly like any other mod.
+- **Then it rebuilds.** Your database is put back to the clean copy and the
+  things you ticked are applied to it in the normal way. That is what makes
+  everything afterwards honest: each mod has a snapshot, so each one can be
+  switched off again. Your current file is backed up first, and
+  `masters.db.original` becomes a genuinely stock copy instead of a copy of
+  your modded one.
+- **Content packs are put at the top of the load order.** Top applies first and
+  bottom wins, so a pack that rewrites and adds rows across a great many tables
+  has to go above the smaller mods — otherwise a tweak to a table the pack also
+  writes is applied first, buried by the pack, and reads as if it simply had not
+  worked. Anything that ships game files counts as a pack. You can reorder
+  afterwards like any other mod.
+
+Say no and nothing is written. It is offered once; **Tools ▸ Scan my database
+for mods already in it...** runs it again whenever you like.
+
+### The clean copies it compares against
+
+They live in `LiD Vanilla DB/<build>/masters.db`, and the build number is read
+out of each file rather than trusted from the folder name. The manager picks the
+one matching your database. **Tools ▸ Clean database to compare against...**
+shows what is available and lets you pin one.
+
+If you run from source, anything you drop in that folder is picked up — so an
+older build, or a newer one before the manager ships it, works with no code
+change.
+
+**If nothing matches your game build**, it says so and leaves your database
+alone. It will not diff against the nearest build instead: after a game patch
+that would read the developers' own changes as if they were a mod, and offer to
+bottle them up and re-apply them over a later version.
+
+## The mod list
+
+Each mod is one row, with an arrow to fold it open when you want its
+description, its warnings and its parts. They start folded — **Tools ▸ Expand
+all mods** and **Collapse all mods** do the lot at once. A mod with a problem
+opens itself, because a warning nobody can see is no warning.
+
+**Right-click a mod** for the things that act on it: enable or disable it, edit
+its details, open its folder, move it up or down the load order, revert it, or
+delete it. Deleting one that is applied offers to put its rows back first.
+
+Ticking a mod keeps your place in the list rather than jumping back to the top,
+which matters once you have more mods than fit on screen.
+
+### Choosing a mod's value
+
+Select a mod and open the **Configuration** tab on the right. Every value the
+mod lets you choose has its own box there, with its limits, its default and
+what it does:
+
+```
+Weapon Durability
+ Details | Configuration | In plain English | Diff preview | Readme
+
+ Durability multiplier
+ [ x2          ] [Default]
+ x1 to x100  ·  default x2
+ Whole numbers only - these are whole-number columns in the game.
+```
+
+Type a number or use the arrows, then press **Enter** or click away. **Save Mod
+List** applies it, the same as ticking a box. **Default** puts one back, and a
+mod with several values also has **Put all back to defaults**. Right-click a mod
+and **Change values...** takes you straight there.
+
+A mod that comes down to a single number shows it in its name in the list —
+`Weapon Durability   x2` — so you can see what it is set to without opening
+anything.
+
+The number is checked against the mod's own limits before it goes anywhere, and
+only ever reaches the database as a number. Switching the mod off still puts
+the stock values back, whatever you had it set to. Your choices are kept in
+`state.json`, not in the mod folder, so updating a mod does not reset them.
+
 ## Switching a mod off
 
 Untick it and press **Save Mod List**. The values it wrote go back — but not
@@ -159,75 +281,83 @@ away.
 
 ## Mods included
 
-Twenty, in `mods/`, each with its own `readme.md`: eighteen tweaks of mine, and
+Fourteen, in `mods/`, each with its own `readme.md`: twelve tweaks of mine, and
 two larger mods by S3er0i9ng included with their permission
 ([below](#by-s3er0i9ng)).
 
+Every one of mine comes down to a number, and **the number is yours to choose**
+in the mod's **Configuration** tab — see
+[Choosing a mod's value](#choosing-a-mods-value). The defaults below are what you get if you never
+touch it.
+
 ### Costs and rewards
 
-| Mod                     | What it does                                            |
-|-------------------------|---------------------------------------------------------|
-| `revive-cost-1kc`       | Every grade's revive costs 1 Kill Coin                  |
-| `body-prices-1kc`       | Every fighter tier unlock costs 1 Kill Coin             |
-| `nitro-boost-100000pct` | Nitro Boost and Turbo-charged Engine give 100,000% EXP, and their descriptions say so |
-| `decal-cost-25k` / `-10k` / `-5k` | The Mushroom Club's 50,000 KC decals cost that instead |
-| `tdm-rewards-2x` / `-5x` / `-10x` | Every Kill Coin and SP payout from Tokyo Death Metro, multiplied |
+| Mod                   | What it does                                                          | Default   | You can choose    |
+|-----------------------|-----------------------------------------------------------------------|-----------|-------------------|
+| `revive-cost`         | Every grade's revive costs the same price                             | 1 KC      | 1 to 1,000,000 KC |
+| `fighter-tier-prices` | Every fighter tier unlock costs the same price                        | 1 KC      | 1 to 1,000,000 KC |
+| `decal-draw-price`    | A draw from the Mushroom Club decal pool costs this instead of 50,000 | 10,000 KC | 1 to 1,000,000 KC |
+| `nitro-boost-exp`     | Nitro Boost and Turbo-charged Engine EXP bonus, descriptions to match | 100,000%  | 1 to 1,000,000%   |
+| `tdm-rewards`         | Every Kill Coin and SP payout from Tokyo Death Metro, multiplied      | x2        | x1 to x100        |
 
 ### Space
 
-| Mod              | What it does                                       |
-|------------------|----------------------------------------------------|
-| `bank-limit-10x` | Both banks hold ten times as much, all 99 levels   |
-| `reward-box-250` | The reward box holds 250 instead of 50             |
-| `storage-10000`  | The Coin Locker expands to 10,000 instead of 2,000 |
+| Mod                | What it does                                     | Default | You can choose  |
+|--------------------|--------------------------------------------------|---------|-----------------|
+| `bank-limit`       | Both banks hold more, all 99 levels              | x10     | x1 to x100      |
+| `reward-box-limit` | The reward box holds this many instead of 50     | 250     | 50 to 9,999     |
+| `storage-limit`    | The Coin Locker expands to this instead of 2,000 | 10,000  | 2,000 to 99,999 |
 
 ### Durability and ammo
 
-| Mod                    | What it does                                       | Rows |
-|------------------------|----------------------------------------------------|------|
-| `weapon-durability-2x` | Every weapon lasts twice as long                   |  385 |
-| `weapon-durability-5x` | Every weapon lasts five times as long              |  385 |
-| `armor-durability-2x`  | Every piece of armour lasts twice as long          |  979 |
-| `armor-durability-5x`  | Every piece of armour lasts five times as long     |  979 |
-| `weapon-ammo-2x`       | Every gun carries twice as much spare ammo         |  117 |
-| `weapon-magazine-2x`   | Every gun holds twice as many rounds per magazine  |  160 |
+| Mod                 | What it does                             | Default | You can choose | Rows |
+|---------------------|------------------------------------------|---------|----------------|------|
+| `weapon-durability` | Every weapon lasts longer                | x2      | x1 to x100     | 385  |
+| `armor-durability`  | Every piece of armour lasts longer       | x2      | x1 to x100     | 979  |
+| `weapon-ammo`       | Every gun carries more spare ammo        | x2      | x1 to x100     | 117  |
+| `weapon-magazine`   | Every gun holds more rounds per magazine | x2      | x1 to x100     | 160  |
 
-The x2 and x5 versions of the same thing are **alternatives** — pick one. Each
-names the other in `conflicts_with`, so the manager warns if you tick both.
-Mixing across the groups is fine: weapon durability, armour durability, ammo
-and magazine all write different columns and the manager knows it.
+Multipliers are **whole numbers**. Those columns hold whole numbers in the
+game, and writing x2.5 into them is how you get a crash instead of a mod.
 
-These multiply rather than set a number, so they are marked `"apply": "diff"` —
-the manager measures them against an untouched copy of the database every time,
-and saving twice can never turn x2 into x4.
+They are also marked `"apply": "diff"` — measured against an untouched copy of
+the database every time. Saving twice can never turn x2 into x4, and changing
+x2 to x5 gives you x5, not x10.
+
+Storage and the reward box cannot go **below** stock, so nothing you already
+have stored is stranded.
 
 Two weapon families have a magazine but no reserve ammo at all — rocket
 launchers, flame wands, the Red Hot Iron line. Everything they will ever fire
-sits in the magazine, so `weapon-ammo-2x` does nothing for them and
-`weapon-magazine-2x` doubles their entire supply.
-
-Where a mod comes in several strengths — decals, TDM rewards, and the
-durability pairs above — they are **alternatives**. Each names the others in
-`conflicts_with`, so the manager warns if you tick more than one.
+sits in the magazine, so `weapon-ammo` does nothing for them and
+`weapon-magazine` multiplies their entire supply.
 
 Two caveats worth knowing before you enable them:
 
-- `revive-cost-1kc` — you are charged 1 KC, but the price on the sign held up
-  in-game is part of a **texture**, not the database, so it still shows the old
-  number. Matching it means replacing that texture yourself.
-- `nitro-boost-100000pct` — its description rewrite covers English, German,
-  Spanish, French, Italian and Portuguese. Japanese, Chinese and Korean keep
-  the stock wording. That half is a separate patch inside the mod, so you can
-  untick it and keep the number change on its own.
+- `revive-cost` — you are charged the price you chose, but the price on the sign
+  held up in-game is part of a **texture**, not the database, so it still shows
+  the old number. Matching it means replacing that texture yourself.
+- `nitro-boost-exp` — its description rewrite uses your number, in English,
+  German, Spanish, French, Italian and Portuguese. Japanese, Chinese and Korean
+  keep the stock wording. That half is a separate patch inside the mod, so you
+  can untick it and keep the number change on its own.
+
+**Coming from an older version?** These used to be separate mods for each
+strength — `weapon-durability-2x` and `-5x`, `tdm-rewards-2x`, `-5x` and `-10x`,
+`decal-cost-25k`, and so on. If you had one switched on, the new version opens
+with its replacement switched on at the same value, in the same place in the
+load order, and still able to be switched off. The old folders are moved into
+`mods/_retired/`, not deleted.
 
 ### By S3er0i9ng
 
-| Mod                                  | What it does                                                                                     |
-|--------------------------------------|--------------------------------------------------------------------------------------------------|
-| `LET IT DIE Crossover Content v3.75` | Restores cut crossover gear: Mushroom Club decals, blueprint quests, and 234 artwork packages    |
-| `Colored PlayStation Buttons v1.2`   | Colored PlayStation button prompts, plus the one hash the game keeps for that file               |
+| Mod                                  | What it does                                                                                  |
+|--------------------------------------|-----------------------------------------------------------------------------------------------|
+| `LET IT DIE Crossover Content v3.79` | Restores cut crossover gear: Mushroom Club decals, blueprint quests, and 287 artwork packages |
+| `Colored PlayStation Buttons v1.4`   | Colored PlayStation button prompts, plus the one hash the game keeps for that file            |
+| `Tower Static Radio`                 | A new radio station, Tower Static, on channel 501 with four tracks                            |
 
-Both are included with their author's permission; the originals are at
+All three are included with their author's permission; the originals are at
 <https://letitdiemods.pages.dev/>. See
 [The Crossover Content pack](#the-crossover-content-pack) and
 [Mods that need a change to the game executable](#mods-that-need-a-change-to-the-game-executable).
@@ -381,11 +511,11 @@ and artwork that go with them.
 
 It has **two halves**, and both have to arrive or nothing shows up in game:
 
-- **Artwork** — the 234 `.upk` packages in its `assets` folder.
+- **Artwork** — the 287 `.upk` packages in its `assets` folder.
 - **Database changes** — the decal-pool entries and blueprint quests that make
   that artwork reachable. Without them the artwork sits in the game unused.
 
-**It comes with the manager.** Tick `LET IT DIE Crossover Content v3.75` in
+**It comes with the manager.** Tick `LET IT DIE Crossover Content v3.79` in
 the mod list and click **Save Mod List**. That is the whole procedure.
 
 You do not need to run the pack's own installer, and you should not. The
@@ -396,8 +526,13 @@ the content has to be a mod in the list to survive.
 
 ### Updates
 
-The manager ships v3.75. When the pack gets an update, the manager has to be
-updated to include it — a new release of this program will carry it.
+The manager ships v3.79, made for game version 1.88. When the pack gets an
+update, the manager has to be updated to include it — a new release of this
+program will carry it.
+
+If you had an earlier version applied, the first **Save Mod List** after
+updating the manager takes the old version off in full and puts the new one on.
+Nothing needs unticking first.
 
 ### Where the database changes come from
 
@@ -409,7 +544,7 @@ is 476 added rows and 120 changed ones across 16 tables, and nothing deleted.
 The 120 changed rows are not edits to the pack's content — they switch on
 collab items the game already shipped but left hidden on PC.
 
-The artwork is S3er0i9ng's own, copied unchanged from their v3.75 release.
+The artwork is S3er0i9ng's own, copied unchanged from their v3.79 release.
 
 ### Version checking
 
@@ -550,7 +685,7 @@ result, verifies the recording reproduces that result exactly, and writes the
 recipe plus its fingerprint into `lid_db_manager/recipes/`:
 
 ```
-py -3 tools/build_crossover_recipe.py --pack "C:\...\LetItDieCrossoverContent-v3.75-Source-NoEXE"
+py -3 tools/build_crossover_recipe.py --pack "C:\...\crossover" --vanilla "LiD Vanilla DB\5.0.4.0\masters.db"
 ```
 
 Nothing is written if the verification fails. Players never run this.
@@ -564,8 +699,8 @@ build this was written against, **7,678 of the 7,882 packages on disk**, plus
 
 Most artwork mods never run into this. The 204 packages the table does *not*
 list are equipment added after the table was built, which is why the Crossover
-Content pack installs without any of this — 201 of its files are unlisted, and
-the 33 that are listed it ships byte-identical to the originals.
+Content pack installs without any of this — most of its files are unlisted, and
+the 45 that are listed it ships byte-identical to the originals.
 
 The **Colored PlayStation Buttons** mod, also **by S3er0i9ng**
 (<https://letitdiemods.pages.dev/>), is the other case. It replaces
@@ -575,7 +710,7 @@ with the manager with their permission.
 
 ### How the manager handles it
 
-It ships in `mods/` as `Colored PlayStation Buttons v1.2`, one mod holding both
+It ships in `mods/` as `Colored PlayStation Buttons v1.4`, one mod holding both
 halves: the replacement package, and the one hash the game keeps for it. Tick
 it and click **Save Mod List** with the game closed.
 
@@ -583,6 +718,23 @@ When the mod gets an update, the manager has to be updated to include it — a
 new release of this program will carry it.
 
 Unticking it puts the executable back byte for byte.
+
+### When the game updates
+
+A game update replaces the executable and can change the packages it checks.
+Two things follow, and the manager handles both:
+
+- **Every game file is checked before it is copied.** A file the executable
+  in your game folder would refuse is left out, the game's own copy is kept,
+  and the log names the mod and the files. Installing it would stop the game
+  with an error naming the package.
+- **Copies kept from before the update are never put back.** The executable
+  and packages the manager kept as the way back belong to the old build. When
+  a mod is switched off or updated after a game update, the manager puts this
+  build's own files back to stock instead of restoring the old ones.
+
+A recording for the executable only fits the build it was made on, so a mod
+like this one needs a new release of the manager after a game update.
 
 ### What actually changes
 
@@ -601,6 +753,23 @@ If any of those fail, nothing is written. The same code refuses a package the
 table does not list, a package listed twice (228 names really are), a hash that
 is not what the recording expected — which means a different game build, or an
 executable something else already changed — and a malformed recording.
+
+### If you already installed it by hand
+
+Nothing to undo first. If the executable already expects the replacement — you
+installed the mod yourself, or you kept the game folder and reinstalled the
+manager — ticking the mod leaves those twenty bytes exactly as they are and
+carries on.
+
+The way back still exists, because the stock hash is part of the recording, not
+something that has to be remembered from before: the manager works out what the
+untouched executable looked like and keeps *that* as the copy to restore. So
+unticking the mod puts the game back to stock even though the manager never saw
+it in that state.
+
+It only does this when the executable's code section still matches the
+recording, which is what proves it is the same game build. An entry holding
+some third value it cannot account for is refused, and says so.
 
 ### Only recordings that ship with the manager
 
@@ -691,6 +860,16 @@ A mod can record the build it was made against in its `mod.json`:
 { "game_version": "5.0.3.0.0 - 1.87" }
 ```
 
+Once a mod has been checked against a newer build and still does exactly the
+same thing, list both. Any build in the list counts as a match:
+
+```json
+{ "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"] }
+```
+
+Every mod that ships with the manager has been checked this way against 1.88:
+each one changes exactly the same values on 1.88 as on 1.87.
+
 When both are present and they differ, validation adds a warning naming each:
 
 > built for game 5.0.3.0.0 - 1.87, but your database is 5.0.2.0.0 - 1.86. It
@@ -758,6 +937,20 @@ in — only changes the list. In order, it:
    You never end up half-modded.
 5. **Records the result**, so the manager can tell later whether the game has
    replaced the file behind your back.
+
+The same transaction leaves a small note inside `masters.db` itself: a table
+named `_lid_mod_manager` listing the mods in it, their versions, the values they
+were applied with and their load order. The game never reads it. It is there so
+the database can say what is in it even when this manager's own records are not
+around: after a reinstall, on another PC, or restored from a backup. The manager
+never counts it as a change from stock, takes a mod off the list when you switch
+that mod off, and removes the table when nothing is applied. It is only ever a
+hint: every mod it names is checked against the actual values before it is
+believed.
+
+When a newer version of a mod you have applied comes with an update, the list
+says **Update available**. The next **Save Mod List** takes the old version off
+before putting the new one on, so nothing the old version changed is left behind.
 
 The log reports how many rows each mod changed and how long the whole thing
 took. Those row counts are worth a glance: a mod claiming far more rows than
@@ -875,7 +1068,7 @@ mod**. No SQL, no table names to memorise, no text editor.
 
 The headings are the parts people actually ask about:
 
-|-------------------------------------|--------------------------------------------------------------------------|
+| Heading                             | What you can change                                                      |
 |-------------------------------------|--------------------------------------------------------------------------|
 | Weapons & Armour                    | craft and upgrade costs, stats, rank requirements                        |
 | Fighters                            | tier prices, level caps, Death Bag size, decal slots                     |
@@ -990,10 +1183,10 @@ a machine without PySide6:
 ```bash
 python run.py set-db "D:\...\Content\masters.db"
 python run.py list
-python run.py enable revive-cost-1kc
-python run.py preview revive-cost-1kc     # what it would change, no writes
+python run.py enable revive-cost
+python run.py preview revive-cost         # what it would change, no writes
 python run.py apply
-python run.py revert revive-cost-1kc
+python run.py revert revive-cost
 python run.py backups
 python run.py watch                       # poll and re-apply on change
 ```
@@ -1008,6 +1201,7 @@ snapshots/     per-mod row snapshots, used by Revert
 backups/       dated database backups, newest five kept
 logs/          one plain-text log per session, newest 30 kept
 state.json     enabled mods, modpacks, settings, last-seen database hash
+LiD Vanilla DB/<build>/masters.db   clean copies to compare against
 ```
 
 All created on first run. Set `LID_DB_MANAGER_HOME` to put them somewhere else.
@@ -1074,7 +1268,7 @@ What they do need to know:
 python -m unittest discover -s tests -t tests
 ```
 
-112 tests. They build a miniature `masters.db` from `tests/fixtures.py`, so no
+701 tests. They build a miniature `masters.db` from `tests/fixtures.py`, so no
 game files are needed. The GUI tests run offscreen and skip themselves if
 PySide6 is not installed.
 

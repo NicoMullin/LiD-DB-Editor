@@ -208,36 +208,53 @@ if __name__ == "__main__":
 
 
 class AlreadyInPlace(unittest.TestCase):
-    """The executable already carries the change and there is no way back.
+    """The executable already carries the change.
 
-    This is what a lost or moved manager folder looks like: the game files are
-    still modified, but the saved originals are gone. Adopting that silently
-    would record the modified file as the original, so switching the mod off
-    later would put the modification back.
+    This is what a lost or moved manager folder looks like, and what installing
+    the mod by hand looks like: the game file is already modified and no saved
+    original exists. It used to be refused, on the grounds that keeping the
+    modified file as "the original" would mean unticking the mod restored the
+    modification. The stock hash is part of the recording, though, so the stock
+    file can be worked out from the modified one - which is what restore_entry
+    does, and what makes accepting this safe.
     """
 
+    PACKAGE = "UI_ButtonGuide_STM_SF.upk"
+
     def setUp(self) -> None:
-        self.raw = an_executable([("UI_ButtonGuide_STM_SF.upk", B)])   # already patched
+        self.stock = an_executable([(self.PACKAGE, A)])
+        self.raw = an_executable([(self.PACKAGE, B)])   # already patched
 
-    def test_it_refuses(self) -> None:
-        with self.assertRaises(X.ExeFormatError):
-            X.apply_entry(self.raw, "UI_ButtonGuide_STM_SF.upk", A, B)
+    def test_applying_it_again_is_a_no_op(self) -> None:
+        self.assertEqual(X.apply_entry(self.raw, self.PACKAGE, A, B), self.raw)
 
-    def test_it_says_the_change_is_already_in_place(self) -> None:
+    def test_applying_twice_over_lands_in_the_same_place(self) -> None:
+        once = X.apply_entry(self.stock, self.PACKAGE, A, B)
+        self.assertEqual(X.apply_entry(once, self.PACKAGE, A, B), once)
+
+    def test_the_stock_file_can_be_worked_out_from_the_modified_one(self) -> None:
+        self.assertEqual(X.restore_entry(self.raw, self.PACKAGE, A, B), self.stock)
+
+    def test_restoring_a_stock_file_changes_nothing(self) -> None:
+        self.assertEqual(X.restore_entry(self.stock, self.PACKAGE, A, B), self.stock)
+
+    def test_a_restore_leaves_the_code_alone(self) -> None:
+        back = X.restore_entry(self.raw, self.PACKAGE, A, B)
+        self.assertEqual(X.code_fingerprint(back), X.code_fingerprint(self.raw))
+        self.assertEqual(len(back), len(self.raw))
+
+    def test_restoring_refuses_a_hash_it_cannot_account_for(self) -> None:
+        """Neither stock nor this change: something else wrote it, so what the
+        stock value should be is no longer known here."""
+        other = an_executable([(self.PACKAGE, C)])
         with self.assertRaises(X.ExeFormatError) as caught:
-            X.apply_entry(self.raw, "UI_ButtonGuide_STM_SF.upk", A, B)
-        self.assertIn("already expects", str(caught.exception))
-
-    def test_it_says_what_to_do_about_it(self) -> None:
-        with self.assertRaises(X.ExeFormatError) as caught:
-            X.apply_entry(self.raw, "UI_ButtonGuide_STM_SF.upk", A, B)
-        self.assertIn("Verify integrity", str(caught.exception))
+            X.restore_entry(other, self.PACKAGE, A, B)
+        self.assertIn("neither the stock", str(caught.exception))
 
     def test_a_third_unrelated_value_reads_as_a_build_mismatch(self) -> None:
         """Different wording, because it means something different."""
-        other = an_executable([("UI_ButtonGuide_STM_SF.upk", C)])
+        other = an_executable([(self.PACKAGE, C)])
         with self.assertRaises(X.ExeFormatError) as caught:
-            X.apply_entry(other, "UI_ButtonGuide_STM_SF.upk", A, B)
+            X.apply_entry(other, self.PACKAGE, A, B)
         message = str(caught.exception)
         self.assertIn("not the one this change was recorded against", message)
-        self.assertNotIn("already expects", message)

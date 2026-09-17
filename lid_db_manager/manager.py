@@ -10,14 +10,21 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import shutil
 import sqlite3
 
+from . import adopt
 from . import asset_runner
 from . import backup as backup_module
+from . import db_record
 from . import dbdiff
+from . import vanilla_library
 from . import install as install_module
+from . import migrations
 from . import modedit
+from . import snapshot as snapshot_module
 from .conflict import ConflictReport, analyze
+from .errors import ModManagerError
 from .mod import Mod
 from .mod_loader import ScanResult, scan_mods
 from .paths import AppPaths
@@ -44,6 +51,8 @@ MOD_PENDING = "pending"  # yellow - enabled but not on the current DB
 MOD_FAILED = "failed"  # red
 MOD_DISABLED = "disabled"
 
+DELTAS_KEPT_PER_MOD = 6
+
 
 class Manager:
     def __init__(self, paths: AppPaths | None = None, *, echo_log: bool = False):
@@ -61,7 +70,14 @@ class Manager:
         self.last_validation: ValidationReport | None = None
         self._conflict_cache: tuple | None = None
         self._delta_cache: dict[str, tuple] = {}
+        # Merged and renamed shipped mods: move the old folders aside before
+        # the scan, then point the saved state at their replacements.
+        migrations.retire_shipped_folders(self.paths.mods_dir, self.log)
         self.rescan()
+        if migrations.migrate_state(
+            self.state, self.installed_ids(), self.paths.snapshots_dir, self.log
+        ):
+            self.state.save()
 
     # -- database selection ----------------------------------------------
 
@@ -172,8 +188,52 @@ class Manager:
         mods = [by_id[mod_id] for mod_id in self.state.enabled_mods if mod_id in by_id]
         return [self.active_mod(mod) for mod in mods]
 
+    def configured(self, mod: Mod) -> Mod:
+        """``mod`` with the values the player chose filled in."""
+        return mod.with_settings(self.state.mod_settings.get(mod.id))
+
+    def configured_mod(self, mod_id: str) -> Mod | None:
+        mod = self.scan.get(mod_id)
+        return self.configured(mod) if mod is not None else None
+
+    def set_mod_setting(self, mod_id: str, setting_id: str, value) -> int | float:
+        """Choose one of a mod's values. Raises ValueError with a readable reason.
+
+        Takes effect on the next save, like ticking a box. A value equal to the
+        default is simply forgotten.
+        """
+        mod = self.scan.get(mod_id)
+        if mod is None:
+            raise ModManagerError(f"no such mod: {mod_id}")
+        setting = mod.setting(setting_id)
+        if setting is None:
+            raise ModManagerError(f"{mod.name} has no setting called {setting_id!r}")
+        number = setting.coerce(value)
+        chosen = dict(self.state.mod_settings.get(mod_id, {}))
+        if number == setting.default:
+            chosen.pop(setting_id, None)
+        else:
+            chosen[setting_id] = number
+        if chosen:
+            self.state.mod_settings[mod_id] = chosen
+        else:
+            self.state.mod_settings.pop(mod_id, None)
+        self.state.save()
+        self._delta_cache.pop(mod_id, None)
+        self._conflict_cache = None
+        self.log.info(f"{mod.name}: {setting.label} set to {setting.display(number)}")
+        return number
+
+    def reset_mod_settings(self, mod_id: str) -> None:
+        """Put every value of a mod back to its default."""
+        if self.state.mod_settings.pop(mod_id, None) is not None:
+            self.state.save()
+            self._delta_cache.pop(mod_id, None)
+            self._conflict_cache = None
+
     def active_mod(self, mod: Mod) -> Mod:
-        """``mod`` without the patches the player has switched off."""
+        """``mod`` with its chosen values, and without the parts switched off."""
+        mod = self.configured(mod)
         off = self.state.disabled_patches.get(mod.id)
         if not off:
             return mod
@@ -203,7 +263,8 @@ class Manager:
         by_id = self.scan.by_id
         ordered = [by_id[mod_id] for mod_id in self.state.enabled_mods if mod_id in by_id]
         enabled_ids = {mod.id for mod in ordered}
-        return ordered + [mod for mod in self.scan.mods if mod.id not in enabled_ids]
+        everything = ordered + [mod for mod in self.scan.mods if mod.id not in enabled_ids]
+        return [self.configured(mod) for mod in everything]
 
     def set_enabled(self, mod_id: str, enabled: bool) -> None:
         self.state.set_enabled(mod_id, enabled)
@@ -366,6 +427,7 @@ class Manager:
             installed_ids=self.installed_ids(),
             deltas=deltas,
             keep_snapshots=keep_snapshots,
+            record=True,
         )
         self.last_apply = report
         self.last_validation = report.validation
@@ -434,7 +496,14 @@ class Manager:
             # Undoing the whole mod puts everything it wrote back; the parts
             # still switched on are re-applied a moment later in the same save.
             mod = self.scan.get(mod_id)
-            if mod is None or not record.parts:
+            if mod is None:
+                continue
+            # A newer version of the mod may no longer write rows the old one
+            # did; taking the old one off first means none of those are left.
+            if record.version and mod.version and record.version != mod.version:
+                stranded.append(mod_id)
+                continue
+            if not record.parts:
                 continue
             if [p.key for p in self.active_mod(mod).patches] != list(record.parts):
                 stranded.append(mod_id)
@@ -507,6 +576,9 @@ class Manager:
             snapshots_dir=self.paths.snapshots_dir,
             mods_by_id=self.scan.by_id,
             log=self.log,
+            record_after=lambda reverted: db_record.from_applied(
+                {k: v for k, v in self.state.applied.items() if k not in reverted}
+            ),
         )
         reverted_ok = {result.mod_id for result in results if result.ok}
         for result in results:
@@ -551,6 +623,29 @@ class Manager:
         known |= {mod_id for mod_id in self.state.applied if mod_id not in installed}
         return sorted(known)
 
+    def delete_mod(self, mod_id: str) -> None:
+        """Remove a mod's folder and everything remembered about it.
+
+        The rows it changed are *not* put back - that is Revert's job, and
+        whether to offer it first is the caller's decision. Deleting an applied
+        mod without reverting leaves its values in the database with nothing
+        left to undo them, so the window asks before it gets here.
+        """
+        mod = self.scan.get(mod_id)
+        if mod is None:
+            raise ModManagerError(f"no such mod: {mod_id}")
+        shutil.rmtree(Path(mod.folder))
+        self.state.set_enabled(mod_id, False)
+        self.state.forget_applied(mod_id)
+        self.state.disabled_patches.pop(mod_id, None)
+        self.state.mod_settings.pop(mod_id, None)
+        self.state.save()
+        snapshot_module.discard(self.paths.snapshots_dir, mod_id)
+        self._delta_cache.pop(mod_id, None)
+        self._conflict_cache = None
+        self.log.info(f"Deleted mod {mod_id}")
+        self.rescan()
+
     def forget(self, mod_ids: list[str]) -> None:
         """Drop a deleted mod's bookkeeping without touching the database."""
         from . import snapshot as snapshot_module
@@ -582,11 +677,165 @@ class Manager:
 
     @property
     def vanilla_path(self) -> Path | None:
-        """The untouched copy of the database, if one has been kept."""
+        """The clean database everything is measured against.
+
+        A copy that ships with the manager wins over ``masters.db.original``,
+        because it is known to be stock: the ".original" is only as clean as the
+        file it was taken from, and someone who arrives with an already-modded
+        database has a copy of *that* sitting there under the name "original".
+        When no shipped copy matches their game build, the kept copy is still
+        the best available answer.
+        """
+        build = self.chosen_vanilla()
+        if build is not None:
+            return build.path
         if not self.db_path:
             return None
         original = backup_module.original_backup_path(self.db_path)
         return original if original.is_file() else None
+
+    # -- the clean databases that ship with the manager --------------------
+
+    def vanilla_builds(self) -> list[vanilla_library.VanillaBuild]:
+        """Every clean database available, shipped or dropped in by the user."""
+        return vanilla_library.builds(self.paths.root)
+
+    def chosen_vanilla(self) -> "vanilla_library.VanillaBuild | None":
+        """The clean copy to use: the user's pick, else the one that matches."""
+        choice = self.state.settings.vanilla_choice
+        if choice:
+            picked = vanilla_library.for_version(
+                choice, self.paths.root
+            ) or vanilla_library.for_label(choice, self.paths.root)
+            if picked is not None:
+                return picked
+        return vanilla_library.best_for(self.db_path, self.paths.root)
+
+    def set_vanilla_choice(self, choice: str) -> None:
+        """Pin the reference copy, or pass "" to go back to matching by build."""
+        self.state.settings.vanilla_choice = choice or ""
+        self.state.save()
+        self._delta_cache.clear()
+        self.log.info(
+            f"Comparing against {choice}" if choice
+            else "Comparing against whichever clean copy matches the database"
+        )
+
+    # -- adopting an already-modded database -------------------------------
+
+    def adopt_scan(self) -> "adopt.AdoptionReport":
+        """Work out which mods are already in the chosen database.
+
+        Reads only - the caller decides what to do with the answer.
+        """
+        if not self.db_path or not self.db_path.is_file():
+            return adopt.AdoptionReport(error="No database has been chosen yet.")
+        build = self.chosen_vanilla()
+        if build is None:
+            version = vanilla_library.database_version(self.db_path) or "unknown"
+            return adopt.AdoptionReport(
+                error=(
+                    f"No clean copy of game build {version} ships with this manager, so "
+                    "there is nothing safe to compare your database against. Comparing "
+                    "against a different build would read the game's own patch as a mod."
+                )
+            )
+        self.log.info(f"Scanning {self.db_path.name} against clean {build.name}")
+        record = db_record.read(self.db_path)
+        if record is not None and record.unreadable:
+            self.log.warn(record.unreadable)
+        elif record is not None:
+            self.log.info(
+                f"The database lists {len(record.mods)} mod(s) it was saved with; "
+                "checking each against the actual values"
+            )
+        report = adopt.scan(
+            build.path,
+            self.db_path,
+            self.mods,
+            self.mod_delta,
+            self.asset_game_root,
+            record=migrations.migrate_record(record, self.installed_ids()),
+            chosen=self.state.mod_settings,
+        )
+        self.log.info(f"Scan: {report.summary()}")
+        return report
+
+    def adoption_order(self, mod_ids: list[str]) -> list[str]:
+        """Content packs first, then everything else, order otherwise kept.
+
+        Load order is "top applies first, bottom wins". A content pack rewrites
+        and adds rows across a great many tables, so anything applied *before*
+        it gets buried - a small mod retuning one of those tables would look as
+        if it simply had not worked, and the player has no reason to suspect the
+        order. Putting the packs at the top means the small tweaks land on top
+        of them, which is what ticking both is meant to do.
+
+        A pack is recognised by it shipping game files: that is what makes it a
+        pack rather than a tweak, and it needs no list of names to maintain.
+        """
+        known = [mod_id for mod_id in mod_ids if self.scan.get(mod_id) is not None]
+        packs = [
+            mod_id for mod_id in known if self.scan.get(mod_id).asset_targets()
+        ]
+        # Among the packs, whichever rewrites more of the database goes first. A
+        # pack that only swaps artwork - the button prompts replace one package
+        # and touch no table at all - can bury nothing, while a content pack
+        # writes sixteen tables and buries anything applied before it.
+        packs.sort(key=lambda mod_id: (-len(self.scan.get(mod_id).tables()), known.index(mod_id)))
+        return packs + [mod_id for mod_id in known if mod_id not in set(packs)]
+
+    def adopt_rebuild(self, mod_ids: list[str], values: dict | None = None) -> ApplyReport:
+        """Reset the database to vanilla and apply the chosen mods to it.
+
+        This is what makes an adopted database honest: afterwards the file is
+        genuinely vanilla-plus-these-mods, with a snapshot taken for each one as
+        usual, so every one of them can be switched off again. Their own file is
+        backed up first and their old snapshots are dropped, because those
+        described a database that no longer exists.
+        """
+        if not self.db_path or not self.db_path.is_file():
+            raise ModManagerError("No database has been chosen yet.")
+        build = self.chosen_vanilla()
+        if build is None:
+            raise ModManagerError(
+                "No clean copy matching this database's game build is available."
+            )
+        reason = asset_runner.game_lock_reason(self.db_path)
+        if reason:
+            raise ModManagerError(reason)
+
+        backup_module.take_backups(
+            self.db_path, self.paths.backups_dir, self.state.settings.keep_backups
+        )
+        self.log.info(f"Rebuilding {self.db_path.name} from clean {build.name}")
+        backup_module.copy_database(build.path, self.db_path)
+        # The kept copy beside their database is now genuinely stock, which for
+        # someone who arrived with a modded file it never was.
+        backup_module.copy_database(
+            build.path, backup_module.original_backup_path(self.db_path)
+        )
+
+        for mod in self.scan.mods:
+            snapshot_module.discard(self.paths.snapshots_dir, mod.id)
+        # Rebuilt at the values found in their database, not the defaults: an
+        # x7 they already had stays x7.
+        for mod_id, found in (values or {}).items():
+            mod = self.scan.get(mod_id)
+            if mod is None or not mod.settings:
+                continue
+            self.reset_mod_settings(mod_id)
+            for setting_id, value in found.items():
+                if mod.setting(setting_id) is not None:
+                    try:
+                        self.set_mod_setting(mod_id, setting_id, value)
+                    except (ValueError, ModManagerError) as exc:
+                        self.log.warn(f"{mod_id}: kept the default for {setting_id} ({exc})")
+        self.state.applied.clear()
+        self.state.enabled_mods = self.adoption_order(mod_ids)
+        self.state.save()
+        self._delta_cache.clear()
+        return self._apply(take_backup=False)
 
     def mod_delta(self, mod: Mod):
         """Exactly what this mod changes, measured against the vanilla copy.
@@ -609,10 +858,15 @@ class Manager:
             vanilla.stat().st_size,
             vanilla.stat().st_mtime_ns,
             tuple(patch.key for patch in mod.patches),
+            # And the chosen values: x5 changes different numbers than x2.
+            tuple(sorted(mod.values.items())),
         )
-        cached = self._delta_cache.get(mod.id)
-        if cached is not None and cached[0] == key:
-            return cached[1]
+        # A few answers per mod: working out a value from a database asks for
+        # the same mod at two or three values in a row, and one slot would
+        # throw away the player's own each time.
+        cached = self._delta_cache.setdefault(mod.id, {})
+        if key in cached:
+            return cached[key]
 
         try:
             delta = dbdiff.delta_for_mod(vanilla, mod)
@@ -620,7 +874,9 @@ class Manager:
             # Never let this break an apply - callers fall back to the old path.
             self.log.warn(f"{mod.id}: could not work out its exact changes ({exc})")
             return None
-        self._delta_cache[mod.id] = (key, delta)
+        if len(cached) >= DELTAS_KEPT_PER_MOD:
+            cached.pop(next(iter(cached)))
+        cached[key] = delta
         return delta
 
     def inspect_install(self, source: Path) -> "install_module.InstallCandidate":

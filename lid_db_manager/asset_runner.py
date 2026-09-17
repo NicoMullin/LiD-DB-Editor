@@ -20,6 +20,7 @@ copied, hash-checked and swapped into place atomically.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import sys
@@ -27,6 +28,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import exe_checksums, vetted
 from .sqlutil import sha256_file
 
 # Under paths.backups_dir. Holds the ".original" copies plus a manifest that
@@ -354,33 +356,282 @@ def _stage_transforms(
     store: Path,
     manifest: dict[str, dict],
     staging: Path,
-) -> list[tuple[str, Path, Path]]:
+) -> tuple[list[tuple[str, Path, Path]], dict[str, Path]]:
     """Work out each transformed file's new contents, without writing to the game.
 
     The change is always computed from the *pristine* file - the ".original"
     kept the first time any mod claimed it, when there is one - so running twice
     is not running the change twice, and so a transform never stacks on top of
     another mod's version of the same file.
+
+    "Pristine" is asked of the patch rather than assumed of the file on disk. An
+    executable someone already modified by hand is not stock, and keeping it as
+    the way back would mean switching the mod off *restored* the modification.
+    A patch that can undo its own change hands back the stock bytes, and those
+    are what gets kept - see ``Patch.to_pristine``. Returns the plan plus, for
+    each target, the stock copy to keep.
     """
     plan: list[tuple[str, Path, Path]] = []
+    stock_files: dict[str, Path] = {}
     staging.mkdir(parents=True, exist_ok=True)
     for target, (patch, mod_id) in sorted(transforms.items()):
         dest = _resolve_target(game_root, target)
         if not dest.is_file():
             raise OSError(f"{mod_id}: {target} is not in the game folder")
         kept = manifest.get(target, {}).get("backup")
+        if kept and _from_an_older_build(store / kept, dest):
+            # Kept before a game update. Transforming it would refuse (or worse,
+            # hand back an executable for the old build) - the one on disk, put
+            # back to stock, is the real original now.
+            (store / kept).unlink(missing_ok=True)
+            manifest.pop(target, None)
+            kept = None
         pristine = store / kept if kept else dest
         if not pristine.is_file():
             raise OSError(f"{mod_id}: the saved copy of {target} is missing")
+        found = pristine.read_bytes()
         try:
-            produced = patch.transform(pristine.read_bytes())
+            stock = patch.to_pristine(found)
+            produced = patch.transform(stock)
         except Exception as exc:  # the patch says why; the runner just refuses
             raise OSError(f"{mod_id}: {target} was not changed - {exc}") from exc
         staged = staging / _flatten(target)
         staged.parent.mkdir(parents=True, exist_ok=True)
         staged.write_bytes(produced)
         plan.append((target, staged, dest))
-    return plan
+        if stock != found:
+            # The file on disk already carried the change. Keep the stock form
+            # instead, so unticking the mod has something real to go back to.
+            stock_path = staging / (_flatten(target) + ".stock")
+            stock_path.write_bytes(stock)
+            stock_files[target] = stock_path
+    return plan, stock_files
+
+
+def _keep_original(
+    target: str, source: Path, store: Path, manifest: dict[str, dict], taken_names: set
+) -> None:
+    """Record the permanent ".original" for one target. Taken once, ever.
+
+    ``source`` is usually the file as found. For a target whose patch could tell
+    that what is on disk already carries its change, it is the stock form worked
+    out from the recording instead.
+    """
+    name = _free_backup_name(store, target, taken_names)
+    shutil.copy2(source, store / name)
+    if sha256_file(store / name) != sha256_file(source):
+        raise OSError(f"backup of {target} did not verify")
+    manifest[target] = {"backup": name}
+    taken_names.add(name)
+
+
+def _sha1(path: Path) -> str:
+    digest = hashlib.sha1()
+    with open(path, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def expected_checksums(game_root: Path, transforms=None) -> dict[str, str]:
+    """Package name (lower case) -> the SHA-1 the game will accept for it.
+
+    Read from the table inside the game's executable, with any hash a vetted
+    recording is about to write in this same run laid over it. Empty when there
+    is no executable to read - a loose test folder, or a layout this does not
+    know - in which case nothing is checked, as before.
+    """
+    exe = Path(game_root) / vetted.GAME_EXE
+    if not exe.is_file():
+        return {}
+    try:
+        entries = exe_checksums.read_entries(exe.read_bytes())
+    except Exception:
+        return {}
+    expected = {name.lower(): entry.sha1.lower() for name, entry in entries.items()}
+    for patch, _mod_id in (transforms or {}).values():
+        recipe = getattr(patch, "recipe", None)
+        if recipe is not None:
+            expected[recipe.package.lower()] = recipe.checksum_after.lower()
+    return expected
+
+
+def _is_game_exe(target: str) -> bool:
+    return _normalise(target).lower() == vetted.GAME_EXE.lower()
+
+
+def _code_fingerprint(path: Path) -> str:
+    try:
+        return exe_checksums.code_fingerprint(Path(path).read_bytes())
+    except Exception:
+        return ""
+
+
+def _from_an_older_build(kept: Path, current: Path) -> bool:
+    """A kept executable whose code is not the code of the one in the game.
+
+    Only a game update changes the code: every change this manager makes to the
+    executable is twenty bytes of data, checked to leave the code alone.
+    """
+    if not kept.is_file() or not current.is_file():
+        return False
+    kept_code, current_code = _code_fingerprint(kept), _code_fingerprint(current)
+    return bool(kept_code and current_code and kept_code != current_code)
+
+
+def stock_executable(raw: bytes) -> bytes:
+    """``raw`` with every vetted change recorded for its build taken back out."""
+    try:
+        code = exe_checksums.code_fingerprint(raw)
+    except Exception:
+        return raw
+    for recipe in vetted.known_exe_recipes().values():
+        if recipe.code_fingerprint != code:
+            continue
+        try:
+            raw = exe_checksums.restore_entry(
+                raw, recipe.package, recipe.checksum_before, recipe.checksum_after
+            )
+        except Exception:
+            continue
+    return raw
+
+
+def stock_checksums(game_root: Path) -> dict[str, str]:
+    """What the game's *unmodified* executable expects for each package."""
+    exe = Path(game_root) / vetted.GAME_EXE
+    if not exe.is_file():
+        return {}
+    try:
+        entries = exe_checksums.read_entries(stock_executable(exe.read_bytes()))
+    except Exception:
+        return {}
+    return {name.lower(): entry.sha1.lower() for name, entry in entries.items()}
+
+
+def _refresh_stale_copies(wanted, game_root, store, manifest, log) -> bool:
+    """Replace kept copies of checked packages that belong to an older build.
+
+    The copy kept as a file's way back is taken the first time a mod claims it.
+    After a game update that copy may be the old build's file, and putting it
+    back would stop the game. When the file on disk right now is exactly what
+    the stock executable expects, it is the real original: keep that instead.
+    """
+    stock = None
+    changed = False
+    for target in wanted:
+        entry = manifest.get(target)
+        if not entry or not entry.get("backup"):
+            continue
+        backup = store / entry["backup"]
+        if not backup.is_file():
+            continue
+        if stock is None:
+            stock = stock_checksums(game_root)
+            if not stock:
+                return False
+        want = stock.get(Path(target).name.lower())
+        if want is None or _sha1(backup) == want:
+            continue
+        try:
+            dest = _resolve_target(game_root, target)
+        except OSError:
+            continue
+        if dest.is_file() and _sha1(dest) == want:
+            _verified_copy(dest, backup)
+            changed = True
+            if log:
+                log.info(
+                    f"the kept copy of {target} was from an older game build; "
+                    "replaced with this build's"
+                )
+    return changed
+
+
+def _leave_out_unmatched(wanted, transforms, game_root, store, manifest, log):
+    """Take out of ``wanted`` every file the game would refuse to load.
+
+    Returns (what is still wanted, [(target, mod id)] left out, [(target, mod
+    id)] left out whose game copy is wrong and could not be put right).
+
+    A left-out file the manager put there on an earlier run - before a game
+    update changed what the executable expects - is put back to the kept copy
+    when that copy is the right one. When the game's own copy is already the
+    right one (Steam replaced it), the kept copy is simply forgotten: it
+    describes an older build, and putting it back later would break the game.
+    """
+    expected = expected_checksums(game_root, transforms)
+    if not expected:
+        return wanted, [], []
+    kept_wanted = {}
+    released: list[tuple[str, str]] = []
+    stuck: list[tuple[str, str]] = []
+    changed = False
+    # Kept copies of files no enabled mod claims any more - a mod whose new
+    # version dropped them - go through the same check, so a file the game now
+    # refuses does not stay behind with an out-of-date copy as its way back.
+    unclaimed = [
+        target
+        for target in list(manifest)
+        if target not in wanted and target not in (transforms or {})
+        and Path(target).name.lower() in expected
+    ]
+    candidates = [(t, src, m) for t, (src, m) in wanted.items()]
+    candidates += [(target, None, None) for target in unclaimed]
+    for target, source, mod_id in candidates:
+        want = expected.get(Path(target).name.lower())
+        if mod_id is not None:
+            if want is None or not source.is_file() or _sha1(source) == want:
+                kept_wanted[target] = (source, mod_id)
+                continue
+            released.append((target, mod_id))
+        try:
+            dest = _resolve_target(game_root, target)
+        except OSError:
+            continue
+        entry = manifest.get(target)
+        backup = store / entry["backup"] if entry and entry.get("backup") else None
+        current = _sha1(dest) if dest.is_file() else None
+        try:
+            if current != want and backup is not None and backup.is_file() and _sha1(backup) == want:
+                _verified_copy(backup, dest)
+                current = want
+                if log:
+                    log.info(f"game file put back to the game's own copy: {target}")
+        except OSError as exc:
+            if log:
+                log.warn(f"could not put back {target} ({exc})")
+        if current == want or current is None:
+            if entry is not None:
+                if backup is not None:
+                    backup.unlink(missing_ok=True)
+                manifest.pop(target, None)
+                changed = True
+        else:
+            stuck.append((target, mod_id or "A mod that no longer installs it"))
+    try:
+        changed = _refresh_stale_copies(kept_wanted, game_root, store, manifest, log) or changed
+    except OSError as exc:
+        if log:
+            log.warn(f"could not refresh an out-of-date kept copy ({exc})")
+    if changed:
+        _save_manifest(store.parent, manifest)
+    return kept_wanted, released, stuck
+
+
+def _group_by_mod(pairs) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for target, mod_id in pairs:
+        grouped.setdefault(mod_id, []).append(Path(target).name)
+    return grouped
+
+
+def _files_phrase(names: list[str]) -> tuple[str, bool]:
+    """("UI_A.upk", False) or ("33 game files, UI_A.upk among them", True)."""
+    names = sorted(names)
+    if len(names) == 1:
+        return names[0], False
+    return f"{len(names)} game files, {names[0]} among them", True
 
 
 def apply_asset_patches(
@@ -433,16 +684,55 @@ def apply_asset_patches(
     manifest = _load_manifest(backups_dir)
     taken_names = {entry["backup"] for entry in manifest.values() if entry.get("backup")}
 
+    # Files the game checks against the table inside its executable. One that
+    # does not match is not loaded - the game stops with an error naming it -
+    # so it is left out, and the game's own copy is kept or put back.
+    wanted, released, stuck = _leave_out_unmatched(
+        wanted, transforms, game_root, store, manifest, log
+    )
+    for mod_id, names in _group_by_mod(stuck).items():
+        files, several = _files_phrase(names)
+        warning = (
+            f"{mod_id}: {files} in the game folder {'are' if several else 'is'} not what "
+            "this game build expects, and there is no correct copy to put back. The game "
+            "will stop with an error when it loads "
+            f"{'them' if several else 'it'}. Use Steam's Verify integrity of game files, "
+            "then save again."
+        )
+        report.warnings.append(warning)
+        if log:
+            log.warn(warning)
+    for mod_id, names in _group_by_mod(released).items():
+        files, several = _files_phrase(names)
+        warning = (
+            f"{mod_id}: {files} {'were' if several else 'was'} made for a different game "
+            f"build than this one, so {'they were' if several else 'it was'} left out and "
+            "the game's own copy kept. Installing "
+            f"{'them' if several else 'it'} would stop the game with an error. A release "
+            "of the mod made for this build fixes that."
+        )
+        report.warnings.append(warning)
+        if log:
+            log.warn(warning)
+
     # Work out the changes first so a no-op run touches nothing.
     plan: list[tuple[str, Path, Path]] = []  # target, source, dest
     try:
         # Transforms first: they read the pristine file, so they must be worked
         # out before anything this run writes.
-        staged_plan = _stage_transforms(
+        staged_plan, stock_files = _stage_transforms(
             transforms, game_root, store, manifest, rollback_dir / "staged"
         )
         for target, source, dest in staged_plan:
             if dest.is_file() and sha256_file(dest) == sha256_file(source):
+                # Already exactly what this mod wants: installed by hand, or
+                # left in place while the manager's records went missing. There
+                # is nothing to copy - but the way back still has to be written
+                # down, or unticking the mod later would have nothing to put
+                # back and the change would be stuck in the game for good.
+                if target not in manifest and target in stock_files:
+                    _keep_original(target, stock_files[target], store, manifest, taken_names)
+                    _save_manifest(backups_dir, manifest)
                 report.skipped += 1
                 continue
             plan.append((target, source, dest))
@@ -482,12 +772,13 @@ def apply_asset_patches(
             # Permanent ".original" - taken once per target, ever.
             if target not in manifest:
                 if existed:
-                    name = _free_backup_name(store, target, taken_names)
-                    shutil.copy2(dest, store / name)
-                    if sha256_file(store / name) != sha256_file(dest):
-                        raise OSError(f"backup of {target} did not verify")
-                    manifest[target] = {"backup": name}
-                    taken_names.add(name)
+                    # Normally the file as found. For a target whose patch could
+                    # tell that what is on disk already carries the change, it is
+                    # the stock form worked out from the recording - otherwise
+                    # the "way back" would put the modification back.
+                    _keep_original(
+                        target, stock_files.get(target, dest), store, manifest, taken_names
+                    )
                 else:
                     manifest[target] = {"backup": None}
                 _save_manifest(backups_dir, manifest)
@@ -545,7 +836,10 @@ def restore_targets(
     manifest = _load_manifest(backups_dir)
     store = _store_dir(backups_dir)
     changed = False
-    for target in sorted({_normalise(t) for t in targets}):
+    stock = None
+    # The executable first: which other files are right depends on it.
+    ordered = sorted({_normalise(t) for t in targets}, key=lambda t: (not _is_game_exe(t), t))
+    for target in ordered:
         entry = manifest.get(target)
         if entry is None:
             continue
@@ -556,6 +850,49 @@ def restore_targets(
             continue
         backup_name = entry.get("backup")
         try:
+            if backup_name and _is_game_exe(target) and _from_an_older_build(store / backup_name, dest):
+                # The game was updated since this copy was kept. Putting it back
+                # would install the old build's executable over the new game, so
+                # this build's executable is taken back to stock instead.
+                current = dest.read_bytes()
+                cleaned = stock_executable(current)
+                if cleaned != current:
+                    staged = store / ROLLBACK_DIRNAME / "stock.exe"
+                    staged.parent.mkdir(parents=True, exist_ok=True)
+                    staged.write_bytes(cleaned)
+                    _verified_copy(staged, dest)
+                    staged.unlink(missing_ok=True)
+                (store / backup_name).unlink(missing_ok=True)
+                report.restored.append(target)
+                manifest.pop(target, None)
+                changed = True
+                if log:
+                    log.info(
+                        f"{target}: the kept copy was from an older game build, so this "
+                        "build's executable was put back to stock instead"
+                    )
+                continue
+            if backup_name and not _is_game_exe(target):
+                if stock is None:
+                    stock = stock_checksums(game_root)
+                want = stock.get(Path(target).name.lower())
+                if want is not None and _sha1(store / backup_name) != want:
+                    # Also from an older build: never put back.
+                    (store / backup_name).unlink(missing_ok=True)
+                    manifest.pop(target, None)
+                    changed = True
+                    if dest.is_file() and _sha1(dest) == want:
+                        report.restored.append(target)
+                    else:
+                        warning = (
+                            f"{target}: the kept copy was from an older game build and "
+                            "was not put back. Use Steam's Verify integrity of game files "
+                            "to get this build's file."
+                        )
+                        report.warnings.append(warning)
+                        if log:
+                            log.warn(warning)
+                    continue
             if backup_name:
                 _verified_copy(store / backup_name, dest)
                 # The game file is now a verified copy of the backup, so the

@@ -1,0 +1,34 @@
+{
+  "id": "storage-limit",
+  "name": "Storage Limit",
+  "description": "The Coin Locker expands to {{slots:comma}} instead of 2,000.",
+  "version": "2.0.0",
+  "author": "KSFA",
+  "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "slots",
+      "label": "Coin Locker slots",
+      "type": "integer",
+      "default": 10000,
+      "min": 2000,
+      "max": 99999,
+      "step": 1000,
+      "unit": "slots",
+      "help": "Stock is 2,000. It cannot go lower, so nothing already stored is stranded."
+    }
+  ],
+  "patches": [
+    {
+      "type": "update_set",
+      "description": "Coin Locker expands to {{slots:comma}}",
+      "table": "master_const_int",
+      "set": {
+        "value": "{{slots}}"
+      },
+      "where": "id = 'COINLOCKER_EXPAND_LIMIT_COUNT'"
+    }
+  ]
+}

@@ -59,6 +59,15 @@ class AppPaths:
     def state_file(self) -> Path:
         return self.root / "state.json"
 
+    @property
+    def vanilla_dir(self) -> Path:
+        """Clean databases the user has dropped in, beside the shipped ones.
+
+        See vanilla_library: a frozen build also carries its own copies inside
+        the bundle, and both places are searched.
+        """
+        return self.root / "LiD Vanilla DB"
+
     def ensure(self) -> "AppPaths":
         for directory in (self.mods_dir, self.snapshots_dir, self.logs_dir, self.backups_dir):
             directory.mkdir(parents=True, exist_ok=True)

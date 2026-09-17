@@ -1,0 +1,35 @@
+{
+  "id": "revive-cost",
+  "name": "Revive Cost",
+  "description": "Every grade's revive costs {{price:comma}} KC, including the default revive. The sign held up in-game is a texture, so it still shows the old price - you pay {{price:comma}} KC either way.",
+  "version": "2.0.0",
+  "author": "KSFA",
+  "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "price",
+      "label": "Price",
+      "type": "integer",
+      "default": 1,
+      "min": 1,
+      "max": 1000000,
+      "step": 1,
+      "unit": "KC",
+      "help": "Stock prices run from 1,000 to 50,000 KC depending on grade; this sets them all the same."
+    }
+  ],
+  "patches": [
+    {
+      "type": "update_set",
+      "description": "all 8 revive prices -> {{price:comma}} KC",
+      "table": "master_shop_product_price",
+      "set": {
+        "price": "{{price}}"
+      },
+      "where": "id LIKE 'PRD_CONTINUE%'",
+      "expected_rows": 8
+    }
+  ]
+}

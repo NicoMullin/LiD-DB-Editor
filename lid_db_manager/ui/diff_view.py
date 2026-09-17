@@ -4,24 +4,41 @@ from __future__ import annotations
 
 import html
 
-from PySide6.QtWidgets import QLabel, QTabWidget, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import (
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QTabWidget,
+    QTextBrowser,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .. import explain
 from ..manager import Manager
 from ..mod import Mod
+from .setting_editor import SettingEditor
 from .theme import colors
 
 MAX_TEXT_CHARS = 400
 
 
 class DiffView(QWidget):
-    """Details / Diff / Readme for one mod."""
+    """Details / Configuration / Diff / Readme for one mod."""
+
+    # mod id, setting id, value - handed on from a timer, see _on_setting_committed
+    settingChanged = Signal(str, str, object)
 
     def __init__(self, manager: Manager, dark: bool = True, parent=None):
         super().__init__(parent)
         self.manager = manager
         self.dark = dark
         self.mod_id = ""
+        # The value boxes for the mod on show, keyed by setting id.
+        self._editors: dict[str, SettingEditor] = {}
+        self._config_mod_id = ""
+        self._pending_settings: list[tuple[str, str, object]] = []
 
         self.title = QLabel("Select a mod")
         self.title.setWordWrap(True)
@@ -37,7 +54,12 @@ class DiffView(QWidget):
         self.readme = QTextBrowser()
         for browser in (self.details, self.plain, self.diff, self.readme):
             browser.setOpenExternalLinks(True)
+        # A panel rather than rows under the mod in the list, because a mod
+        # can have several values, and a list row is no place for a form.
+        self.configuration = QScrollArea()
+        self.configuration.setWidgetResizable(True)
         self.tabs.addTab(self.details, "Details")
+        self.tabs.addTab(self.configuration, "Configuration")
         self.tabs.addTab(self.plain, "In plain English")
         self.tabs.addTab(self.diff, "Diff preview")
         self.tabs.addTab(self.readme, "Readme")
@@ -53,13 +75,15 @@ class DiffView(QWidget):
 
     def show_mod(self, mod_id: str) -> None:
         self.mod_id = mod_id
-        mod = self.manager.scan.get(mod_id)
+        mod = self.manager.configured_mod(mod_id)
         if mod is None:
             self.title.setText("Select a mod")
             for browser in (self.details, self.plain, self.diff, self.readme):
                 browser.setHtml("")
+            self._build_configuration(None)
             return
         self.title.setText(mod.name)
+        self._build_configuration(mod)
         self.details.setHtml(self._details_html(mod))
         self.readme.setHtml(self._readme_html(mod))
         self.diff.setHtml("<p><i>Loading preview...</i></p>")
@@ -72,6 +96,118 @@ class DiffView(QWidget):
     def refresh(self) -> None:
         if self.mod_id:
             self.show_mod(self.mod_id)
+
+    # -- configuration -----------------------------------------------------
+
+    def _editing(self) -> bool:
+        return any(editor.spin.hasFocus() for editor in self._editors.values())
+
+    def _build_configuration(self, mod: Mod | None) -> None:
+        """A box for every value the mod on show lets the player choose."""
+        mod_id = mod.id if mod is not None else ""
+        if mod_id and mod_id == self._config_mod_id and self._editing():
+            # Someone is typing in one of these boxes. Rebuilding would destroy
+            # it under their cursor, and the window asks for a rebuild after
+            # every toggle - so leave it until they are done.
+            return
+        # Silence the old boxes: one losing focus as it is destroyed reports
+        # "editing finished", and that must not count as a choice.
+        for editor in self._editors.values():
+            editor.blockSignals(True)
+            editor.spin.blockSignals(True)
+        self._editors = {}
+        self._config_mod_id = mod_id
+
+        dim = colors(self.dark).get("dim", "")
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(6)
+
+        def note(text: str) -> None:
+            label = QLabel(text)
+            label.setWordWrap(True)
+            if dim:
+                label.setStyleSheet(f"color: {dim};")
+            layout.addWidget(label)
+
+        if mod is None:
+            note("Select a mod to see what you can change about it.")
+        elif not mod.settings:
+            note("This mod has nothing to configure - it has no values to choose.")
+        else:
+            note(
+                "Changes take effect when you click <b>Save Mod List</b>. Switching the "
+                "mod off still puts the stock values back, whatever these are set to."
+            )
+            for setting in mod.settings:
+                editor = SettingEditor(
+                    setting, mod.values.get(setting.id, setting.default), dim
+                )
+                editor.committed.connect(
+                    lambda value, m=mod.id, s=setting.id: self._on_setting_committed(m, s, value)
+                )
+                layout.addWidget(editor)
+                self._editors[setting.id] = editor
+            if len(mod.settings) > 1:
+                reset_all = QPushButton("Put all back to defaults")
+                reset_all.clicked.connect(self._reset_all)
+                layout.addWidget(reset_all, 0, Qt.AlignmentFlag.AlignLeft)
+        layout.addStretch(1)
+
+        previous = self.configuration.takeWidget()
+        self.configuration.setWidget(body)
+        if previous is not None:
+            previous.deleteLater()
+
+        # Only mods with something to choose get the tab at all. Tabs are found
+        # by widget everywhere, never by position, so the others shifting along
+        # when it is hidden changes nothing but where they are drawn.
+        configurable = mod is not None and bool(mod.settings)
+        if not configurable and self.tabs.currentWidget() is self.configuration:
+            self.tabs.setCurrentWidget(self.details)
+        self.tabs.setTabVisible(self.tabs.indexOf(self.configuration), configurable)
+
+    def _reset_all(self) -> None:
+        for editor in list(self._editors.values()):
+            editor.spin.setValue(editor.setting.default)
+            editor._commit()
+
+    def _on_setting_committed(self, mod_id: str, setting_id: str, value) -> None:
+        # Deferred, like the list's toggles: whoever handles this rebuilds the
+        # panel, which would destroy the box that is still emitting.
+        self._pending_settings.append((mod_id, setting_id, value))
+        QTimer.singleShot(0, self._flush_settings)
+
+    def _flush_settings(self) -> None:
+        pending, self._pending_settings = self._pending_settings, []
+        for mod_id, setting_id, value in pending:
+            self.settingChanged.emit(mod_id, setting_id, value)
+
+    def pending_setting_edits(self) -> list[tuple[str, str, object]]:
+        """Values typed into a box but not yet handed on - taken as they stand.
+
+        Asked before a save, so a number someone typed and then went straight to
+        Save Mod List with is the number that gets applied.
+        """
+        found = []
+        for setting_id, editor in self._editors.items():
+            if editor.pending():
+                editor.mark_committed()
+                found.append((self._config_mod_id, setting_id, editor.value()))
+        return found
+
+    def show_configuration(self) -> bool:
+        """Bring the Configuration tab forward, cursor in its first box."""
+        self.tabs.setCurrentWidget(self.configuration)
+        for editor in self._editors.values():
+            editor.spin.setFocus()
+            editor.spin.selectAll()
+            return True
+        return False
+
+    def editor_for(self, setting_id: str) -> SettingEditor | None:
+        return self._editors.get(setting_id)
 
     # -- rendering ---------------------------------------------------------
 
@@ -237,7 +373,7 @@ class DiffView(QWidget):
         widget = self.tabs.widget(index)
         if widget not in (self.diff, self.plain):
             return
-        mod = self.manager.scan.get(self.mod_id)
+        mod = self.manager.configured_mod(self.mod_id)
         if mod is None:
             return
         # Both of these read the database, so show something before they run.

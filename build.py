@@ -81,6 +81,15 @@ def build(one_file: bool, icon: Path | None, keep_console: bool) -> Path:
     if recipes.is_dir():
         command += ["--add-data", f"{recipes}{os.pathsep}lid_db_manager/recipes"]
         print(f"Bundling {len(list(recipes.glob('*.sql')))} content-pack recipe(s)")
+    # The clean databases everything is measured against. Without one bundled,
+    # a first run has nothing to compare a player's masters.db with, so it
+    # cannot tell which mods are already in it - see vanilla_library.py.
+    vanilla = ROOT / "LiD Vanilla DB"
+    if vanilla.is_dir():
+        shipped = [p.name for p in sorted(vanilla.iterdir()) if (p / "masters.db").is_file()]
+        if shipped:
+            command += ["--add-data", f"{vanilla}{os.pathsep}LiD Vanilla DB"]
+            print(f"Bundling {len(shipped)} clean database(s): {', '.join(shipped)}")
     if icon is not None:
         command += ["--icon", str(icon)]
     command.append(str(ROOT / "run.py"))

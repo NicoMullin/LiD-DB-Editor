@@ -1,0 +1,30 @@
+{
+  "id": "weapon-durability",
+  "name": "Weapon Durability",
+  "description": "Every weapon lasts {{multiplier}} times as long before it breaks.",
+  "version": "2.0.0",
+  "author": "KSFA",
+  "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "multiplier",
+      "label": "Durability multiplier",
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 100,
+      "unit": "x",
+      "help": "Whole numbers only - these are whole-number columns in the game. 1 leaves it at stock."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "description": "dur x{{multiplier}} on 385 row(s)",
+      "sql": "UPDATE master_part SET dur = dur * {{multiplier}} WHERE type = 'PTTP_ARM';"
+    }
+  ]
+}

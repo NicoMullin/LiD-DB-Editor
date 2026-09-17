@@ -61,11 +61,16 @@ class ModListWidget(QTreeWidget):
         self._pending_toggles: dict[str, bool] = {}
         self._pending_parts: dict[tuple[str, str], bool] = {}
         self._flush_scheduled = False
+        # Which mods the user has opened. A mod's detail lines are worth having
+        # but not worth showing twenty times over, so the list starts folded up
+        # and remembers what was opened across the rebuilds a toggle triggers.
+        self._expanded: set[str] = set()
 
         # Column 0 carries the checkbox and the load-order number together.
         self.setColumnCount(4)
         self.setHeaderLabels(["#", "Mod", "Status", "Affects"])
-        self.setRootIsDecorated(False)
+        # The arrow is the control for folding a mod open, so it has to be drawn.
+        self.setRootIsDecorated(True)
         self.setAlternatingRowColors(True)
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setUniformRowHeights(False)
@@ -80,12 +85,43 @@ class ModListWidget(QTreeWidget):
 
         self.itemChanged.connect(self._on_item_changed)
         self.itemSelectionChanged.connect(self._on_selection_changed)
+        self.itemExpanded.connect(self._on_expanded)
+        self.itemCollapsed.connect(self._on_collapsed)
+
+    # -- folding -----------------------------------------------------------
+
+    def _on_expanded(self, item: QTreeWidgetItem) -> None:
+        if self._loading or item.parent() is not None:
+            return
+        mod_id = item.data(0, MOD_ID_ROLE)
+        if mod_id:
+            self._expanded.add(mod_id)
+
+    def _on_collapsed(self, item: QTreeWidgetItem) -> None:
+        if self._loading or item.parent() is not None:
+            return
+        mod_id = item.data(0, MOD_ID_ROLE)
+        if mod_id:
+            self._expanded.discard(mod_id)
+
+    def set_all_expanded(self, expanded: bool) -> None:
+        """Open or fold every mod at once, and remember which it was."""
+        for index in range(self.topLevelItemCount()):
+            item = self.topLevelItem(index)
+            if item.data(0, MOD_ID_ROLE):
+                item.setExpanded(expanded)
 
     # -- population --------------------------------------------------------
 
     def refresh(self) -> None:
-        """Rebuild from the manager, keeping the current selection if we can."""
+        """Rebuild from the manager, keeping selection, folding and scroll.
+
+        Every toggle rebuilds this list, so anything not carried across here is
+        lost the moment someone ticks a box. Losing the scroll position threw
+        the user back to the top of the list on every single tick.
+        """
         selected = self.selected_mod_ids()
+        scroll = self.verticalScrollBar().value()
         self._loading = True
         self.clear()
 
@@ -113,6 +149,12 @@ class ModListWidget(QTreeWidget):
             # opted out of by a mod that would rather not mention it.
             marked = _touches_executable(mod.asset_targets())
             label = _label(mod.id, mod.name)
+            if len(mod.settings) == 1:
+                # A mod that comes down to one number shows it, so what it is
+                # set to reads without opening anything. A mod with several
+                # would only crowd its name; those live in the Configuration tab.
+                setting = mod.settings[0]
+                label += "   " + setting.display(mod.values.get(setting.id, setting.default))
             item.setText(1, label + ("   [changes the game .exe]" if marked else ""))
             item.setText(2, f"{STATUS_GLYPH[status]} {STATUS_TEXT[status]}")
             item.setText(3, _affects(sorted(mod.tables()), mod.asset_targets()))
@@ -148,7 +190,12 @@ class ModListWidget(QTreeWidget):
                 detail.setForeground(0, QBrush(status_color(self.dark, "pending")))
 
             self._add_parts(item, mod)
-            item.setExpanded(True)
+            # Folded unless the user opened it - or unless there is something
+            # wrong with it, because a warning nobody can see is no warning.
+            item.setExpanded(
+                mod.id in self._expanded
+                or bool(self._problem_messages(mod.id, conflicts, validation))
+            )
 
         for failure in self.manager.scan.failures:
             item = QTreeWidgetItem(self)
@@ -181,6 +228,8 @@ class ModListWidget(QTreeWidget):
         self._loading = False
         if selected:
             self.select_mods(selected)
+        # After the rows exist, or the bar has nothing to scroll through yet.
+        self.verticalScrollBar().setValue(scroll)
 
     def _add_parts(self, parent: QTreeWidgetItem, mod) -> None:
         """A switch per part, for a mod built out of several.
@@ -230,6 +279,11 @@ class ModListWidget(QTreeWidget):
         applied = self.manager.state.applied.get(mod.id)
         if applied and status == "applied":
             lines.append(f"Applied {applied.applied_at} - {applied.rows_changed} row(s)")
+        if applied and applied.version and mod.version and applied.version != mod.version:
+            lines.append(
+                f"Update available: version {applied.version} is in the database, "
+                f"{mod.version} is installed - Save Mod List to apply it"
+            )
         return "\n".join(lines)
 
     # -- selection ---------------------------------------------------------

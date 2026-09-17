@@ -24,6 +24,7 @@ from typing import Any
 from . import exe_checksums, vetted
 from .asset_runner import forbidden_target_reason
 from .errors import ApplyError, ModLoadError, ValidationError
+from .settings import render_text
 from .sqlutil import (
     column_names,
     compile_only,
@@ -120,6 +121,10 @@ class Patch:
         # patches; the positional fallback does not, so anything meant to be
         # toggled - an imported rework's tables, say - is given one.
         self.key: str = str(data.get("id") or "").strip() or f"#{index + 1}"
+        # The player's chosen values, for a mod with settings. The JSON this
+        # patch was built from is already filled in; this is for text read from
+        # disk later, which is where a raw_sql_file's placeholders live.
+        self.setting_values: dict = {}
 
     @property
     def part_label(self) -> str:
@@ -182,6 +187,19 @@ class Patch:
         isinstance check to notice an asset patch.
         """
         return set()
+
+    def to_pristine(self, raw: bytes) -> bytes:
+        """This file as it was before any mod touched it, as far as can be told.
+
+        Only meaningful for a patch that *transforms* a game file rather than
+        replacing it: the copy kept as the way back has to be the stock file,
+        and the file on disk may already carry the change (installed by hand, or
+        by a copy of this manager whose records were lost). A patch that can
+        undo its own change to a file says so by overriding this.
+
+        The default is honest about knowing nothing: the bytes as found.
+        """
+        return raw
 
     def preview(self, con: sqlite3.Connection) -> DiffPreview:
         raise NotImplementedError
@@ -817,7 +835,10 @@ class RawSqlFilePatch(RawSqlPatch):
         # working on a half-broken mod folder.
         if not self.path.is_file():
             return ""
-        return self.path.read_text(encoding="utf-8-sig")
+        text = self.path.read_text(encoding="utf-8-sig")
+        if self.setting_values:
+            text = render_text(text, self.setting_values)
+        return text
 
     def validate(self, con: sqlite3.Connection, mod_id: str) -> list[str]:
         if not self.path.is_file():
@@ -1095,6 +1116,20 @@ class ExeChecksumPatch(Patch):
         """The executable's bytes with this one hash changed."""
         return exe_checksums.apply_entry(
             original, self.recipe.package,
+            self.recipe.checksum_before, self.recipe.checksum_after,
+        )
+
+    def to_pristine(self, raw: bytes) -> bytes:
+        """The executable as it was before this change, whoever made it.
+
+        Someone may have installed this mod by hand, or with a copy of this
+        manager whose records were lost, so the file found on disk can already
+        carry the change. The stock hash is part of the recording, which is what
+        makes putting it back possible without ever having seen the file before
+        - and without it, the copy kept as the way back would itself be modified.
+        """
+        return exe_checksums.restore_entry(
+            raw, self.recipe.package,
             self.recipe.checksum_before, self.recipe.checksum_after,
         )
 

@@ -1,0 +1,23 @@
+{
+  "id": "LET IT DIE Crossover Content v3.79",
+  "name": "LET IT DIE Crossover Content v3.79",
+  "description": "50 decal-pool entries and 32 blueprint quests, with the 287 artwork packages they need. Database changes recorded from the pack's own v3.79 installer; artwork from the pack itself.",
+  "version": "3.79",
+  "author": "S3er0i9ng",
+  "game_version": "5.0.4.0.0 - 1.88",
+  "requires": [],
+  "conflicts_with": [],
+  "patches": [
+    {
+      "type": "raw_sql_file",
+      "path": "LET IT DIE Crossover Content v3.79.sql",
+      "description": "50 decal-pool entries and 32 blueprint quests (v3.79)"
+    },
+    {
+      "type": "asset_file",
+      "source": "assets",
+      "target": "BrgGame/CookedPCConsole",
+      "description": "287 artwork package(s)"
+    }
+  ]
+}

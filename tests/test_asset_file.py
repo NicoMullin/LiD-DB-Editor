@@ -46,6 +46,86 @@ def write_asset_mod(mods_dir: Path, mod_id: str, files: dict[str, bytes], *, tar
     return folder
 
 
+class _UndoablePatch:
+    """Stands in for a patch that transforms a game file and can undo it.
+
+    The executable checksum patch is the real one; this keeps the test about
+    the runner rather than about PE files.
+    """
+
+    STOCK = b"STOCK-FILE"
+    MODDED = b"MODDED-FILE"
+
+    def __init__(self, target: str):
+        self._target = target
+
+    def asset_targets(self) -> set[str]:
+        return {self._target}
+
+    def transform(self, raw: bytes) -> bytes:
+        if raw == self.MODDED:
+            return raw  # already carries the change
+        if raw != self.STOCK:
+            raise ValueError("this is not a file I recognise")
+        return self.MODDED
+
+    def to_pristine(self, raw: bytes) -> bytes:
+        return self.STOCK if raw == self.MODDED else raw
+
+
+class _StubMod:
+    def __init__(self, mod_id: str, patches: list):
+        self.id = mod_id
+        self.patches = patches
+
+
+class AFileSomebodyAlreadyChanged(unittest.TestCase):
+    """The mod was installed by hand before the manager ever saw the game.
+
+    The file on disk already carries the change, so there is no stock copy to
+    take. Keeping the modified file as the way back would mean unticking the
+    mod put the modification back - so the patch is asked for the stock form
+    and that is what gets kept.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.game = build_game_tree(self.root)
+        self.backups = self.root / "backups"
+        self.backups.mkdir()
+        self.target = f"{COOKED}/Thing.upk"
+        self.dest = self.game / "BrgGame" / "CookedPCConsole" / "Thing.upk"
+        self.mod = _StubMod("hand-installed", [_UndoablePatch(self.target)])
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_applying_over_an_already_changed_file_succeeds(self) -> None:
+        self.dest.write_bytes(_UndoablePatch.MODDED)
+        report = asset_runner.apply_asset_patches([self.mod], self.game, self.backups)
+        self.assertTrue(report.ok, report.error)
+        self.assertEqual(self.dest.read_bytes(), _UndoablePatch.MODDED)
+
+    def test_unticking_it_afterwards_gives_back_the_stock_file(self) -> None:
+        self.dest.write_bytes(_UndoablePatch.MODDED)
+        asset_runner.apply_asset_patches([self.mod], self.game, self.backups)
+        asset_runner.restore_targets({self.target}, self.game, self.backups)
+        self.assertEqual(
+            self.dest.read_bytes(),
+            _UndoablePatch.STOCK,
+            "the way back was the modified file, so the mod could never be undone",
+        )
+
+    def test_a_stock_file_still_backs_up_as_itself(self) -> None:
+        self.dest.write_bytes(_UndoablePatch.STOCK)
+        report = asset_runner.apply_asset_patches([self.mod], self.game, self.backups)
+        self.assertTrue(report.ok, report.error)
+        self.assertEqual(self.dest.read_bytes(), _UndoablePatch.MODDED)
+        asset_runner.restore_targets({self.target}, self.game, self.backups)
+        self.assertEqual(self.dest.read_bytes(), _UndoablePatch.STOCK)
+
+
 class GameRootTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()

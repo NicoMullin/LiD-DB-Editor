@@ -299,6 +299,62 @@ class ManagerTests(unittest.TestCase):
         )
 
 
+class DecalDrawPriceTests(unittest.TestCase):
+    """The decal mods change what a draw costs, and nothing else.
+
+    Version 1.0.0 of these lowered 34 individual decal prices and never touched
+    the draw. The draw's price sits in a table where another row - a revive -
+    costs exactly the same 50,000, so the mods have to pick the row by name.
+    """
+
+    PRICES = (25000, 10000, 5000, 1)
+
+    def setUp(self) -> None:
+        import sqlite3
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.db = build_db(Path(self._tmp.name) / "masters.db")
+        con = sqlite3.connect(str(self.db))
+        con.executemany(
+            "INSERT INTO master_shop_product_price (id, price, medal) VALUES (?, ?, 0)",
+            [("PRD_SKILL_GACHA", 50000), ("PRD_CONTINUE_6", 50000)],
+        )
+        con.commit()
+        con.close()
+        self.mods = scan_mods(PROJECT_ROOT / "mods")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _at(self, price):
+        return self.mods.get("decal-draw-price").with_settings({"price": price})
+
+    def test_any_chosen_price_changes_the_draw_price_and_only_that(self) -> None:
+        from lid_db_manager import dbdiff
+
+        for price in self.PRICES:
+            with self.subTest(price=price):
+                delta = dbdiff.delta_for_mod(self.db, self._at(price))
+                changed = {
+                    (t.table, u.key): u.changes for t in delta.tables for u in t.updates
+                }
+                self.assertEqual(
+                    changed,
+                    {("master_shop_product_price", ("PRD_SKILL_GACHA",)): {"price": price}},
+                )
+                self.assertEqual(delta.insert_count + delta.delete_count, 0)
+
+    def test_the_revive_price_beside_it_is_left_alone(self) -> None:
+        from lid_db_manager import dbdiff
+
+        delta = dbdiff.delta_for_mod(self.db, self._at(5000))
+        keys = {u.key for t in delta.tables for u in t.updates}
+        self.assertNotIn(("PRD_CONTINUE_6",), keys)
+
+    def test_no_individual_decal_price_moves(self) -> None:
+        self.assertNotIn("master_skill", self._at(5000).tables())
+
+
 class ShippedModTests(unittest.TestCase):
     """Every mod in the repo's mods/ folder must at least parse and validate."""
 
@@ -310,49 +366,44 @@ class ShippedModTests(unittest.TestCase):
         self._tmp.cleanup()
 
     SHIPPED = {
-        "revive-cost-1kc",
-        "body-prices-1kc",
-        "nitro-boost-100000pct",
-        "weapon-durability-2x",
-        "weapon-durability-5x",
-        "armor-durability-2x",
-        "armor-durability-5x",
-        "weapon-ammo-2x",
-        "weapon-magazine-2x",
-        "bank-limit-10x",
-        "reward-box-250",
-        "storage-10000",
-        "decal-cost-25k",
-        "decal-cost-10k",
-        "decal-cost-5k",
-        "tdm-rewards-2x",
-        "tdm-rewards-5x",
-        "tdm-rewards-10x",
-        "LET IT DIE Crossover Content v3.75",
-        "Colored PlayStation Buttons v1.2",
+        "revive-cost",
+        "fighter-tier-prices",
+        "nitro-boost-exp",
+        "weapon-durability",
+        "armor-durability",
+        "weapon-ammo",
+        "weapon-magazine",
+        "bank-limit",
+        "reward-box-limit",
+        "storage-limit",
+        "decal-draw-price",
+        "tdm-rewards",
+        "LET IT DIE Crossover Content v3.79",
+        "Colored PlayStation Buttons v1.4",
+        "Tower Static Radio",
     }
 
     # By S3er0i9ng, shipped with their permission. Named exactly as a drop of
     # the pack's own folder installs them, so a player who already dropped one
     # in gets the same folder rather than a second copy.
     BUNDLED = {
-        "LET IT DIE Crossover Content v3.75",
-        "Colored PlayStation Buttons v1.2",
+        "LET IT DIE Crossover Content v3.79",
+        "Colored PlayStation Buttons v1.4",
+        "Tower Static Radio",
     }
-    VANILLA_DB = PROJECT_ROOT / "LiD Vanilla DB" / "5.0.3.0" / "masters.db"
+    VANILLA_DB = PROJECT_ROOT / "LiD Vanilla DB" / "5.0.4.0" / "masters.db"
 
     # Pairs that are the same change at two strengths. They are meant to
     # collide - you pick one - and each declares the other in conflicts_with,
     # so the manager warns instead of silently letting one win.
-    ALTERNATIVES = {
-        frozenset({"weapon-durability-2x", "weapon-durability-5x"}),
-        frozenset({"armor-durability-2x", "armor-durability-5x"}),
-        frozenset({"decal-cost-25k", "decal-cost-10k"}),
-        frozenset({"decal-cost-25k", "decal-cost-5k"}),
-        frozenset({"decal-cost-10k", "decal-cost-5k"}),
-        frozenset({"tdm-rewards-2x", "tdm-rewards-5x"}),
-        frozenset({"tdm-rewards-2x", "tdm-rewards-10x"}),
-        frozenset({"tdm-rewards-5x", "tdm-rewards-10x"}),
+    # There used to be strength variants here - x2 and x5 of the same thing,
+    # meant to collide. They are one mod each now, with the strength a setting,
+    # so nothing shipped is supposed to conflict with anything.
+    ALTERNATIVES: set = set()
+    ADJUSTABLE = {
+        "decal-draw-price", "weapon-durability", "armor-durability", "tdm-rewards",
+        "bank-limit", "weapon-ammo", "weapon-magazine", "storage-limit",
+        "reward-box-limit", "revive-cost", "fighter-tier-prices", "nitro-boost-exp",
     }
 
     # Mods that may sit in a working copy but are not part of the repo: the
@@ -440,27 +491,32 @@ class ShippedModTests(unittest.TestCase):
         self.assertEqual(unexpected, [])
         self.assertEqual([r.message() for r in report.missing_requirements], [])
 
-    def test_each_strength_pair_is_declared_as_a_conflict(self) -> None:
-        """Not just detected by row overlap - said out loud by the mod itself,
-        so the warning names the reason rather than a shared table."""
+    def test_each_number_mod_is_adjustable(self) -> None:
+        """One mod per thing, with the number a setting - not x2, x5 and x10."""
         mods = {m.id: m for m in self._real_mods()}
-        for pair in self.ALTERNATIVES:
-            weak, strong = sorted(pair)
-            with self.subTest(pair=f"{weak}/{strong}"):
-                self.assertIn(strong, mods[weak].conflicts_with)
-                self.assertIn(weak, mods[strong].conflicts_with)
+        for mod_id in sorted(self.ADJUSTABLE):
+            with self.subTest(mod=mod_id):
+                self.assertTrue(mods[mod_id].settings, "it has no value to choose")
+                self.assertEqual(mods[mod_id].load_warnings, [])
+
+    def test_every_default_is_inside_its_own_limits(self) -> None:
+        for mod in self._real_mods():
+            for setting in mod.settings:
+                with self.subTest(mod=mod.id, setting=setting.id):
+                    self.assertEqual(setting.coerce(setting.default), setting.default)
 
     def test_the_multiplier_mods_cannot_compound(self) -> None:
         """They multiply, so a second save would square them unless they are
         measured against vanilla each time."""
         from lid_db_manager.mod import APPLY_DIFF
 
-        multipliers = {m for m in self.SHIPPED
-                       if m.endswith(("-2x", "-5x", "-10x"))}
-        mods = {m.id: m for m in self._real_mods()}
-        for mod_id in sorted(multipliers):
-            with self.subTest(mod=mod_id):
-                self.assertEqual(mods[mod_id].apply_mode, APPLY_DIFF)
+        multipliers = [
+            m for m in self._real_mods() if any(s.unit.lower() == "x" for s in m.settings)
+        ]
+        self.assertEqual(len(multipliers), 6)
+        for mod in multipliers:
+            with self.subTest(mod=mod.id):
+                self.assertEqual(mod.apply_mode, APPLY_DIFF)
 
     def test_the_diagnostic_mod_really_does_conflict(self) -> None:
         """The other half: a genuine row collision must still be reported.

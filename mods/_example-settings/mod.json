@@ -1,0 +1,29 @@
+{
+  "id": "_example-settings",
+  "name": "Example - a mod with a value to choose",
+  "description": "Every weapon lasts {{multiplier}} times as long before it breaks.",
+  "version": "1.0.0",
+  "author": "you",
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "multiplier",
+      "label": "Durability multiplier",
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 100,
+      "unit": "x",
+      "help": "Shown when the player hovers over the box."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "description": "dur x{{multiplier}}",
+      "sql": "UPDATE master_part SET dur = dur * {{multiplier}} WHERE type = 'PTTP_ARM';"
+    }
+  ]
+}

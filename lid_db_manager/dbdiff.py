@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import db_record
 from .errors import ModManagerError
 from .sqlutil import if_not_exists, quote_ident
 
@@ -193,12 +194,14 @@ def _open(path: Path) -> sqlite3.Connection:
 
 
 def _tables(con: sqlite3.Connection) -> list[str]:
+    # The manager's own note is never a difference from stock - see db_record.
     return [
         r[0]
         for r in con.execute(
             "SELECT name FROM sqlite_master WHERE type='table' "
             "AND name NOT LIKE 'sqlite_%' ORDER BY name"
         )
+        if not db_record.is_ours(r[0])
     ]
 
 

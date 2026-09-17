@@ -16,6 +16,7 @@ This module is the read-only half of that plus one narrow write:
     read_entries()        every name in it, with the hash and where it sits
     code_fingerprint()    SHA-256 of the .text section - the executable's code
     apply_entry()         replace exactly one 20-byte hash, and prove it
+    restore_entry()       put the stock hash back, the same way
 
 ``apply_entry`` is the only function here that produces changed bytes, and it
 is deliberately incapable of changing anything else: it writes 20 bytes at an
@@ -215,57 +216,86 @@ def read_entries(raw: bytes) -> dict[str, Entry]:
     return out
 
 
-def apply_entry(raw: bytes, package: str, before: str, after: str) -> bytes:
-    """The executable with one file's expected hash changed, and nothing else.
-
-    ``before`` is what that entry must currently hold - a wrong value means
-    this is not the build the change was recorded against, or something already
-    changed it, and either way nothing is written. Every check here is a
-    refusal, never a repair.
-    """
+def _require_pair(before: str, after: str) -> tuple[str, str]:
     before, after = before.lower(), after.lower()
     for label, value in (("before", before), ("after", after)):
         if len(value) != HASH_BYTES * 2 or not all(c in "0123456789abcdef" for c in value):
             raise ExeFormatError(f"the {label} hash is not a SHA-1")
     if before == after:
         raise ExeFormatError("the before and after hashes are the same")
+    return before, after
 
+
+def _addressable_entry(raw: bytes, package: str) -> Entry:
     entry = read_entries(raw).get(package.lower())
     if entry is None:
         raise ExeFormatError(f"this executable carries no hash for {package}")
     if entry.at < 0:
         raise ExeFormatError(f"{package} appears more than once in the hash table")
-    if entry.sha1 == after:
-        # Already carries the change. Almost always this mod, applied before and
-        # still in place while the manager's record of it went missing - moving
-        # or reinstalling the manager does that. Adopting it silently would be
-        # worse than stopping: the saved "original" would be the modified file,
-        # so switching the mod off later would restore the modification.
-        raise ExeFormatError(
-            f"the game executable already expects the modified {package}, so this "
-            "change is in place - but the manager has no saved copy of the original "
-            "to put back. Something applied it outside this manager, or its backups "
-            "were lost. Restore the game files (Steam: Properties > Installed Files "
-            "> Verify integrity) and enable the mod again, so the manager has a way "
-            "back."
-        )
-    if entry.sha1 != before:
-        raise ExeFormatError(
-            f"the hash for {package} is {entry.sha1}, not the expected {before}. "
-            "This game build is not the one this change was recorded against."
-        )
+    return entry
 
+
+def _write_entry(raw: bytes, entry: Entry, package: str, value: str) -> bytes:
+    """Splice twenty bytes in, and prove that is all that happened.
+
+    These checks are not belt-and-braces: they are the reason this is allowed to
+    touch an executable at all.
+    """
     at = entry.at
-    changed = raw[:at] + bytes.fromhex(after) + raw[at + HASH_BYTES:]
-
-    # Prove the edit did what it said. These are not belt-and-braces: they are
-    # the reason this is allowed to touch an executable at all.
+    changed = raw[:at] + bytes.fromhex(value) + raw[at + HASH_BYTES:]
     if len(changed) != len(raw):
         raise ExeFormatError("the edit changed the file's length")
     if changed[:at] != raw[:at] or changed[at + HASH_BYTES:] != raw[at + HASH_BYTES:]:
         raise ExeFormatError("the edit changed bytes outside the hash")
     if code_fingerprint(changed) != code_fingerprint(raw):
         raise ExeFormatError("the edit changed the executable's code")
-    if read_entries(changed)[package.lower()].sha1 != after:
+    if read_entries(changed)[package.lower()].sha1 != value:
         raise ExeFormatError("the hash did not end up as asked")
     return changed
+
+
+def apply_entry(raw: bytes, package: str, before: str, after: str) -> bytes:
+    """The executable with one file's expected hash changed, and nothing else.
+
+    ``before`` is what that entry must currently hold - a wrong value means this
+    is not the build the change was recorded against, and nothing is written.
+
+    An entry that already holds ``after`` is left exactly as it is: the wanted
+    state is the state it is in. That happens whenever someone installed the mod
+    outside this manager, or kept the game folder and moved the manager. The way
+    back does not depend on having seen the file beforehand, because the stock
+    hash is part of the recording - see ``restore_entry``.
+    """
+    before, after = _require_pair(before, after)
+    entry = _addressable_entry(raw, package)
+    if entry.sha1 == after:
+        return raw
+    if entry.sha1 != before:
+        raise ExeFormatError(
+            f"the hash for {package} is {entry.sha1}, not the expected {before}. "
+            "This game build is not the one this change was recorded against."
+        )
+    return _write_entry(raw, entry, package, after)
+
+
+def restore_entry(raw: bytes, package: str, before: str, after: str) -> bytes:
+    """The executable with the *stock* hash put back for one package.
+
+    The recording carries the stock hash, so a copy of an executable someone
+    else already modified can be turned back into the stock one without ever
+    having seen it - which is what lets a copy kept as "the original" genuinely
+    be the original. Same twenty bytes, same proofs.
+
+    An executable already holding the stock hash comes back untouched.
+    """
+    before, after = _require_pair(before, after)
+    entry = _addressable_entry(raw, package)
+    if entry.sha1 == before:
+        return raw
+    if entry.sha1 != after:
+        raise ExeFormatError(
+            f"the hash for {package} is {entry.sha1}, which is neither the stock "
+            f"{before} nor the modified {after}. Something else changed this entry, "
+            "so what the stock value should be is no longer known here."
+        )
+    return _write_entry(raw, entry, package, before)

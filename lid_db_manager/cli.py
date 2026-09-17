@@ -4,12 +4,12 @@ The GUI is the main way in, but everything the GUI does is available here too -
 handy for testing a mod, scripting, or running without PySide6 installed.
 
     python run.py list
-    python run.py enable revive-cost-1kc body-prices-1kc
+    python run.py enable revive-cost fighter-tier-prices
     python run.py validate
     python run.py apply
-    python run.py revert revive-cost-1kc
+    python run.py revert revive-cost
     python run.py watch
-    python run.py mods/revive-cost-1kc     # apply one folder, ad hoc
+    python run.py mods/revive-cost     # apply one folder, ad hoc
 """
 
 from __future__ import annotations

@@ -1,0 +1,37 @@
+{
+  "id": "bank-limit",
+  "name": "Bank Limit",
+  "description": "Every Safe and Spirit Tank level holds {{multiplier}} times as much, all 99 levels.",
+  "version": "2.0.0",
+  "author": "KSFA",
+  "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "multiplier",
+      "label": "Capacity multiplier",
+      "type": "integer",
+      "default": 10,
+      "min": 1,
+      "max": 100,
+      "unit": "x",
+      "help": "Whole numbers only - these are whole-number columns in the game. 1 leaves it at stock."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "kill-coins",
+      "description": "Safe (Kill Coin bank) capacity x{{multiplier}}, all 99 levels",
+      "sql": "UPDATE master_safe_level SET \"limit\" = \"limit\" * {{multiplier}};"
+    },
+    {
+      "type": "raw_sql",
+      "id": "sp",
+      "description": "Spirit Tank (SP bank) capacity x{{multiplier}}, all 99 levels",
+      "sql": "UPDATE master_spirit_tank_level SET \"limit\" = \"limit\" * {{multiplier}};"
+    }
+  ]
+}

@@ -623,9 +623,11 @@ class ThePlainEnglishTab(unittest.TestCase):
         self.view.deleteLater()
         self._tmp.cleanup()
 
-    def test_the_tab_exists_and_is_second(self) -> None:
+    def test_the_tab_exists_after_configuration(self) -> None:
         titles = [self.view.tabs.tabText(i) for i in range(self.view.tabs.count())]
-        self.assertEqual(titles, ["Details", "In plain English", "Diff preview", "Readme"])
+        self.assertEqual(
+            titles, ["Details", "Configuration", "In plain English", "Diff preview", "Readme"]
+        )
 
     def test_it_explains_a_real_mod(self) -> None:
         self.view.show_mod("cheap-skills")

@@ -30,6 +30,9 @@ class AppliedRecord:
     # The keys of the patches that actually ran. Switching a part off later has
     # to undo what it wrote, and that means knowing what was in the mod then.
     parts: list[str] = field(default_factory=list)
+    # The values it was applied with, all of them, defaults included - what the
+    # database actually holds, whatever the player has chosen since.
+    values: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -43,6 +46,13 @@ class AppliedRecord:
             version=data.get("version", ""),
             name=data.get("name", ""),
             parts=list(data.get("parts", []) or []),
+            values={
+                str(key): value
+                for key, value in (data.get("values") or {}).items()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            }
+            if isinstance(data.get("values"), dict)
+            else {},
         )
 
 
@@ -57,6 +67,10 @@ class Settings:
     # program - game artwork belongs to its owners - so this points at a copy
     # the player already has on their own machine, and stays empty otherwise.
     icon_folder: str = ""
+    # Which clean database to measure against, by its build ("5.0.3.0.0 - 1.87")
+    # or by the folder it sits in. Empty means "whichever matches my database",
+    # which is what almost everyone wants - see vanilla_library.
+    vanilla_choice: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -71,6 +85,7 @@ class Settings:
             dark_mode=bool(data.get("dark_mode", defaults.dark_mode)),
             keep_backups=max(1, int(data.get("keep_backups", defaults.keep_backups) or 5)),
             icon_folder=str(data.get("icon_folder", defaults.icon_folder) or ""),
+            vanilla_choice=str(data.get("vanilla_choice", defaults.vanilla_choice) or ""),
         )
 
 
@@ -84,12 +99,19 @@ class State:
     # Explicit game folder (the one holding BrgGame), used for asset_file mods
     # when it cannot be derived from db_path - a loose masters.db, a test setup.
     game_root_override: str = ""
+    # Set once the database has been scanned for mods already in it, so the
+    # offer is made on a first run and never nags afterwards.
+    adoption_offered: bool = False
     enabled_mods: list[str] = field(default_factory=list)
     modpacks: dict[str, list[str]] = field(default_factory=dict)
     applied: dict[str, AppliedRecord] = field(default_factory=dict)
     # mod id -> the keys of that mod's patches the player has switched off.
     # Lets one imported rework stay a single mod whose parts toggle.
     disabled_patches: dict[str, list[str]] = field(default_factory=dict)
+    # mod id -> {setting id: the number the player chose}. Only choices that
+    # differ from the mod's default are kept, so a mod whose author later
+    # changes a default carries players who never touched it along.
+    mod_settings: dict[str, dict] = field(default_factory=dict)
     settings: Settings = field(default_factory=Settings)
 
     # -- persistence -----------------------------------------------------
@@ -118,6 +140,7 @@ class State:
         state.db_mtime_at_last_save = float(data.get("db_mtime_at_last_save", 0.0) or 0.0)
         state.last_saved_at = str(data.get("last_saved_at", "") or "")
         state.game_root_override = str(data.get("game_root_override", "") or "")
+        state.adoption_offered = bool(data.get("adoption_offered", False))
         state.enabled_mods = [str(m) for m in data.get("enabled_mods", []) or []]
         state.modpacks = {
             str(name): [str(m) for m in mods]
@@ -134,6 +157,15 @@ class State:
             for mod_id, keys in (data.get("disabled_patches") or {}).items()
             if isinstance(keys, list)
         }
+        state.mod_settings = {
+            str(mod_id): {
+                str(key): value
+                for key, value in chosen.items()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            }
+            for mod_id, chosen in (data.get("mod_settings") or {}).items()
+            if isinstance(chosen, dict)
+        }
         state.settings = Settings.from_dict(data.get("settings") or {})
         return state
 
@@ -145,10 +177,12 @@ class State:
             "db_mtime_at_last_save": self.db_mtime_at_last_save,
             "last_saved_at": self.last_saved_at,
             "game_root_override": self.game_root_override,
+            "adoption_offered": self.adoption_offered,
             "enabled_mods": self.enabled_mods,
             "modpacks": self.modpacks,
             "applied": {mod_id: record.to_dict() for mod_id, record in self.applied.items()},
             "disabled_patches": {k: v for k, v in self.disabled_patches.items() if v},
+            "mod_settings": {k: v for k, v in self.mod_settings.items() if v},
             "settings": self.settings.to_dict(),
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
