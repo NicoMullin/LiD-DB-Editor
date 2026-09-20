@@ -240,7 +240,7 @@ class VanillaLibraryTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def _add(self, label: str, version: str | None) -> Path:
+    def _add(self, label: str, version: str | None, steam: str | None = None) -> Path:
         folder = self.library / label
         folder.mkdir(parents=True, exist_ok=True)
         database = build_db(folder / "masters.db")
@@ -254,6 +254,12 @@ class VanillaLibraryTests(unittest.TestCase):
                 "INSERT INTO master_const_str (id, value) VALUES ('TITLE_VERSION', ?)",
                 (version,),
             )
+            if steam is not None:
+                con.execute(
+                    "INSERT INTO master_const_str (id, value) "
+                    "VALUES ('TITLE_VERSION_STEAM', ?)",
+                    (steam,),
+                )
             con.commit()
             con.close()
         return database
@@ -292,6 +298,30 @@ class VanillaLibraryTests(unittest.TestCase):
         con.commit()
         con.close()
         self.assertIsNone(vanilla_library.best_for(theirs, self.root))
+
+    def test_a_steam_only_bump_is_a_different_build(self) -> None:
+        # 5.0.4.2.0 changed TITLE_VERSION_STEAM and left TITLE_VERSION at 1.89.
+        self._add("5.0.4.1", "5.0.4.1.0 - 1.89", "5.0.4.1.0")
+        theirs = self.root / "game" / "masters.db"
+        theirs.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(self.library / "5.0.4.1" / "masters.db", theirs)
+        con = sqlite3.connect(str(theirs))
+        con.execute(
+            "UPDATE master_const_str SET value = '5.0.4.2.0' "
+            "WHERE id = 'TITLE_VERSION_STEAM'"
+        )
+        con.commit()
+        con.close()
+        self.assertEqual(
+            vanilla_library.database_version(theirs), "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)"
+        )
+        self.assertIsNone(vanilla_library.best_for(theirs, self.root))
+        self._add("5.0.4.2", "5.0.4.1.0 - 1.89", "5.0.4.2.0")
+        self.assertEqual(vanilla_library.best_for(theirs, self.root).label, "5.0.4.2")
+
+    def test_a_matching_steam_number_leaves_the_name_alone(self) -> None:
+        self._add("5.0.4.1", "5.0.4.1.0 - 1.89", "5.0.4.1.0")
+        self.assertEqual(vanilla_library.builds(self.root)[0].version, "5.0.4.1.0 - 1.89")
 
     def test_an_empty_folder_is_not_a_build(self) -> None:
         (self.library / "nothing-here").mkdir(parents=True)
@@ -447,6 +477,73 @@ class ManagerAdoptionTests(unittest.TestCase):
             self.manager.adoption_order(["second-mod", "revive-1kc"]),
             ["second-mod", "revive-1kc"],
         )
+
+    def test_the_order_the_database_was_saved_with_is_kept(self) -> None:
+        # A pack would normally jump to the top; the player's own saved order
+        # beats that guess.
+        pack = write_mod(
+            self.paths.mods_dir,
+            "art-pack",
+            {"patches": [{"type": "asset_file", "source": "assets",
+                          "target": "BrgGame/CookedPCConsole"}]},
+        )
+        (pack / "assets").mkdir(parents=True, exist_ok=True)
+        (pack / "assets" / "Thing.upk").write_bytes(b"x")
+        self.manager.rescan()
+        self.assertEqual(
+            self.manager.adoption_order(["art-pack", "revive-1kc"], ["revive-1kc", "art-pack"]),
+            ["revive-1kc", "art-pack"],
+        )
+
+    def test_mods_the_record_does_not_name_are_placed_around_it(self) -> None:
+        pack = write_mod(
+            self.paths.mods_dir,
+            "art-pack",
+            {"patches": [{"type": "asset_file", "source": "assets",
+                          "target": "BrgGame/CookedPCConsole"}]},
+        )
+        (pack / "assets").mkdir(parents=True, exist_ok=True)
+        (pack / "assets" / "Thing.upk").write_bytes(b"x")
+        write_mod(
+            self.paths.mods_dir,
+            "second-mod",
+            {"patches": [{"type": "update_set", "table": "master_skill",
+                          "set": {"buy_money": 2}, "where": "id = 'SKL_FREE_01'"}]},
+        )
+        self.manager.rescan()
+        # Only revive-1kc was recorded: the new pack goes above it, the new
+        # tweak below.
+        self.assertEqual(
+            self.manager.adoption_order(
+                ["second-mod", "revive-1kc", "art-pack"], ["revive-1kc"]
+            ),
+            ["art-pack", "revive-1kc", "second-mod"],
+        )
+
+    def test_a_failed_rebuild_puts_their_own_database_back(self) -> None:
+        from unittest import mock
+
+        from lid_db_manager.runner import ApplyReport
+
+        before = self.theirs.read_bytes()
+        self.manager.state.enabled_mods = ["revive-1kc"]
+        self.manager.state.save()
+        snapshot = self.paths.snapshots_dir / "revive-1kc.json"
+        snapshot.parent.mkdir(parents=True, exist_ok=True)
+        snapshot.write_text("{}", encoding="utf-8")
+
+        real = self.manager._apply
+
+        def fails_after_writing(**kwargs):
+            real(**kwargs)  # the clean copy is in place and the mods applied...
+            return ApplyReport(error="game files could not be written")  # ...then this
+
+        with mock.patch.object(self.manager, "_apply", side_effect=fails_after_writing):
+            report = self.manager.adopt_rebuild(["revive-1kc"])
+        self.assertFalse(report.ok)
+        self.assertEqual(self.theirs.read_bytes(), before, "their database was not put back")
+        self.assertEqual(self.manager.state.enabled_mods, ["revive-1kc"])
+        self.assertEqual(snapshot.read_text(encoding="utf-8"), "{}", "old snapshots were lost")
 
     def test_a_mod_that_is_not_installed_is_dropped(self) -> None:
         self.assertEqual(self.manager.adoption_order(["revive-1kc", "ghost"]), ["revive-1kc"])

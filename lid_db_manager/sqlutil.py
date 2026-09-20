@@ -8,9 +8,17 @@ import sqlite3
 import time
 from pathlib import Path
 
+# A table reference, optionally schema-qualified ("main"."master_part",
+# main.master_part, ...) - tools like DB Browser for SQLite's own "Export to
+# SQL" write the "main". prefix on some statements and not others, so it has
+# to be recognised or the schema name gets mistaken for the table name. Only
+# the real table name is captured.
+_TABLE_REF = r'''(?:["'`\[]?[A-Za-z_][A-Za-z0-9_]*["'`\]]?\s*\.\s*)?
+                  ["'`\[]?(?P<table>[A-Za-z_][A-Za-z0-9_]*)["'`\]]?'''
+
 # Statements that write. Used to work out which tables a raw-SQL patch touches.
 _WRITE_STMT_RE = re.compile(
-    r"""\b(?:
+    rf"""\b(?:
             update\s+(?:or\s+\w+\s+)?          |
             insert\s+(?:or\s+\w+\s+)?into\s+   |
             replace\s+into\s+                  |
@@ -19,7 +27,7 @@ _WRITE_STMT_RE = re.compile(
             alter\s+table\s+                   |
             create\s+(?:temp(?:orary)?\s+)?table\s+(?:if\s+not\s+exists\s+)?
         )
-        ["'`\[]?(?P<table>[A-Za-z_][A-Za-z0-9_]*)["'`\]]?
+        {_TABLE_REF}
     """,
     re.IGNORECASE | re.VERBOSE,
 )
@@ -27,8 +35,8 @@ _WRITE_STMT_RE = re.compile(
 # Tables a script brings into being. These are the one kind of table that may
 # legitimately not exist yet when a mod is validated.
 _CREATE_TABLE_RE = re.compile(
-    r"""\bcreate\s+(?:temp(?:orary)?\s+)?table\s+(?:if\s+not\s+exists\s+)?
-        ["'`\[]?(?P<table>[A-Za-z_][A-Za-z0-9_]*)["'`\]]?
+    rf"""\bcreate\s+(?:temp(?:orary)?\s+)?table\s+(?:if\s+not\s+exists\s+)?
+        {_TABLE_REF}
     """,
     re.IGNORECASE | re.VERBOSE,
 )
@@ -342,15 +350,15 @@ def parse_row_scope(statement: str) -> tuple[str, str | None] | None:
     upper = text.upper().lstrip()
     if upper.startswith("UPDATE"):
         match = re.match(
-            r"""\s*update\s+(?:or\s+\w+\s+)?["'`\[]?(?P<table>[A-Za-z_][A-Za-z0-9_]*)["'`\]]?\s""",
+            rf"""\s*update\s+(?:or\s+\w+\s+)?{_TABLE_REF}\s""",
             text,
-            re.IGNORECASE,
+            re.IGNORECASE | re.VERBOSE,
         )
     elif upper.startswith("DELETE"):
         match = re.match(
-            r"""\s*delete\s+from\s+["'`\[]?(?P<table>[A-Za-z_][A-Za-z0-9_]*)["'`\]]?(?:\s|$)""",
+            rf"""\s*delete\s+from\s+{_TABLE_REF}(?:\s|$)""",
             text,
-            re.IGNORECASE,
+            re.IGNORECASE | re.VERBOSE,
         )
     else:
         return None

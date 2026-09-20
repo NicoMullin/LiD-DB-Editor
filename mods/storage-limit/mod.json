@@ -2,7 +2,7 @@
   "id": "storage-limit",
   "name": "Storage Limit",
   "description": "The Coin Locker expands to {{slots:comma}} instead of 2,000.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "author": "KSFA",
   "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
   "requires": [],
@@ -14,10 +14,10 @@
       "type": "integer",
       "default": 10000,
       "min": 2000,
-      "max": 99999,
+      "max": 20000,
       "step": 1000,
       "unit": "slots",
-      "help": "Stock is 2,000. It cannot go lower, so nothing already stored is stranded."
+      "help": "Stock is 2,000. It cannot go lower, so nothing already stored is stranded. Capped at 20,000 (10x stock) - no similar count/slot field anywhere in the stock game goes anywhere near as high as the old 99,999 ceiling did."
     }
   ],
   "patches": [

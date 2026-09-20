@@ -2,16 +2,25 @@
 
 Covers everything a user might drop on the window or pick from the Tools menu:
 
-    a .sql file        -> a new mod folder built around it
-    a mod folder       -> copied in as-is
-    an asset folder    -> a mod folder with one asset_file patch, mod.json written
-    a .zip             -> extracted (a single top-level folder is unwrapped)
+    a .sql file         -> a new mod folder built around it
+    a mod folder        -> copied in as-is
+    a folder of .sql + game files, no mod.json -> both wired into one written
+    an asset folder     -> a mod folder with one asset_file patch, mod.json written
+    a .zip              -> extracted (a single top-level folder is unwrapped)
     a modded masters.db -> diffed against vanilla, the difference written as SQL
 
 An "asset folder" is one with no mod.json but game files to copy - a bare pile
 of .upk, or an ``assets/`` subfolder of them (with or without the pack's own
 ``catalog.json`` alongside). Only the files are taken; a catalog's database
 changes, if any, are its installer's own logic and do not come across.
+
+A folder that also has an unambiguous .sql payload (see
+``mod_loader.find_sql_payload``) is different: someone wrote the database
+changes by hand and forgot the mod.json that would tell the manager to copy
+the game files too. Loading it as-is would apply the SQL, quietly leave the
+artwork sitting uninstalled next to it, and the mod would look "done" while
+being invisible or broken in game. So this case gets its own mod.json written,
+wiring up both halves, rather than being copied in and hoping someone notices.
 
 Installing never enables or applies anything. The mod turns up in the list
 unticked so its diff can be looked at first.
@@ -29,6 +38,7 @@ from pathlib import Path
 
 from . import crossover, dbdiff, vetted
 from .errors import ModManagerError
+from .mod_loader import find_sql_payload
 from .sqlutil import sha256_file
 
 KIND_SQL = "sql"
@@ -36,12 +46,19 @@ KIND_FOLDER = "folder"
 KIND_ZIP = "zip"
 KIND_DATABASE = "database"
 KIND_ASSET_FOLDER = "asset_folder"
+# A dropped folder with one unambiguous .sql payload and game files to copy,
+# but no mod.json tying them together - see the module docstring.
+KIND_SQL_FOLDER = "sql_folder"
 # A recognised content pack: artwork plus the database changes that make it
 # reachable in game, installed together as one mod.
 KIND_CONTENT_PACK = "content_pack"
 # A mod release matching one of the vetted recordings in recipes/ - artwork
 # plus the one executable hash the game needs updating to accept it.
 KIND_VETTED_MOD = "vetted_mod"
+# A mod made for FCH823's TFC Installer: .PackagePatch files and a texture pack.
+# Installed natively - see patch.TfcInstallerPatch.
+KIND_TFC_MOD = "tfc_mod"
+TFC_SOURCE = "tfc"
 
 # Where LET IT DIE keeps the loose packages an asset mod replaces.
 ASSET_TARGET_DIR = "BrgGame/CookedPCConsole"
@@ -201,6 +218,53 @@ def _nested_pack(folder: Path) -> InstallCandidate | None:
     return candidate
 
 
+def _tfc_candidate(folder: Path) -> InstallCandidate | None:
+    """A TFC Installer mod folder, described - or None if it is not one."""
+    from .upk import tfcmod
+    if not tfcmod.is_tfc_mod(folder):
+        return None
+    try:
+        mod = tfcmod.load(folder)
+    except (tfcmod.TfcModError, ValueError) as problem:
+        raise InstallError(f"{folder.name} looks like a TFC Installer mod but cannot be "
+                           f"installed: {problem}") from None
+    parts = []
+    if mod.patches:
+        parts.append(f"{len(mod.patches)} package patch(es)")
+    if mod.has_textures:
+        parts.append(f"{len(mod.mapping.entries)} texture(s)")
+    return InstallCandidate(
+        folder, KIND_TFC_MOD, _title_from(folder.name),
+        "TFC Installer mod: " + ", ".join(parts) + " - installed here directly, no "
+        "TFC Installer needed. Needs the game's file check off for the packages it "
+        "changes.",
+    )
+
+
+def _write_tfc_mod(source: Path, folder: Path, name: str, description: str,
+                   author: str, version: str) -> Path:
+    """The mod as it was distributed, kept whole under tfc/, and a mod.json."""
+    folder.mkdir(parents=True)
+    try:
+        shutil.copytree(source, folder / TFC_SOURCE,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        for doc in source.glob("*"):
+            if doc.is_file() and doc.suffix.lower() in (".txt", ".md"):
+                shutil.copy2(doc, folder / doc.name)
+        _write_mod_json_patches(
+            folder, name,
+            description or "A mod made for TFC Installer, installed natively. The "
+                           "format and TFC Installer are by FCH823.",
+            author, version,
+            [{"type": "tfc_installer", "source": TFC_SOURCE,
+              "description": "packages and textures, rebuilt from stock"}],
+        )
+    except Exception:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return folder
+
+
 def inspect(source: Path, vanilla: Path | None = None) -> InstallCandidate:
     """Work out what a path is, without writing anything.
 
@@ -212,7 +276,22 @@ def inspect(source: Path, vanilla: Path | None = None) -> InstallCandidate:
         raise InstallError(f"{source} does not exist")
 
     if source.is_dir():
-        if (source / "mod.json").is_file() or any(source.glob("*.sql")):
+        if (source / "mod.json").is_file():
+            return InstallCandidate(source, KIND_FOLDER, source.name, "folder copied as-is")
+        tfc = _tfc_candidate(source)
+        if tfc is not None:
+            return tfc
+        sql_file = find_sql_payload(source)
+        if sql_file is not None:
+            asset_root = _asset_root(source)
+            if asset_root is not None:
+                count = len(_asset_files(asset_root))
+                return InstallCandidate(
+                    source, KIND_SQL_FOLDER, _title_from(source.name),
+                    f"{sql_file.name} -> database changes, plus {count} game file(s) "
+                    f"-> {ASSET_TARGET_DIR}  (no mod.json here - one will be written)",
+                )
+        if any(source.glob("*.sql")):
             return InstallCandidate(source, KIND_FOLDER, source.name, "folder copied as-is")
         here = _folder_candidate(source)
         if here is not None:
@@ -293,6 +372,70 @@ def _write_vetted_mod(candidate: InstallCandidate, folder: Path) -> Path:
         for doc in candidate.source.glob("*"):
             if doc.is_file() and doc.suffix.lower() in (".txt", ".md"):
                 shutil.copy2(doc, folder / doc.name)
+    except Exception:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return folder
+
+
+def _write_sql_folder_mod(candidate: InstallCandidate, folder: Path, name: str,
+                          description: str, author: str, version: str) -> Path:
+    """A dropped folder with a .sql payload and game files, but no mod.json.
+
+    Someone hand-wrote the database changes and never wired the artwork in -
+    loading the .sql alone would apply cleanly and leave the mod looking done
+    while its models/icons never reach the game. Writing a real mod.json with
+    both a raw_sql_file and an asset_file patch closes that gap here, once,
+    rather than requiring every such download to be fixed by hand.
+    """
+    source = candidate.source
+    sql_file = find_sql_payload(source)
+    if sql_file is None:
+        raise InstallError(f"{source.name} no longer has exactly one .sql payload")
+    asset_root = _asset_root(source)
+    if asset_root is None:
+        raise InstallError(f"{source.name} has no game files to copy")
+
+    folder.mkdir(parents=True)
+    try:
+        shutil.copy2(sql_file, folder / sql_file.name)
+        # load_mod_json finds this by folder convention, not a patch entry -
+        # carry it along so an explicit revert still works once wired up.
+        inverse = source / "inverse.sql"
+        if sql_file.name.lower() == "mod.sql" and inverse.is_file():
+            shutil.copy2(inverse, folder / "inverse.sql")
+
+        files = _asset_files(asset_root)
+        for src in files:
+            dest = folder / "assets" / src.relative_to(asset_root)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+
+        for doc in source.glob("*"):
+            if doc.is_file() and doc.suffix.lower() in (".txt", ".md"):
+                shutil.copy2(doc, folder / doc.name)
+
+        _write_mod_json_patches(
+            folder, name,
+            description or (
+                f"{sql_file.name}, with the {len(files)} game file(s) it needs. "
+                "mod.json generated automatically - the download had none."
+            ),
+            author, version,
+            [
+                {
+                    "type": "raw_sql_file",
+                    "path": sql_file.name,
+                    "description": f"Applies {sql_file.name}",
+                },
+                {
+                    "type": "asset_file",
+                    "source": "assets",
+                    "target": ASSET_TARGET_DIR,
+                    "description": f"{len(files)} game file(s)",
+                },
+            ],
+        )
     except Exception:
         shutil.rmtree(folder, ignore_errors=True)
         raise
@@ -570,8 +713,14 @@ def install(
     if candidate.kind == KIND_CONTENT_PACK:
         return _write_content_pack(candidate, folder, name, description, author, version)
 
+    if candidate.kind == KIND_SQL_FOLDER:
+        return _write_sql_folder_mod(candidate, folder, name, description, author, version)
+
     if candidate.kind == KIND_VETTED_MOD:
         return _write_vetted_mod(candidate, folder)
+
+    if candidate.kind == KIND_TFC_MOD:
+        return _write_tfc_mod(candidate.source, folder, name, description, author, version)
 
     if candidate.kind == KIND_ASSET_FOLDER:
         asset_root = _asset_root(candidate.source)
@@ -616,6 +765,8 @@ def install(
                 archive.extractall(staging)
             entries = [p for p in staging.iterdir() if p.name != "__MACOSX"]
             root = entries[0] if len(entries) == 1 and entries[0].is_dir() else staging
+            if not (root / "mod.json").is_file() and _tfc_candidate(root) is not None:
+                return _write_tfc_mod(root, folder, name, description, author, version)
             if not ((root / "mod.json").is_file() or any(root.glob("*.sql"))):
                 raise InstallError(
                     f"{candidate.source.name} has no mod.json and no .sql file inside"

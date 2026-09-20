@@ -2,7 +2,7 @@
   "id": "tdm-rewards",
   "name": "TDM Rewards",
   "description": "Every Kill Coin and SP reward from Tokyo Death Metro is multiplied by {{multiplier}}.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "author": "KSFA",
   "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
   "apply": "diff",
@@ -15,9 +15,9 @@
       "type": "integer",
       "default": 2,
       "min": 1,
-      "max": 100,
+      "max": 10,
       "unit": "x",
-      "help": "Whole numbers only - these are whole-number columns in the game. 1 leaves it at stock."
+      "help": "Whole numbers only - these are whole-number columns in the game. 1 leaves it at stock. Capped at x10, well inside a defensible multiple of the highest reward these fields ever pay out in the stock game."
     }
   ],
   "patches": [

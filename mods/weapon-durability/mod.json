@@ -2,7 +2,7 @@
   "id": "weapon-durability",
   "name": "Weapon Durability",
   "description": "Every weapon lasts {{multiplier}} times as long before it breaks.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "author": "KSFA",
   "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
   "apply": "diff",
@@ -15,9 +15,9 @@
       "type": "integer",
       "default": 2,
       "min": 1,
-      "max": 100,
+      "max": 10,
       "unit": "x",
-      "help": "Whole numbers only - these are whole-number columns in the game. 1 leaves it at stock."
+      "help": "Whole numbers only - these are whole-number columns in the game. 1 leaves it at stock. Capped at x10: the highest-durability weapon in the stock game already sits at the field's own historical ceiling, so x10 is as far as this can go while staying within a defensible multiple of ground the game is known to handle."
     }
   ],
   "patches": [

@@ -2,7 +2,7 @@
   "id": "bank-limit",
   "name": "Bank Limit",
   "description": "Every Safe and Spirit Tank level holds {{multiplier}} times as much, all 99 levels.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "author": "KSFA",
   "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
   "apply": "diff",
@@ -15,9 +15,9 @@
       "type": "integer",
       "default": 10,
       "min": 1,
-      "max": 100,
+      "max": 10,
       "unit": "x",
-      "help": "Whole numbers only - these are whole-number columns in the game. 1 leaves it at stock."
+      "help": "Whole numbers only - these are whole-number columns in the game. 1 leaves it at stock. Capped at x10 (was x100, briefly x25) - confirmed working in game at x10; nothing higher has been."
     }
   ],
   "patches": [

@@ -21,6 +21,7 @@ Nothing here writes anything.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import sys
 from dataclasses import dataclass
@@ -62,14 +63,25 @@ def database_version(path: Path) -> str:
     except sqlite3.Error:
         return ""
     try:
-        row = con.execute(
-            "SELECT value FROM master_const_str WHERE id = 'TITLE_VERSION'"
-        ).fetchone()
-        return str(row[0] or "").strip() if row else ""
+        values = dict(
+            con.execute(
+                "SELECT id, value FROM master_const_str "
+                "WHERE id IN ('TITLE_VERSION', 'TITLE_VERSION_STEAM')"
+            ).fetchall()
+        )
     except sqlite3.Error:
         return ""
     finally:
         con.close()
+    title = str(values.get("TITLE_VERSION") or "").strip()
+    steam = str(values.get("TITLE_VERSION_STEAM") or "").strip()
+    # 5.0.4.2.0 bumped only the Steam number and left TITLE_VERSION saying
+    # 1.89, so on its own the title would match the previous build and read
+    # the patch as a mod. Every earlier build's title starts with its Steam
+    # number, so their names are unchanged.
+    if steam and not title.startswith(steam):
+        return f"{title} (Steam {steam})" if title else f"Steam {steam}"
+    return title
 
 
 def _bundled_dir() -> Path | None:
@@ -126,6 +138,42 @@ def builds(root: Path | None = None) -> list[VanillaBuild]:
                 )
             )
     return out
+
+
+def newest(root: Path | None = None) -> VanillaBuild | None:
+    """The highest-numbered clean copy held, for use as a reference."""
+    def number(build: VanillaBuild) -> tuple:
+        return tuple(int(n) for n in re.findall(r"\d+", build.version or build.label))
+
+    found = builds(root)
+    return max(found, key=number) if found else None
+
+
+def suggested_label(path: Path) -> str:
+    """What to call the folder for a clean copy of this database.
+
+    The Steam build number ("5.0.4.2.0") when it says one, since that is what
+    the folders already shipped are named after; the full version otherwise.
+    The name is only a label - the build is read back out of the file.
+    """
+    try:
+        con = sqlite3.connect(f"file:{Path(path).as_posix()}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return ""
+    try:
+        row = con.execute(
+            "SELECT value FROM master_const_str WHERE id = 'TITLE_VERSION_STEAM'"
+        ).fetchone()
+        steam = str(row[0] or "").strip() if row else ""
+    except sqlite3.Error:
+        steam = ""
+    finally:
+        con.close()
+    if steam:
+        # The shipped folders drop the trailing ".0": 5.0.4.2.0 -> 5.0.4.2
+        parts = steam.split(".")
+        return ".".join(parts[:4]) if len(parts) > 4 else steam
+    return database_version(path)
 
 
 def for_version(version: str, root: Path | None = None) -> VanillaBuild | None:

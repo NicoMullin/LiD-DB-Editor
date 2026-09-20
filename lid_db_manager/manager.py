@@ -7,7 +7,8 @@ returns a report, so callers decide how to present the outcome.
 
 from __future__ import annotations
 
-from dataclasses import replace
+import copy
+from dataclasses import fields, replace
 from pathlib import Path
 
 import shutil
@@ -18,6 +19,7 @@ from . import asset_runner
 from . import backup as backup_module
 from . import db_record
 from . import dbdiff
+from . import vanilla_capture
 from . import vanilla_library
 from . import install as install_module
 from . import migrations
@@ -29,6 +31,7 @@ from .mod import Mod
 from .mod_loader import ScanResult, scan_mods
 from .paths import AppPaths
 from .patch import DiffPreview
+from .progress import Progress, ensure as ensure_progress
 from .runner import (
     ApplyReport,
     RevertResult,
@@ -99,6 +102,7 @@ class Manager:
         self.state.save()
         self.log.info(f"Database set to {path}")
         self.ensure_original_backup()
+        self.capture_clean_copy()
 
     def ensure_original_backup(self) -> Path | None:
         """Keep an untouched copy the moment a database is chosen.
@@ -349,7 +353,8 @@ class Manager:
         self.last_validation = validate(self.db_path, self.enabled_mods(), self.installed_ids())
         return self.last_validation
 
-    def _apply(self, *, take_backup: bool) -> ApplyReport:
+    def _apply(self, *, take_backup: bool, progress: Progress | None = None) -> ApplyReport:
+        progress = ensure_progress(progress)
         if not self.db_path or not self.db_path.is_file():
             report = ApplyReport(error="no database selected - point the manager at masters.db")
             self.log.error(report.error)
@@ -369,7 +374,15 @@ class Manager:
                 self.last_apply = report
                 return report
 
+        # Where each step sits on the bar. Rebuilding game packages dwarfs
+        # everything else when a mod has any, so it gets most of the bar.
+        if asset_mods:
+            marks = {"backup": (0, 8), "undo": (8, 14), "database": (14, 40), "files": (40, 100)}
+        else:
+            marks = {"backup": (0, 25), "undo": (25, 35), "database": (35, 100)}
+
         if take_backup:
+            progress.stage("Backing up your database...", *marks["backup"])
             try:
                 result = backup_module.take_backups(
                     self.db_path, self.paths.backups_dir, self.state.settings.keep_backups
@@ -389,7 +402,10 @@ class Manager:
                 return report
 
         if take_backup:
+            progress.stage("Undoing mods that were switched off...", *marks["undo"])
             self._undo_switched_off_mods()
+
+        progress.stage("Applying mods to the database...", *marks["database"])
 
         deltas = {}
         for mod in mods:
@@ -428,16 +444,19 @@ class Manager:
             deltas=deltas,
             keep_snapshots=keep_snapshots,
             record=True,
+            progress=progress,
         )
         self.last_apply = report
         self.last_validation = report.validation
 
         if report.ok and asset_mods:
-            self._apply_asset_files(mods, report, pre_asset_db)
+            progress.stage("Writing game files...", *marks["files"])
+            self._apply_asset_files(mods, report, pre_asset_db, progress)
         if pre_asset_db is not None:
             pre_asset_db.unlink(missing_ok=True)
 
         if report.ok:
+            progress.stage("Finishing up...", 100, 100)
             record_apply(self.state, mods, report)
             self.state.stamp_db(self.db_path)
             self.watcher.stamp(
@@ -446,7 +465,10 @@ class Manager:
         self.state.save()
         return report
 
-    def _apply_asset_files(self, mods, report: ApplyReport, db_rollback: Path | None) -> None:
+    def _apply_asset_files(
+        self, mods, report: ApplyReport, db_rollback: Path | None,
+        progress: Progress | None = None,
+    ) -> None:
         """Copy game files after the DB commit. On failure, roll the DB back too."""
         game_root = self.asset_game_root
         if game_root is None:
@@ -458,7 +480,7 @@ class Manager:
             self.log.error(report.error)
         else:
             ares = asset_runner.apply_asset_patches(
-                mods, game_root, self.paths.backups_dir, log=self.log
+                mods, game_root, self.paths.backups_dir, log=self.log, progress=progress
             )
             report.asset_report = ares
             if not ares.ok:
@@ -531,15 +553,15 @@ class Manager:
             if not result.ok:
                 self.log.warn(f"{result.mod_id}: could not be undone ({result.error})")
 
-    def save_mod_list(self) -> ApplyReport:
+    def save_mod_list(self, progress: Progress | None = None) -> ApplyReport:
         """The main action: back up, validate, apply, stamp the DB fingerprint."""
         self.log.info("Save Mod List: backing up and applying")
-        return self._apply(take_backup=True)
+        return self._apply(take_backup=True, progress=progress)
 
-    def reapply_all(self) -> ApplyReport:
+    def reapply_all(self, progress: Progress | None = None) -> ApplyReport:
         """Re-run the enabled list against a DB that changed. No new backup."""
         self.log.info("Re-apply All")
-        return self._apply(take_backup=False)
+        return self._apply(take_backup=False, progress=progress)
 
     def on_db_changed(self, status: DbStatus) -> ApplyReport | None:
         """Watchdog hook. Re-applies automatically when that setting is on."""
@@ -560,10 +582,18 @@ class Manager:
             return [RevertResult(mod_id=m, error="no database selected") for m in mod_ids]
 
         asset_targets: set[str] = set()
-        for mod_id in mod_ids:
-            mod = self.scan.get(mod_id)
-            if mod is not None:
-                asset_targets.update(mod.asset_targets())
+        reverting = [self.scan.get(mod_id) for mod_id in mod_ids]
+        reverting = [mod for mod in reverting if mod is not None]
+        # A TFC Installer mod only knows every file it changed once it has seen
+        # the game folder: its textures sit in packages it never names.
+        if self.asset_game_root is not None:
+            try:
+                asset_runner.bind_tfc_patches_for_revert(
+                    reverting, self.asset_game_root, self.paths.backups_dir)
+            except (OSError, ValueError) as exc:
+                self.log.warn(f"could not work out every game file to put back ({exc})")
+        for mod in reverting:
+            asset_targets.update(mod.asset_targets())
         if asset_targets:
             reason = asset_runner.game_lock_reason(self.db_path)
             if reason:
@@ -723,6 +753,118 @@ class Manager:
 
     # -- adopting an already-modded database -------------------------------
 
+    def capture_clean_copy(self) -> vanilla_capture.CaptureResult:
+        """Keep the game's own database as the clean copy for a new build.
+
+        Runs only when no clean copy matches the game's build - normally the
+        first time the manager is opened after a game update, when the file
+        Steam has just written is exactly what is wanted. Every check has to
+        agree (see vanilla_capture); otherwise nothing is kept.
+        """
+        result = vanilla_capture.CaptureResult()
+        if not self.db_path or not self.db_path.is_file():
+            result.reason = "no database has been chosen"
+            return result
+        if self.chosen_vanilla() is not None:
+            result.reason = "there is already a clean copy of this build"
+            return result
+        version = vanilla_library.database_version(self.db_path)
+        if not version:
+            result.reason = "this database does not say which build it is"
+            return result
+
+        record = db_record.read(self.db_path)
+        if record is not None and record.mods:
+            result.reason = ("the manager's own note in it lists "
+                             f"{len(record.mods)} mod(s), so it is not stock")
+            return result
+        game_root = self.asset_game_root
+        if game_root is None:
+            result.reason = "the game folder could not be found"
+            return result
+        if not vanilla_capture.left_as_steam_wrote_it(self.db_path, game_root):
+            result.reason = ("it is not from the same write as the rest of the game's "
+                             "files, so something has changed it since the update")
+            return result
+
+        reference = vanilla_library.newest(self.paths.root)
+        if reference is not None:
+            try:
+                result.unexpected_tables = vanilla_capture.unexpected_tables(
+                    reference.path, self.db_path
+                )
+            except Exception as exc:  # a diff that fails is not proof of anything
+                result.reason = f"it could not be compared with {reference.name} ({exc})"
+                return result
+            if result.unexpected_tables:
+                shown = ", ".join(result.unexpected_tables[:4])
+                result.reason = (
+                    f"it changes {len(result.unexpected_tables)} table(s) that a game "
+                    f"update has never been seen to touch ({shown}) - that looks like "
+                    "mods, not a patch"
+                )
+                return result
+
+        label = vanilla_library.suggested_label(self.db_path) or version
+        try:
+            result.kept = vanilla_capture.keep(self.db_path, self.paths.vanilla_dir, label)
+        except (OSError, FileExistsError) as exc:
+            result.reason = f"it could not be copied in ({exc})"
+            return result
+        result.label = label
+        self.log.info(
+            f"Kept your game's masters.db as the clean copy for build {version} "
+            f"(LiD Vanilla DB/{result.kept.parent.name}) - the game had just been "
+            "updated and the file was still exactly as Steam wrote it"
+        )
+        return result
+
+    def keep_as_clean_copy(self) -> vanilla_capture.CaptureResult:
+        """Keep the chosen database as this build's clean copy, because the
+        player says it is one. Their word, on the record in the log."""
+        result = vanilla_capture.CaptureResult()
+        if not self.db_path or not self.db_path.is_file():
+            result.reason = "no database has been chosen"
+            return result
+        version = vanilla_library.database_version(self.db_path)
+        label = vanilla_library.suggested_label(self.db_path) or version or "unknown"
+        try:
+            result.kept = vanilla_capture.keep(self.db_path, self.paths.vanilla_dir, label)
+        except (OSError, FileExistsError) as exc:
+            result.reason = f"it could not be copied in ({exc})"
+            return result
+        result.label = label
+        self.log.warn(
+            f"Kept {self.db_path.name} as the clean copy for build {version or label} "
+            f"(LiD Vanilla DB/{result.kept.parent.name}) because you said it is an "
+            "unmodded file for a new game version. Everything is measured against it "
+            "from now on, so delete that folder if it turns out to have mods in it."
+        )
+        return result
+
+    def last_known_record(self):
+        """The mod list last saved into a database, and where it was read from.
+
+        A game update wipes the note along with the mods, so afterwards the
+        database itself no longer says what was in it. The backups still do:
+        the rolling copy beside the game database first, then the dated ones,
+        newest first.
+        """
+        candidates = []
+        if self.db_path:
+            candidates.append(self.db_path)
+            candidates.append(backup_module.rolling_backup_path(self.db_path))
+        candidates.extend(
+            sorted(self.paths.backups_dir.glob("*.db"), key=lambda p: p.name, reverse=True)
+        )
+        for candidate in candidates:
+            if not Path(candidate).is_file():
+                continue
+            record = db_record.read(Path(candidate))
+            if record is not None and record.mods:
+                return record, Path(candidate).name
+        return None, ""
+
     def adopt_scan(self) -> "adopt.AdoptionReport":
         """Work out which mods are already in the chosen database.
 
@@ -761,8 +903,13 @@ class Manager:
         self.log.info(f"Scan: {report.summary()}")
         return report
 
-    def adoption_order(self, mod_ids: list[str]) -> list[str]:
+    def adoption_order(self, mod_ids: list[str], recorded: list[str] | None = None) -> list[str]:
         """Content packs first, then everything else, order otherwise kept.
+
+        ``recorded`` is the load order the database's own note lists (db_record)
+        - the order the player last saved with, which beats any guess. The mods
+        it names keep that order exactly; only mods it does not name are placed
+        by the rule below, packs above them and everything else below.
 
         Load order is "top applies first, bottom wins". A content pack rewrites
         and adds rows across a great many tables, so anything applied *before*
@@ -783,6 +930,12 @@ class Manager:
         # and touch no table at all - can bury nothing, while a content pack
         # writes sixteen tables and buries anything applied before it.
         packs.sort(key=lambda mod_id: (-len(self.scan.get(mod_id).tables()), known.index(mod_id)))
+        if recorded:
+            position = {mod_id: n for n, mod_id in enumerate(recorded)}
+            kept = sorted((m for m in known if m in position), key=position.__getitem__)
+            new_packs = [m for m in packs if m not in position]
+            others = [m for m in known if m not in position and m not in set(packs)]
+            return new_packs + kept + others
         return packs + [mod_id for mod_id in known if mod_id not in set(packs)]
 
     def adopt_rebuild(self, mod_ids: list[str], values: dict | None = None) -> ApplyReport:
@@ -805,9 +958,24 @@ class Manager:
         if reason:
             raise ModManagerError(reason)
 
-        backup_module.take_backups(
+        # The order they last saved with. Read before the file is replaced -
+        # and from the backups when the database itself no longer says, which
+        # is what a game update leaves behind.
+        record, where = self.last_known_record()
+        recorded = [entry.mod_id for entry in record.mods] if record is not None else []
+        if recorded and where != self.db_path.name:
+            self.log.info(f"Load order taken from the mod list last saved, read from {where}")
+
+        theirs = backup_module.take_backups(
             self.db_path, self.paths.backups_dir, self.state.settings.keep_backups
         )
+        state_before = copy.deepcopy(self.state)
+        # The snapshots are what switches each mod off again; they are replaced
+        # below, so a copy is set aside in case the rebuild has to be undone.
+        snapshots_aside = self.paths.backups_dir / ".pre_rebuild_snapshots"
+        shutil.rmtree(snapshots_aside, ignore_errors=True)
+        if self.paths.snapshots_dir.is_dir():
+            shutil.copytree(self.paths.snapshots_dir, snapshots_aside)
         self.log.info(f"Rebuilding {self.db_path.name} from clean {build.name}")
         backup_module.copy_database(build.path, self.db_path)
         # The kept copy beside their database is now genuinely stock, which for
@@ -832,10 +1000,50 @@ class Manager:
                     except (ValueError, ModManagerError) as exc:
                         self.log.warn(f"{mod_id}: kept the default for {setting_id} ({exc})")
         self.state.applied.clear()
-        self.state.enabled_mods = self.adoption_order(mod_ids)
+        self.state.enabled_mods = self.adoption_order(mod_ids, recorded)
         self.state.save()
         self._delta_cache.clear()
-        return self._apply(take_backup=False)
+        report = self._apply(take_backup=False)
+        if not report.ok:
+            self._undo_failed_rebuild(theirs.dated, state_before, snapshots_aside)
+        shutil.rmtree(snapshots_aside, ignore_errors=True)
+        return report
+
+    def _undo_failed_rebuild(
+        self, their_copy: Path | None, state_before, snapshots_aside: Path
+    ) -> None:
+        """Put the player's own database and the manager's state back.
+
+        A failed apply rolls back to how the file was when the apply started -
+        which, in a rebuild, is the clean copy it had just been reset to. Left
+        there, the player's mods would be gone from the database while their
+        game files were still modded.
+        """
+        if their_copy is None or not their_copy.is_file():
+            self.log.error(
+                "The rebuild failed and the copy of your database from before it could "
+                "not be found - use Tools > Restore a backup."
+            )
+            return
+        try:
+            backup_module.restore_backup(their_copy, self.db_path)
+        except OSError as exc:
+            self.log.error(
+                f"The rebuild failed and your database could not be put back ({exc}) - "
+                f"use Tools > Restore a backup and pick {their_copy.name}."
+            )
+            return
+        for item in fields(self.state):
+            setattr(self.state, item.name, getattr(state_before, item.name))
+        self.state.save()
+        if snapshots_aside.is_dir():
+            shutil.rmtree(self.paths.snapshots_dir, ignore_errors=True)
+            shutil.copytree(snapshots_aside, self.paths.snapshots_dir)
+        self._delta_cache.clear()
+        self.log.warn(
+            f"The rebuild failed, so your own database was put back as it was "
+            f"(from {their_copy.name}). Nothing else was changed."
+        )
 
     def mod_delta(self, mod: Mod):
         """Exactly what this mod changes, measured against the vanilla copy.

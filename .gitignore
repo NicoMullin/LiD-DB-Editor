@@ -32,6 +32,7 @@ state.json.corrupt
 snapshots/
 logs/
 backups/
+cache/
 *.db
 *.db.backup
 *.db.original

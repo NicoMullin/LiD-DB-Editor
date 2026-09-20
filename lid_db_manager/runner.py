@@ -22,6 +22,7 @@ from . import db_record
 from . import snapshot as snapshot_module
 from .errors import ApplyError, RevertError, ValidationError
 from .mod import APPLY_DIFF, Mod
+from .progress import Progress, ensure as ensure_progress
 from .patch import PREVIEW_ROW_LIMIT, DiffPreview, DiffRow, PatchResult, SnapshotSpec
 from .session_log import SessionLog
 from .snapshot import Snapshot
@@ -192,6 +193,7 @@ def apply_mods(
     deltas: dict[str, object] | None = None,
     keep_snapshots: set[str] | None = None,
     record: bool = False,
+    progress: Progress | None = None,
 ) -> ApplyReport:
     """Validate, snapshot and apply every mod in ``mods`` as one transaction.
 
@@ -200,6 +202,7 @@ def apply_mods(
     when ``mods`` is the whole of what the database is meant to hold.
     """
     log = log or SessionLog()
+    progress = ensure_progress(progress)
     db_path = Path(db_path)
     report = ApplyReport()
     started = time.monotonic()
@@ -245,7 +248,8 @@ def apply_mods(
             return report
 
         try:
-            for mod in ordered:
+            for number, mod in enumerate(ordered):
+                progress.step(number, len(ordered), f"Applying {mod.name} to the database...")
                 result = ModApplyResult(mod_id=mod.id, tables=sorted(mod.tables()))
 
                 # A delta says exactly which rows change, so raw SQL no

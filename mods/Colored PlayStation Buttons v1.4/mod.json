@@ -1,22 +1,18 @@
 {
   "id": "Colored PlayStation Buttons v1.4",
   "name": "Colored PlayStation Buttons v1.4",
-  "description": "Replaces UI_ButtonGuide_STM_SF.upk and updates the one hash the game keeps for it, so the game accepts the replacement. No game code is changed.",
+  "description": "Replaces UI_ButtonGuide_STM_SF.upk so the button prompts are the coloured PlayStation ones. Needs the game's file check switched off for that package - the game keeps a hash for it and refuses a replacement otherwise.",
   "version": "1.4",
   "author": "S3er0i9ng",
   "requires": [],
   "conflicts_with": [],
+  "requires_check_off": ["UI_ButtonGuide_STM_SF.upk"],
   "patches": [
     {
       "type": "asset_file",
       "source": "assets",
       "target": "BrgGame/CookedPCConsole",
       "description": "UI_ButtonGuide_STM_SF.upk"
-    },
-    {
-      "type": "exe_checksum_entry",
-      "recipe": "exe-buttons-1.4",
-      "description": "Colored PlayStation Buttons v1.4"
     }
   ]
 }

@@ -94,6 +94,29 @@ class ValidatorTests(unittest.TestCase):
         )
         self.assertFalse(self._validate().ok)
 
+    def test_a_schema_qualified_table_name_is_not_mistaken_for_the_schema(self) -> None:
+        """DB Browser for SQLite's own SQL export writes "main"."table" -
+
+        the table name has to be read past that prefix, or it looks like the
+        mod writes to a table literally called "main", which does not exist.
+        """
+        write_mod(
+            self.mods,
+            "qualified",
+            {
+                "patches": [
+                    {
+                        "type": "raw_sql",
+                        "sql": 'INSERT INTO "main"."master_skill" '
+                        '("id","name","buy_money","val0") '
+                        "VALUES ('SKL_NEW','New',7,7);",
+                    }
+                ]
+            },
+        )
+        report = self._validate()
+        self.assertTrue(report.ok, report.summary_line())
+
     def test_expected_rows_mismatch_is_only_a_warning(self) -> None:
         write_mod(
             self.mods,

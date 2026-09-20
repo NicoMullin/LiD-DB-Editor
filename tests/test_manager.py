@@ -104,6 +104,7 @@ class ManagerTests(unittest.TestCase):
     def test_a_replaced_database_goes_stale_and_auto_re_applies(self) -> None:
         self.manager.set_enabled("cost", True)
         self.manager.save_mod_list()
+        self.manager.state.settings.auto_reapply = True  # off by default - opt in for this test
 
         build_db(self.db)  # the game pushes a fresh copy
         status = self.manager.db_status()

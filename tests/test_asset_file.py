@@ -126,6 +126,117 @@ class AFileSomebodyAlreadyChanged(unittest.TestCase):
         self.assertEqual(self.dest.read_bytes(), _UndoablePatch.STOCK)
 
 
+class AStockCopyFromTfcInstaller(unittest.TestCase):
+    """A package already changed, with the manager holding no stock copy.
+
+    That is a game where TFC Installer, or an install of the manager whose
+    backups are gone, put the mod in before. TFC Installer keeps the file it
+    replaced; proven by the game's own hash, that is the stock file.
+    """
+
+    STOCK = b"STOCK-PACKAGE"
+
+    def setUp(self) -> None:
+        import hashlib
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.game = build_game_tree(self.root)
+        self.backups = self.root / "backups"
+        self.backups.mkdir()
+        self.target = f"{COOKED}/Thing.upk"
+        self.dest = self.game / "BrgGame" / "CookedPCConsole" / "Thing.upk"
+        self.dest.write_bytes(b"CHANGED-BY-SOMEONE")
+        self.stock_sha1 = hashlib.sha1(self.STOCK).hexdigest()
+
+        class _Rebuilds:
+            STOCK = self.STOCK
+
+            def asset_targets(self_inner):
+                return {self.target}
+
+            def transform_targets(self_inner):
+                return [self.target]
+
+            def to_pristine(self_inner, raw):
+                return raw
+
+            def transform_target(self_inner, target, raw):
+                if raw != self.STOCK:
+                    raise ValueError("not the stock package")
+                return b"REBUILT"
+
+        self.mod = _StubMod("glados", [_Rebuilds()])
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _tfc_backup(self, data: bytes, slot: str = "00000001") -> Path:
+        folder = self.game / "TFCInstallerBackups" / slot / "Game" / "BrgGame" / "CookedPCConsole"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / "Thing.upkBackup"
+        path.write_bytes(data)
+        return path
+
+    def _apply(self):
+        from unittest import mock
+
+        with mock.patch.object(asset_runner, "stock_hash_for", return_value=self.stock_sha1):
+            return asset_runner.apply_asset_patches([self.mod], self.game, self.backups)
+
+    def test_it_rebuilds_from_tfc_installers_stock_copy(self) -> None:
+        self._tfc_backup(self.STOCK)
+        report = self._apply()
+        self.assertTrue(report.ok, report.error)
+        self.assertEqual(self.dest.read_bytes(), b"REBUILT")
+        # And the way back is the stock file, not what was on disk.
+        asset_runner.restore_targets({self.target}, self.game, self.backups)
+        self.assertEqual(self.dest.read_bytes(), self.STOCK)
+
+    def test_a_backup_that_is_not_stock_is_not_trusted(self) -> None:
+        self._tfc_backup(b"SOME-OLDER-BUILD", "00000000")
+        report = self._apply()
+        self.assertFalse(report.ok)
+        self.assertIn("Verify integrity", report.error)
+        self.assertEqual(self.dest.read_bytes(), b"CHANGED-BY-SOMEONE", "nothing may be written")
+
+    def test_the_right_one_is_found_among_several(self) -> None:
+        self._tfc_backup(b"SOME-OLDER-BUILD", "00000000")
+        good = self._tfc_backup(self.STOCK, "00000003")
+        self.assertEqual(
+            asset_runner.find_stock_copy(self.game, "Thing.upk", self.stock_sha1), good
+        )
+
+
+class ReusingATextureCacheAlreadyThere(unittest.TestCase):
+    """Each reinstall used to add another copy of the same Texture2D_N.tfc."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.game = build_game_tree(self.root)
+        self.cooked = self.game / "BrgGame" / "CookedPCConsole"
+        self.pack = self.root / "Texture2D_0.tfc"
+        self.pack.write_bytes(b"PACK-TEXTURES")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_an_identical_cache_is_found(self) -> None:
+        (self.cooked / "Texture2D_0.tfc").write_bytes(b"SOMETHING-ELSE")
+        (self.cooked / "Texture2D_1.tfc").write_bytes(b"PACK-TEXTURE!")  # same size
+        (self.cooked / "Texture2D_2.tfc").write_bytes(b"PACK-TEXTURES")
+        self.assertEqual(asset_runner._identical_cache(self.pack, self.cooked, [0, 1, 2]), 2)
+        self.assertIsNone(asset_runner._identical_cache(self.pack, self.cooked, [0, 1]))
+
+    def test_tfc_installers_own_caches_are_known(self) -> None:
+        marker = (self.game / "TFCInstallerBackups" / "00000001" / "Game" / "BrgGame"
+                  / "CookedPCConsole" / "Texture2D_1.tfcInstalled")
+        marker.parent.mkdir(parents=True)
+        marker.write_bytes(b"")
+        self.assertEqual(asset_runner._tfc_installer_caches(self.game), {1})
+
+
 class GameRootTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()

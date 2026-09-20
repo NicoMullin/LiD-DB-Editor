@@ -4,7 +4,7 @@
   "description": "50 decal-pool entries and 32 blueprint quests, with the 287 artwork packages they need. Database changes recorded from the pack's own v3.79 installer; artwork from the pack itself.",
   "version": "3.79",
   "author": "S3er0i9ng",
-  "game_version": "5.0.4.0.0 - 1.88",
+  "game_version": ["5.0.4.0.0 - 1.88", "5.0.4.1.0 - 1.89"],
   "requires": [],
   "conflicts_with": [],
   "patches": [

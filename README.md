@@ -56,10 +56,10 @@ program file is ever added to the game.
   and ready to tick. Artwork
   and the database changes that make it reachable switch on and off together —
   no running an installer, no swapping `masters.db` by hand.
-- **Handles artwork the game checks.** Most packages carry a checksum inside the
-  game executable, so replacing one normally fails. For a short, hand-vetted list
-  of mods the manager updates that one value too — twenty bytes of data, no code,
-  fully reversible — and refuses to do it for anything not on the list.
+- **Knows which artwork the game checks.** The game keeps a hash for most of
+  its own packages and refuses a replacement at startup, naming the file and
+  nothing else. A mod that replaces one of those says so, and the manager
+  refuses it with an explanation instead of letting you meet that error box.
 - **Notices when a mod was built for another game version.** A mod can record
   the build it was made against; if your database is a different one, you are
   told before you save. It still applies — most do work across a patch — but a
@@ -76,13 +76,14 @@ integration. It writes the `masters.db` you point it at, plus any game files a
 mod ships — normally `.upk` files in `BrgGame\CookedPCConsole\`.
 
 **No mod can add a program file** (`.exe`, `.dll` and the like) anywhere, and no
-mod can change the game's code. There is exactly one thing it will change inside
-`BrgGame-Steam.exe`: a single file checksum, twenty bytes in a data table, for
-mods that replace artwork the game verifies. It is checked before and after that
-the executable's code section is byte-for-byte unchanged, it is backed up and
-fully reversible, and it only ever happens for changes recorded in this
-repository by hand — never at a mod's request. See
-[Mods that need a change to the game executable](#mods-that-need-a-change-to-the-game-executable).
+mod can change the game's code. Nothing that ships with the manager writes to
+`BrgGame-Steam.exe` at all: a mod that replaces artwork the game checks is
+refused with an explanation instead. The machinery for changing one file hash
+inside the executable is still in the code — twenty bytes in a data table, no
+code, proven byte-for-byte and reversible, and only ever from a recording
+committed here by hand, never at a mod's request — but no shipped mod uses it.
+See
+[Mods that replace artwork the game checks](#mods-that-replace-artwork-the-game-checks).
 
 ## Requirements
 
@@ -191,10 +192,40 @@ If you run from source, anything you drop in that folder is picked up — so an
 older build, or a newer one before the manager ships it, works with no code
 change.
 
-**If nothing matches your game build**, it says so and leaves your database
-alone. It will not diff against the nearest build instead: after a game patch
-that would read the developers' own changes as if they were a mod, and offer to
-bottle them up and re-apply them over a later version.
+**If nothing matches your game build**, it does not diff against the nearest
+build instead: after a game patch that would read the developers' own changes as
+if they were a mod, and offer to bottle them up and re-apply them over a later
+version.
+
+#### After a game update it keeps one itself
+
+A patch means a build nobody has a clean copy of yet — but the `masters.db`
+Steam has just written *is* that clean copy, mods and all wiped out. So the
+manager keeps it, and you do nothing. It only does that when all of this holds:
+
+- **Its own note is not in the file.** Every save writes a list of the mods it
+  applied into the database. If that note is there, the file is not stock.
+- **The file is from the same write as the rest of the game.** Steam writes the
+  whole update in one go, so the game's packages all share a timestamp. A
+  database changed afterwards — by this manager, by another tool, by hand — no
+  longer matches, and is not kept.
+- **What changed looks like a patch, not like mods.** Compared with the newest
+  clean copy it has, the file may only differ in tables real updates have been
+  seen to touch. Anything else, and it is left alone.
+
+The copy lands in `LiD Vanilla DB/<build>/masters.db` and is named after the
+build, and a line in the log says so.
+
+**If it cannot tell, it asks you.** You know whether you have modded that file
+yet. Say yes and it is kept as the clean copy for that build; say no and nothing
+happens, and you are not asked about that build again. When you are not sure,
+say no — Steam's *Verify integrity of game files* puts an untouched copy back,
+and then the answer is yes. A copy kept this way can always be deleted: it is
+one folder, and removing it puts everything back as it was.
+
+You can also do it by hand at any time: make a folder in `LiD Vanilla DB` and
+put an untouched `masters.db` in it. The folder name is only a label — the
+build is read out of the file.
 
 ## The mod list
 
@@ -354,13 +385,13 @@ load order, and still able to be switched off. The old folders are moved into
 | Mod                                  | What it does                                                                                  |
 |--------------------------------------|-----------------------------------------------------------------------------------------------|
 | `LET IT DIE Crossover Content v3.79` | Restores cut crossover gear: Mushroom Club decals, blueprint quests, and 287 artwork packages |
-| `Colored PlayStation Buttons v1.4`   | Colored PlayStation button prompts, plus the one hash the game keeps for that file            |
+| `Colored PlayStation Buttons v1.4`   | Colored PlayStation button prompts. Needs the game's file check off for that one package      |
 | `Tower Static Radio`                 | A new radio station, Tower Static, on channel 501 with four tracks                            |
 
 All three are included with their author's permission; the originals are at
 <https://letitdiemods.pages.dev/>. See
 [The Crossover Content pack](#the-crossover-content-pack) and
-[Mods that need a change to the game executable](#mods-that-need-a-change-to-the-game-executable).
+[Mods that replace artwork the game checks](#mods-that-replace-artwork-the-game-checks).
 
 Ticking the Crossover pack alongside the durability, ammo or magazine mods, or
 Nitro Boost, shows a "both write table" warning. The manager can only compare
@@ -502,6 +533,52 @@ files needs no backup at all.
 **Program files are refused.** A mod may never copy `.exe`, `.dll` or similar
 into the game, since Windows would run them. Real content packs never contain
 them; if one does, it shows in the list as broken, with the reason.
+
+## Mods made for TFC Installer
+
+Many LET IT DIE mods — GLaDOS, Tommy Gun, weapon and character reskins — are
+distributed for **TFC Installer** by FCH823. Those are not loose `.upk` files:
+the folder holds *patches* to the game's own packages, and a texture pack the
+game reads its artwork out of.
+
+The manager installs them itself. **Drag the mod's top folder onto the window**
+— the one with `GameProfile.xml` in it, exactly as it was downloaded:
+
+```
+Glados/                   <- drag THIS folder onto the window
+├── GameProfile.xml
+├── Game/BrgGame/CookedPCConsole/*.upk.PackagePatch
+└── TexturePack/          <- Texture2D_0.tfc, LocalMips_0.tfc, a .TFCMapping
+```
+
+Nothing has to be taken out of the folder first, and TFC Installer itself is not
+needed. Ticking the mod rebuilds each affected package from the game's own copy
+and puts the textures in; unticking it puts the game's files back.
+
+**The game's file check has to be off for the packages it rebuilds.** The
+manager says which ones before it writes anything — see
+[Mods that replace artwork the game checks](#mods-that-replace-artwork-the-game-checks).
+
+**It is slower than a normal mod.** Packages are rebuilt from scratch on every
+save, and some are tens of megabytes, so a save can take a minute. The progress
+window names each package as it goes.
+
+**Already installed that mod with TFC Installer?** That is fine. The manager
+rebuilds from an untouched copy of each package — TFC Installer keeps one, and
+the manager only trusts it if its checksum matches the one the game itself
+lists. If no untouched copy can be found anywhere, it says so and stops rather
+than build on top of somebody else's changes. Steam's *Verify integrity of game
+files* is the way out of that.
+
+**Texture packs do not pile up.** The pack's `.tfc` goes in under the first free
+number, and a reinstall reuses the identical one already there instead of
+adding another copy.
+
+Mods that also carry loose game files, `.ini` patches or files for folders
+outside the game are refused rather than half-installed — use TFC Installer for
+those. The `.PackagePatch` format and TFC Installer are by **FCH823**
+(with Wastelander121); the reading of that format here is used with their
+permission.
 
 ## The Crossover Content pack
 
@@ -690,127 +767,133 @@ py -3 tools/build_crossover_recipe.py --pack "C:\...\crossover" --vanilla "LiD V
 
 Nothing is written if the verification fails. Players never run this.
 
-## Mods that need a change to the game executable
+## Mods that replace artwork the game checks
 
 Some artwork cannot be replaced by copying a file over it, because the game
 checks. `BrgGame-Steam.exe` carries a SHA-1 for most of its own data — on the
 build this was written against, **7,678 of the 7,882 packages on disk**, plus
-221 `.ini` and 139 `.usf` files. Replace a listed file and the game refuses it.
+221 `.ini` and 139 `.usf` files. Replace a listed file and the game stops at
+startup with an error box naming the package, before the intro plays.
 
-Most artwork mods never run into this. The 204 packages the table does *not*
-list are equipment added after the table was built, which is why the Crossover
-Content pack installs without any of this — most of its files are unlisted, and
-the 45 that are listed it ships byte-identical to the originals.
+Most artwork mods never run into this. The 251 files the list does *not* name
+are mostly equipment added after the list was built, which is why the Crossover
+Content pack installs with none of this — most of its files are unnamed there,
+and the 45 that are named it ships byte-identical to the originals.
 
 The **Colored PlayStation Buttons** mod, also **by S3er0i9ng**
 (<https://letitdiemods.pages.dev/>), is the other case. It replaces
-`UI_ButtonGuide_STM_SF.upk`, which *is* listed, so the game has to be told the
-new hash or the replacement does nothing. Like the content pack, it is included
-with the manager with their permission.
+`UI_ButtonGuide_STM_SF.upk`, which *is* checked. Like the content pack, it is
+included with the manager with their permission.
 
-### How the manager handles it
+### What the manager does about it
 
-It ships in `mods/` as `Colored PlayStation Buttons v1.4`, one mod holding both
-halves: the replacement package, and the one hash the game keeps for it. Tick
-it and click **Save Mod List** with the game closed.
+It does not change your game's executable. A mod that replaces a checked file
+says so in its `mod.json`:
 
-When the mod gets an update, the manager has to be updated to include it — a
-new release of this program will carry it.
+```json
+"requires_check_off": ["UI_ButtonGuide_STM_SF.upk"]
+```
 
-Unticking it puts the executable back byte for byte.
+When you tick that mod, the manager reads the list of names out of the
+executable in your game folder and looks for those files. If the game still
+checks one, the mod does not validate and nothing is written:
+
+> this mod replaces UI_ButtonGuide_STM_SF.upk, which your game still checks.
+> Applied as it is, the game would refuse that file at startup with an error
+> naming it, before the intro. Switch the game's file check off for it first,
+> then apply this again.
+
+That is the whole feature. It is a refusal with a reason, in place of an error
+box in the game that names a package and tells you nothing else.
+
+Once the check is off for that file the mod applies like any other: the package
+is copied in while it is ticked, and the game's own copy is put back when you
+untick it.
+
+If the manager cannot read your executable — a loose copy of `masters.db`
+somewhere, or a folder layout it does not recognise — it says nothing and lets
+the mod apply. Refusing a mod on a guess would be worse than the error box.
+
+### Switching the check off
+
+That is a separate tool, not part of this one, and deliberately so: this manager
+writes `masters.db` and copies game files, and it does not touch
+`BrgGame-Steam.exe` at all.
+
+Briefly, for context: the list inside the executable is a set of file names with
+the hash expected for each, and the game only checks a file whose name it finds
+there. Change one character of a name and the lookup misses, so that file is
+treated like the 251 that were never listed. No code is changed and no hash is
+changed.
 
 ### When the game updates
 
-A game update replaces the executable and can change the packages it checks.
-Two things follow, and the manager handles both:
+A game update replaces the executable, so the check comes back on for every file
+and the manager will start refusing these mods again until the check is switched
+off on the new build. Two more things follow, and the manager handles both:
 
-- **Every game file is checked before it is copied.** A file the executable
-  in your game folder would refuse is left out, the game's own copy is kept,
-  and the log names the mod and the files. Installing it would stop the game
-  with an error naming the package.
-- **Copies kept from before the update are never put back.** The executable
-  and packages the manager kept as the way back belong to the old build. When
-  a mod is switched off or updated after a game update, the manager puts this
-  build's own files back to stock instead of restoring the old ones.
+- **Every game file is checked before it is copied.** A file the executable in
+  your game folder would refuse is left out, the game's own copy is kept, and
+  the log names the mod and the files.
+- **Copies kept from before the update are never put back.** The packages the
+  manager kept as the way back belong to the old build. When a mod is switched
+  off or updated after a game update, the manager puts this build's own files
+  back to stock instead of restoring the old ones.
 
-A recording for the executable only fits the build it was made on, so a mod
-like this one needs a new release of the manager after a game update.
+There is one thing worth knowing that the manager cannot warn you about. With
+the check off, a mod built for an older build of the game loads without
+complaint. If an update changed a package that a mod replaces, ticking that mod
+quietly puts the old version of that content back. Look for a release of the
+mod built for your game version — see
+[Mods built for a different game version](#mods-built-for-a-different-game-version).
 
-### What actually changes
+### Writing a mod that needs this
 
-Twenty bytes, inside a table of file hashes. No program code.
-
-That is not a promise, it is a check. The executable has a code section with a
-fingerprint of its own, and every edit is verified before it is allowed to
-count:
-
-- the file's length is unchanged,
-- every byte outside those twenty is identical,
-- the code section hashes to exactly what it did before,
-- and the entry now holds the replacement package's real hash.
-
-If any of those fail, nothing is written. The same code refuses a package the
-table does not list, a package listed twice (228 names really are), a hash that
-is not what the recording expected — which means a different game build, or an
-executable something else already changed — and a malformed recording.
-
-### If you already installed it by hand
-
-Nothing to undo first. If the executable already expects the replacement — you
-installed the mod yourself, or you kept the game folder and reinstalled the
-manager — ticking the mod leaves those twenty bytes exactly as they are and
-carries on.
-
-The way back still exists, because the stock hash is part of the recording, not
-something that has to be remembered from before: the manager works out what the
-untouched executable looked like and keeps *that* as the copy to restore. So
-unticking the mod puts the game back to stock even though the manager never saw
-it in that state.
-
-It only does this when the executable's code section still matches the
-recording, which is what proves it is the same game build. An entry holding
-some third value it cannot account for is refused, and says so.
-
-### Only recordings that ship with the manager
-
-This is deliberately not a thing mods can do. A mod cannot name a package and a
-pair of hashes; it can only name a recording that ships here:
+`requires_check_off` takes a list of file names, matched on the name alone,
+ignoring case and any folder in front of it:
 
 ```json
-{ "type": "exe_checksum_entry", "recipe": "exe-buttons-1.2" }
+{
+  "id": "my reskin",
+  "requires_check_off": ["WP_AssaultRifle3102_SF.upk"],
+  "patches": [
+    { "type": "asset_file", "source": "assets", "target": "BrgGame/CookedPCConsole" }
+  ]
+}
 ```
 
-An unknown name does not load:
+Name only the files you actually replace that the game checks. A mod that names
+nothing is never blocked, and a mod that names a file the game does not check is
+not blocked either — so naming a file that turns out to be unlisted costs
+nothing.
 
-> `'exe-made-up' is not a recording this manager ships, so it will not be
-> carried out. Changes to the game executable are limited to recordings that
-> ship with the manager.`
+### The older way: changing one hash in the executable
 
-A mod that tries to supply its own `package`, `checksum_before`,
-`checksum_after` or `target` alongside the name is refused too. Everything
-about the change comes from the recording, which is the point of it.
+Earlier releases handled the buttons mod differently. Rather than the game being
+told to stop checking the file, the manager wrote the replacement's hash into
+that one entry inside the executable — twenty bytes in a data table, no code,
+proven byte-for-byte and fully reversible, and only ever from a recording
+committed to this repository by hand.
+
+That machinery is still here, as the `exe_checksum_entry` patch type and the
+recordings in `lid_db_manager/recipes/`, and it is still the only way to make
+such a mod work on an executable that has not been touched at all. No mod that
+ships with the manager uses it now.
+
+It is deliberately not a thing mods can ask for. A mod cannot name a package and
+a pair of hashes; it can only name a recording that ships here, and an unknown
+name does not load:
+
+```json
+{ "type": "exe_checksum_entry", "recipe": "exe-buttons-1.4" }
+```
 
 Each recording lives in `lid_db_manager/recipes/` as two committed files: the
 recording itself, and the exact `mod.json` that gets installed. Neither is
 generated at install time — what runs on a player's machine is a file in this
-repository that can be read and diffed.
-
-### Adding a recording (maintainers)
-
-Recording one is deliberately a change to this repository. `tools/build_buttons_recipe.py`
-reads the mod folder and a real game executable, checks the mod's own manifest
-against what the executable actually holds, performs the edit in memory to prove
-it works and is reversible, and only then writes the two files:
-
-```
-py -3 tools/build_buttons_recipe.py --mod "C:\...\buttons" --game "E:\...\LET IT DIE"
-```
-
-The executable is opened read-only and never written. Nothing is recorded if
-any check fails. Then look both files over and commit them — that is what makes
-the recording vetted, and it is the only step that cannot be automated.
-
-Players never run this.
+repository that can be read and diffed. `tools/build_buttons_recipe.py` writes
+one, from a mod folder and a real game executable, opening the executable
+read-only and recording nothing if any check fails. Players never run this.
 
 ## Editing a mod
 
@@ -895,6 +978,23 @@ anyone on a later build gets told rather than surprised.
 Mods that ship with the manager and are recorded from a content pack get it
 filled in automatically, from the baseline the recording was taken against.
 
+## When a mod needs a second look
+
+A mod with something worth knowing about gets a **coloured dot** next to its
+name. The row stays folded — open it with the arrow when you want to read why,
+and hover the name for a one-line version.
+
+| Dot        | What it means                                                                                         |
+|------------|-------------------------------------------------------------------------------------------------------|
+| **Yellow** | Worth a look. Two mods write the same table, a mod it needs is not ticked, or a patch matches no rows |
+| **Red**    | One mod overwrites the exact values another one sets, or this mod failed to apply                     |
+| None       | Nothing to report                                                                                     |
+
+Neither colour stops anything. A red dot on two mods that write the same values
+is only telling you that the lower one in the load order wins — which may well
+be what you wanted. The text inside the row names the mods, the table and the
+column.
+
 ## Load order
 
 Enabled mods sit at the top of the list, **numbered**. That number is the order
@@ -961,6 +1061,15 @@ mods* about `"apply": "diff"` explains what to do about it.
 backup — it is what the watchdog calls when the game replaces `masters.db`
 after an update. Skipping the backup is deliberate: an automatic re-apply must
 never quietly rotate your good backups away.
+
+### While it is working
+
+Saving shows a small window with a bar that fills, naming what it is doing:
+backing up your database, each mod as it is applied, each game package as it is
+rebuilt, then the files being copied. A save with a big content pack or a TFC
+Installer mod in it can take a minute, and this is how you can tell it is
+working rather than stuck. There is no cancel button — stopping half way through
+writing a database is the one thing worth not allowing.
 
 ## Seeing what a mod does, in plain English
 
@@ -1206,6 +1315,39 @@ LiD Vanilla DB/<build>/masters.db   clean copies to compare against
 
 All created on first run. Set `LID_DB_MANAGER_HOME` to put them somewhere else.
 
+## Updating to a newer release
+
+A new folder each time is not needed, and starting fresh loses what the manager
+knows: which mods are on, the rows that let each one be switched off, and the
+only copies of the game files your mods replaced.
+
+Unzip the new release somewhere else first, then copy these across from the old
+folder into the new one, replacing what is there:
+
+| Copy across  | Why                                                                                          |
+|--------------|----------------------------------------------------------------------------------------------|
+| `state.json` | which mods are on, your load order, settings                                                 |
+| `snapshots/` | the saved rows Revert puts back — without them, mods cannot be switched off cleanly          |
+| `backups/`   | your database backups, and the only copies of the game files mods replaced                   |
+| `mods/`      | mods you added yourself. Keep both: let the new release's copies of the shipped mods win     |
+| `logs/`      | old session logs. Only worth keeping if you are chasing a problem                            |
+| `cache/`     | which game package holds which texture. Optional — it is rebuilt in a few minutes if missing |
+
+Then run the new `.exe`, and you carry on exactly where you left off.
+
+The other way round works too: copy the new release's `.exe` and its
+`_internal/` folder over the old ones and leave everything else alone. That is
+fewer steps, but if a release ever drops a file from `_internal/`, the leftover
+stays behind. Replacing the folder and carrying your files across avoids that.
+
+**Do not keep two folders in use.** Each one keeps its own record of what it
+applied, and a second folder does not know what the first one wrote — so it
+cannot undo it, and may keep a modded file as its idea of stock.
+
+If you would rather your files never moved, set `LID_DB_MANAGER_HOME` to a
+folder of your own before running either release. Both then read and write the
+same place, and updating is only ever replacing the program.
+
 ## Building an .exe
 
 There is a release with an exe already compiled. If you want to build it
@@ -1268,7 +1410,12 @@ What they do need to know:
 python -m unittest discover -s tests -t tests
 ```
 
-701 tests. They build a miniature `masters.db` from `tests/fixtures.py`, so no
+788 tests. A handful need real game files and skip without them - to run those,
+point `LID_TFC_REFERENCE` at a folder holding `stock/`, `tfc-output/` and
+`tommygun/` (the packages as the game ships them, the same packages after TFC
+Installer has rebuilt them, and the mod folder itself).
+
+They build a miniature `masters.db` from `tests/fixtures.py`, so no
 game files are needed. The GUI tests run offscreen and skip themselves if
 PySide6 is not installed.
 

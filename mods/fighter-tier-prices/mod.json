@@ -2,7 +2,7 @@
   "id": "fighter-tier-prices",
   "name": "Fighter Tier Prices",
   "description": "Every fighter (body) tier unlock price becomes {{price:comma}} KC.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "author": "KSFA",
   "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
   "requires": [],
@@ -14,10 +14,10 @@
       "type": "integer",
       "default": 1,
       "min": 1,
-      "max": 1000000,
+      "max": 100000,
       "step": 1,
       "unit": "KC",
-      "help": "Stock prices run from 1,000 to 100,000 KC; the three free tiers stay free."
+      "help": "Stock prices run from 1,000 to 100,000 KC; the three free tiers stay free. Capped at 100,000 - the highest value this field is ever set to anywhere in the stock game."
     }
   ],
   "patches": [

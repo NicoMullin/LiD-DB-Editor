@@ -51,19 +51,34 @@ def _is_candidate(folder: Path) -> bool:
     return not (name.startswith("_") or name.startswith(".") or name.lower() in RESERVED_NAMES)
 
 
+def find_sql_payload(folder: Path) -> Path | None:
+    """The one ``.sql`` file a mod.json-less folder's changes boil down to.
+
+    None when there is not exactly one: no .sql at all, or more than one
+    without the ``mod.sql`` + ``inverse.sql`` pairing that makes "mod.sql" the
+    unambiguous choice. Shared with install.py, so a folder dropped on the
+    installer and the same folder found already sitting in ``mods/`` agree on
+    what counts as unambiguous.
+    """
+    sql_files = sorted(p for p in folder.glob("*.sql") if p.is_file())
+    lower = {p.name.lower(): p for p in sql_files}
+    if "mod.sql" in lower and "inverse.sql" in lower:
+        return lower["mod.sql"]
+    payload = [p for p in sql_files if p.name.lower() != "inverse.sql"]
+    return payload[0] if len(payload) == 1 else None
+
+
 def load_mod_folder(folder: Path) -> Mod:
     """Parse one mod folder. Raises ModLoadError if it is not a usable mod."""
     if (folder / "mod.json").is_file():
         return load_mod_json(folder)
 
-    sql_files = sorted(p for p in folder.glob("*.sql") if p.is_file())
-    lower = {p.name.lower(): p for p in sql_files}
-    if "mod.sql" in lower and "inverse.sql" in lower:
-        return load_mod_sql(folder, lower["mod.sql"])
+    sql_file = find_sql_payload(folder)
+    if sql_file is not None:
+        return load_mod_sql(folder, sql_file)
 
-    payload = [p for p in sql_files if p.name.lower() != "inverse.sql"]
-    if len(payload) == 1:
-        return load_mod_sql(folder, payload[0])
+    payload = [p for p in folder.glob("*.sql")
+               if p.is_file() and p.name.lower() != "inverse.sql"]
     if len(payload) > 1:
         raise ModLoadError(
             folder.name,

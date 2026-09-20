@@ -378,14 +378,54 @@ class ModListFoldingTests(unittest.TestCase):
         self._tick("mod-20")
         self.assertEqual(bar.value(), where, "the list jumped back to the top")
 
-    def test_a_mod_with_a_warning_opens_itself(self) -> None:
-        # Two mods writing the same rows is a conflict, and a warning nobody
-        # can see is no warning - so that mod is shown open whatever the fold.
+    def _dot_color(self, mod_id: str):
+        icon = self._row(mod_id).icon(1)
+        if icon.isNull():
+            return None
+        image = icon.pixmap(12, 12).toImage()
+        pixel = image.pixelColor(image.width() // 2, image.height() // 2)
+        return None if pixel.alpha() == 0 else pixel.name()
+
+    def test_a_mod_with_a_warning_gets_a_dot_but_stays_folded(self) -> None:
+        # It used to open itself, which on a long list opened half of it.
+        from lid_db_manager.ui.theme import status_color
+
         self._tick("mod-00")
         self._tick("mod-01")
         if not self.manager.conflicts().for_mod("mod-01"):
             self.skipTest("these two mods did not register as a conflict")
-        self.assertTrue(self._row("mod-01").isExpanded())
+        self.assertFalse(self._row("mod-01").isExpanded(), "it opened itself")
+        # Both write buy_money in the same rows: the same cells, so red.
+        red = status_color(self.window.mod_list.dark, "failed").name()
+        self.assertEqual(self._dot_color("mod-00"), red)
+        self.assertEqual(self._dot_color("mod-01"), red)
+        self.assertIn("Red dot", self._row("mod-01").toolTip(1))
+        self.assertIsNone(self._dot_color("mod-05"), "a mod with no problem got a dot")
+
+    def test_a_yellow_dot_for_a_warning(self) -> None:
+        from lid_db_manager.ui.theme import status_color
+
+        # Requiring a mod that is not ticked is worth a look, not an overwrite.
+        write_mod(
+            self.paths.mods_dir,
+            "needy",
+            {
+                "requires": ["mod-00"],
+                "patches": [
+                    {"type": "update_set", "table": "master_text", "set": {"txt": "x"},
+                     "where": "id = 'TXT_A'"}
+                ],
+            },
+        )
+        self.manager.rescan()
+        self.window.refresh()
+        self._settle()
+        self._tick("needy")
+        if not self.manager.conflicts().for_mod("needy"):
+            self.skipTest("the missing requirement was not reported")
+        yellow = status_color(self.window.mod_list.dark, "pending").name()
+        self.assertEqual(self._dot_color("needy"), yellow)
+        self.assertFalse(self._row("needy").isExpanded())
 
 
 @unittest.skipUnless(HAVE_QT, "PySide6 is not installed")
@@ -965,6 +1005,51 @@ class AdoptionFlowTests(unittest.TestCase):
         self._settle()
         self.assertEqual(done, [42])
         self.assertIsNone(self.window._progress, "the progress window was left on screen")
+
+    def test_applying_shows_a_bar_that_fills(self) -> None:
+        import threading
+
+        reported = threading.Event()
+        release = threading.Event()
+
+        def work(progress):
+            progress.stage("Writing game files...", 40, 60)
+            reported.set()
+            release.wait(5)
+            return "done"
+
+        done = []
+        self.window._run(work, done.append, message="Applying your mods...", progress=True)
+        dialog = self.window._progress
+        self.assertIsNotNone(dialog, "no progress window was shown")
+        self.assertEqual(dialog.maximum(), 100, "a bar that fills, not one that just moves")
+        self.assertTrue(reported.wait(5))
+        for _ in range(40):
+            self._settle()
+            if dialog.value() == 40:
+                break
+            time.sleep(0.05)
+        self.assertEqual(dialog.value(), 40)
+        self.assertIn("Writing game files", dialog.labelText())
+        release.set()
+        for _ in range(80):
+            if self.window.task is None:
+                break
+            self._settle()
+            time.sleep(0.05)
+        self._settle()
+        self.assertEqual(done, ["done"])
+        self.assertIsNone(self.window._progress)
+
+    def test_save_and_reapply_both_show_the_bar(self) -> None:
+        from unittest import mock
+
+        for action in (self.window.save_mod_list, self.window.reapply_all):
+            with mock.patch.object(self.window, "_check_database", return_value=True), \
+                    mock.patch.object(self.window, "_run") as run:
+                action()
+            self.assertTrue(run.call_args.kwargs.get("progress"), action.__name__)
+            self.assertTrue(run.call_args.kwargs.get("message"), action.__name__)
 
     def test_a_failing_task_also_closes_the_progress_window(self) -> None:
         from unittest import mock

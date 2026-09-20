@@ -33,7 +33,9 @@ class StateTests(unittest.TestCase):
     def test_missing_file_gives_empty_defaults(self) -> None:
         state = State.load(self.path)
         self.assertEqual(state.enabled_mods, [])
-        self.assertTrue(state.settings.auto_reapply)
+        # Must default off: the manager may never rewrite the database on its
+        # own unless the player explicitly opted in.
+        self.assertFalse(state.settings.auto_reapply)
 
     def test_round_trip(self) -> None:
         state = State.load(self.path)

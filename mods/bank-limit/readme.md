@@ -4,7 +4,7 @@ Every Safe and Spirit Tank level holds *your chosen number of* times as much, al
 
 ## Your value
 
-**Capacity multiplier** - default **x10**, anything from x1 to x100.
+**Capacity multiplier** - default and maximum **x10** - this is the only value confirmed working in game.
 
 Select this mod and open the **Configuration** tab on the right to change it, or right-click it and pick **Change values...**. Press Enter or click away, then **Save Mod List**.
 
@@ -16,7 +16,13 @@ Whole numbers only - these are whole-number columns in the game. 1 leaves it at 
 
 Two parts you can switch separately: the Kill Coin bank and the SP bank.
 
-At the largest setting, x100, the top level holds 256,000,000 - still inside what the game's numbers can hold.
+The ceiling was x100 (v2.0.0), reasoned about only in terms of fitting the
+game's integer range - true, but not the same thing as being inside what the
+game's UI has ever actually shown for this field. Lowered to x25 (v2.0.1)
+then to x10 after a related mod (Decal Draw Price) was reported to crash the
+game at a very high value: x10 is confirmed working in game; nothing above
+it has been, so the cap matches what is actually known to be safe rather
+than a guess at it.
 
 Replaces `bank-limit-10x`.
 

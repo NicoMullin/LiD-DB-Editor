@@ -11,6 +11,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import asset_runner, exe_checksums, vetted
 from .conflict import ConflictReport, analyze
 from .errors import ValidationError
 from .mod import Mod
@@ -92,12 +93,69 @@ def game_version_warning(con: sqlite3.Connection, mod: Mod) -> str:
     )
 
 
-def validate_mod(con: sqlite3.Connection, mod: Mod) -> ModValidation:
+def still_checked(mod: Mod, game_root: Path | None) -> list[str]:
+    """Which of this mod's declared files the game still keeps a hash for.
+
+    The executable carries a list of file names with the hash it expects each to
+    have. A replacement for a listed file is refused at startup, with an error
+    box naming the package and nothing else to go on. A mod that knows it
+    replaces such a file says so in ``requires_check_off``, and this is what
+    turns that into an explanation before anything is written.
+
+    Nothing is claimed when the executable cannot be read - a loose test folder,
+    or a layout this does not know. Guessing would refuse mods that are fine.
+    """
+    names = list(mod.requires_check_off)
+    # A TFC Installer mod rebuilds packages rather than naming them, so every
+    # package it will rebuild counts - it does not have to list them itself.
+    for patch in mod.patches:
+        rebuilt = getattr(patch, "transform_targets", None)
+        if callable(rebuilt) and callable(getattr(patch, "bind", None)):
+            names += [t for t in rebuilt() if t.lower().endswith(".upk")]
+    if not names or game_root is None:
+        return []
+    exe = Path(game_root) / vetted.GAME_EXE
+    if not exe.is_file():
+        return []
+    try:
+        listed = {name.lower() for name in exe_checksums.read_entries(exe.read_bytes())}
+    except Exception:
+        return []
+    seen, out = set(), []
+    for name in names:
+        short = Path(name).name
+        if short.lower() in listed and short.lower() not in seen:
+            seen.add(short.lower())
+            out.append(short)
+    return out
+
+
+def check_off_error(mod: Mod, game_root: Path | None) -> str:
+    """Why this mod cannot be applied as the game stands, or ""."""
+    blocked = still_checked(mod, game_root)
+    if not blocked:
+        return ""
+    files = ", ".join(blocked)
+    one = len(blocked) == 1
+    return (
+        f"this mod replaces {files}, which your game still checks. Applied as it "
+        f"is, the game would refuse {'that file' if one else 'those files'} at "
+        "startup with an error naming "
+        f"{'it' if one else 'them'}, before the intro. Switch the game's file "
+        f"check off for {'it' if one else 'them'} first, then apply this again."
+    )
+
+
+def validate_mod(con: sqlite3.Connection, mod: Mod,
+                 game_root: Path | None = None) -> ModValidation:
     """Validate a single mod against an open, read-only connection."""
     result = ModValidation(mod_id=mod.id, warnings=list(mod.load_warnings))
     mismatch = game_version_warning(con, mod)
     if mismatch:
         result.warnings.append(mismatch)
+    blocked = check_off_error(mod, game_root)
+    if blocked:
+        result.errors.append(blocked)
     for patch in mod.patches:
         try:
             result.patch_summaries.append(patch.summary())
@@ -137,8 +195,19 @@ def validate(db_path: Path, mods: list[Mod], installed_ids: set[str] | None = No
         # than per table, so two mods writing different parts of one table stay
         # quiet instead of warning about each other.
         report.conflicts = analyze(ordered, installed_ids, con)
+        # Where the game is, worked out from the database's own place, so a mod
+        # that needs the game's file check off can be told apart from one that
+        # does not. None for a loose copy, and then nothing is claimed.
+        game_root = asset_runner.game_root_for(db_path)
+        if game_root is not None:
+            # So TFC Installer mods know every package they will rebuild, for
+            # the file-check test below. Cheap once the texture index exists.
+            try:
+                asset_runner.bind_tfc_patches_for_validation(ordered, game_root)
+            except (OSError, ValueError):
+                pass
         for mod in ordered:
-            report.results.append(validate_mod(con, mod))
+            report.results.append(validate_mod(con, mod, game_root))
     finally:
         con.close()
     return report

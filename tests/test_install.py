@@ -196,6 +196,45 @@ class InstallTests(unittest.TestCase):
             install(inspect(sql), self.mods, "Dupe")
         install(inspect(sql), self.mods, "Dupe", overwrite=True)  # allowed when asked
 
+    def test_a_bare_sql_and_assets_folder_gets_a_mod_json_written(self) -> None:
+        """A hand-written .sql plus game files, no mod.json - the Diabolos case.
+
+        Loading the .sql alone would apply cleanly and never copy the model,
+        so this must come back wired up as two patches, not one.
+        """
+        source = self.root / "Diabolos"
+        (source / "assets").mkdir(parents=True)
+        (source / "Add-Diabolos.sql").write_text(
+            "UPDATE master_skill SET buy_money = 1;", encoding="utf-8"
+        )
+        (source / "assets" / "WP_Weapon_SF.upk").write_bytes(b"fake upk")
+
+        candidate = inspect(source)
+        self.assertEqual(candidate.kind, "sql_folder")
+        self.assertIn("no mod.json here", candidate.note)
+
+        folder = install(candidate, self.mods, "Diabolos")
+        self.assertTrue((folder / "mod.json").is_file())
+        self.assertTrue((folder / "assets" / "WP_Weapon_SF.upk").is_file())
+        mod = scan_mods(self.mods).get("Diabolos")
+        self.assertEqual(
+            sorted(p.type for p in mod.patches), ["asset_file", "raw_sql_file"]
+        )
+
+    def test_a_sql_folder_without_assets_is_still_copied_as_is(self) -> None:
+        """No game files beside the .sql - the existing bare-.sql path, unchanged."""
+        source = self.root / "TextOnly"
+        source.mkdir()
+        (source / "changes.sql").write_text(
+            "UPDATE master_skill SET buy_money = 1;", encoding="utf-8"
+        )
+        candidate = inspect(source)
+        self.assertEqual(candidate.kind, "folder")
+        folder = install(candidate, self.mods, "TextOnly")
+        self.assertFalse((folder / "mod.json").is_file())
+        mod = scan_mods(self.mods).get("TextOnly")
+        self.assertEqual([p.type for p in mod.patches], ["raw_sql_file"])
+
     def test_folder_names_are_made_safe(self) -> None:
         self.assertEqual(safe_folder_name("Floor: Material/Names?"), "Floor MaterialNames")
         self.assertTrue(safe_folder_name("_hidden").startswith("mod"))

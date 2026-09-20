@@ -5,11 +5,17 @@ Original release: <https://letitdiemods.pages.dev/>
 
 Replaces the on-screen button prompts with colored PlayStation ones.
 
-The game keeps a hash for the file this mod replaces, so the mod also updates
-that one twenty-byte entry inside `BrgGame-Steam.exe`. No game code is
-changed, and unticking the mod puts the executable back byte for byte.
+The game keeps a hash for the file this mod replaces
+(`UI_ButtonGuide_STM_SF.upk`), and refuses a replacement at startup with an
+error box naming it. So this mod needs the game's file check switched off for
+that one package first — the manager checks, and will not apply the mod until
+it is, rather than letting you meet that error.
 
-Tick it and click **Save Mod List**. Close the game first.
+The manager does not change `BrgGame-Steam.exe` itself. Switching the check off
+is a separate tool.
 
-Do not also run the mod's own `Run.cmd` — the manager already does its job,
-and the two would undo each other.
+Once it is off, tick the mod and click **Save Mod List**, with the game closed.
+Unticking it puts the game's own file back.
+
+Do not also run the mod's own `Run.cmd` — the manager already does its job, and
+the two would undo each other.

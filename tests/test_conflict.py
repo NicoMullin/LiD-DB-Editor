@@ -8,7 +8,15 @@ from pathlib import Path
 
 from fixtures import build_db, write_mod
 
-from lid_db_manager.conflict import KIND_COLUMN, KIND_DECLARED, KIND_RAW_SQL, KIND_TEXT, analyze
+from lid_db_manager.conflict import (
+    KIND_COLUMN,
+    KIND_DECLARED,
+    KIND_RAW_SQL,
+    KIND_TEXT,
+    SERIOUS,
+    WARNING,
+    analyze,
+)
 from lid_db_manager.mod_loader import scan_mods
 
 
@@ -253,6 +261,55 @@ class ConflictTests(unittest.TestCase):
         )
         self.assertEqual(len(report.for_mod("a-mod")), 1)
         self.assertEqual(report.for_mod("unrelated"), [])
+
+
+    # -- severity: red when the same cells are overwritten, yellow when they
+    # only might be -----------------------------------------------------------
+
+    def test_the_same_cells_in_shared_rows_is_serious(self) -> None:
+        report = self._analyze_with_db(
+            ("a-mod", update_set("master_skill", "buy_money", "buy_money > 1")),
+            ("b-mod", update_set("master_skill", "buy_money", "id = 'SKL_EXPUP_01'")),
+        )
+        self.assertEqual([c.severity for c in report.conflicts], [SERIOUS])
+        self.assertEqual(report.severity_for("a-mod"), SERIOUS)
+        self.assertEqual(report.severity_for("b-mod"), SERIOUS)
+
+    def test_the_same_column_with_rows_unknown_is_only_a_warning(self) -> None:
+        report = self._analyze(
+            ("a-mod", update_set("master_skill", "buy_money")),
+            ("b-mod", update_set("master_skill", "buy_money")),
+        )
+        self.assertEqual([c.severity for c in report.conflicts], [WARNING])
+        self.assertEqual(report.severity_for("a-mod"), WARNING)
+
+    def test_a_shared_table_through_raw_sql_is_only_a_warning(self) -> None:
+        report = self._analyze_with_db(
+            ("a-mod", raw_sql(
+                "INSERT OR REPLACE INTO master_text (sct, id, snd, lang, txt, type) "
+                "VALUES ('AREA_NAME', 'TXT_NEW', '', 'int', 'hi', 0)")),
+            ("b-mod", raw_sql(
+                "UPDATE master_text SET txt = 'x' WHERE sct = 'AREA_NAME'")),
+        )
+        self.assertEqual([c.severity for c in report.conflicts], [WARNING])
+
+    def test_the_same_text_entry_is_serious(self) -> None:
+        report = self._analyze(("a-mod", text_replace("TXT_A")), ("b-mod", text_replace("TXT_A")))
+        self.assertEqual(report.severity_for("b-mod"), SERIOUS)
+
+    def test_declared_incompatible_is_serious(self) -> None:
+        report = self._analyze(
+            ("a-mod", {**update_set("master_skill", "buy_money"), "conflicts_with": ["b-mod"]}),
+            ("b-mod", update_set("master_text", "txt")),
+        )
+        self.assertEqual(report.severity_for("a-mod"), SERIOUS)
+
+    def test_a_mod_nobody_mentions_has_no_severity(self) -> None:
+        report = self._analyze(
+            ("a-mod", update_set("master_skill", "buy_money")),
+            ("b-mod", update_set("master_text", "txt")),
+        )
+        self.assertEqual(report.severity_for("a-mod"), "")
 
 
 if __name__ == "__main__":

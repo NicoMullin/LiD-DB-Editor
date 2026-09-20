@@ -4,11 +4,15 @@ A draw from the Mushroom Club's decal pool costs *your chosen price in* KC inste
 
 ## Your value
 
-**Price** - default **10,000 KC**, anything from 1 KC to 1,000,000 KC.
+**Price** - default **10,000 KC**, anything from 1 KC to 200,000 KC.
 
 Select this mod and open the **Configuration** tab on the right to change it, or right-click it and pick **Change values...**. Press Enter or click away, then **Save Mod List**.
 
-The stock price is 50,000 KC.
+The stock price is 50,000 KC. The 200,000 ceiling is not arbitrary - it is the
+highest value this exact field is ever set to anywhere in the stock game, so
+staying inside it keeps you on ground the game's own shop UI is proven to
+handle. (v2.0.0 allowed up to 1,000,000, far outside that - lowered in v2.0.1
+after a report of the game crashing with a very high price set.)
 
 ## What it changes
 

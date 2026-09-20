@@ -5,6 +5,10 @@
     update_set + text_replace                        -> no conflict
     raw SQL + anything, same table                   -> warn (table granularity)
     a mod's declared conflicts_with                  -> warn
+    two mods copying the same game file              -> warn, last-wins
+
+Each conflict is SERIOUS when one mod provably overwrites the other's cells
+(or file), and a WARNING when they only share a table or might overlap.
 
 A mod can suppress raw-SQL warnings for tables it knows its SQL leaves alone by
 listing them in ``raw_sql_files_do_not_touch``.
@@ -26,6 +30,12 @@ KIND_RAW_SQL = "raw_sql"
 KIND_DECLARED = "declared"
 KIND_ASSET = "asset"
 
+# How bad a clash is. SERIOUS: the same cells (or the same file) are written by
+# both mods, so one mod's values are provably lost. WARNING: they share a table
+# or might overlap, but it cannot be shown that anything is overwritten.
+SERIOUS = "serious"
+WARNING = "warning"
+
 
 @dataclass
 class Conflict:
@@ -35,6 +45,7 @@ class Conflict:
     first: str
     second: str
     detail: str
+    severity: str = WARNING
 
     def message(self) -> str:
         return f"{self.first} and {self.second} both write {self.detail} - {self.second} wins"
@@ -92,6 +103,15 @@ class ConflictReport:
             problem.message() for problem in self.order_problems if problem.mod_id == mod_id
         ]
         return messages
+
+    def severity_for(self, mod_id: str) -> str:
+        """SERIOUS, WARNING, or "" when nothing mentions this mod."""
+        if any(
+            conflict.severity == SERIOUS and mod_id in (conflict.first, conflict.second)
+            for conflict in self.conflicts
+        ):
+            return SERIOUS
+        return WARNING if self.for_mod(mod_id) else ""
 
 
 @dataclass
@@ -221,6 +241,7 @@ def analyze(
                         first.id,
                         second.id,
                         "each other (declared incompatible by the mod author)",
+                        SERIOUS,
                     )
                 )
 
@@ -234,12 +255,15 @@ def analyze(
                         first.id,
                         second.id,
                         f"{table}.{column}{_row_detail(shared)}",
+                        # Rows known to be shared: the same cells, overwritten.
+                        # Rows unknown: they may well not overlap.
+                        SERIOUS if shared else WARNING,
                     )
                 )
 
             for key in sorted(left.texts & right.texts, key=str):
                 report.conflicts.append(
-                    Conflict(KIND_TEXT, first.id, second.id, _describe_text_key(key))
+                    Conflict(KIND_TEXT, first.id, second.id, _describe_text_key(key), SERIOUS)
                 )
 
             # Raw SQL is opaque, so it conflicts at table granularity with
@@ -260,7 +284,7 @@ def analyze(
             # same as a whole-table SQL dump.
             for target in sorted(left.asset_targets & right.asset_targets):
                 report.conflicts.append(
-                    Conflict(KIND_ASSET, first.id, second.id, f"game file {target}")
+                    Conflict(KIND_ASSET, first.id, second.id, f"game file {target}", SERIOUS)
                 )
 
     return report

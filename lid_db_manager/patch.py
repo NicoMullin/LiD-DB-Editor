@@ -1134,6 +1134,134 @@ class ExeChecksumPatch(Patch):
         )
 
 
+class TfcInstallerPatch(Patch):
+    """Install a mod made for TFC Installer: package patches and a texture pack.
+
+    The format is FCH823's, from TFC Installer
+    (https://www.nexusmods.com/site/mods/587), and the install logic is a port
+    of theirs, used with their permission, for LET IT DIE only. ``source`` is
+    the folder inside this mod holding the TFC Installer mod as it was
+    distributed - GameProfile.xml, Game/, TexturePack/::
+
+        {"type": "tfc_installer", "source": "tfc"}
+
+    Nothing is copied from the mod as it stands. Each package it changes is
+    rebuilt from the game's stock copy every time - a patch applied, textures
+    pointed at the pack - and the pack's .tfc goes in as the next free
+    Texture2D_N.tfc. Which packages it changes is only known with the game in
+    front of it, since a texture pack reaches every package holding a copy of
+    its textures: the asset runner calls ``bind`` first. Switching the mod off
+    puts every one of them back, like any other game file.
+    """
+
+    type = "tfc_installer"
+
+    def __init__(self, data: dict, mod_dir: Path, index: int):
+        super().__init__(data, mod_dir, index)
+        from .upk import tfcmod
+        label = f"patch #{index + 1} (tfc_installer)"
+        self.source_rel = str(data.get("source") or "tfc").strip().replace("\\", "/")
+        folder = (mod_dir / self.source_rel).resolve()
+        try:
+            folder.relative_to(mod_dir.resolve())
+        except ValueError:
+            raise ModLoadError(mod_dir.name,
+                               f"{label} 'source' points outside the mod folder") from None
+        if not folder.is_dir():
+            raise ModLoadError(mod_dir.name, f"{label} {self.source_rel!r} is not a folder")
+        try:
+            self.tfc = tfcmod.load(folder)
+        except (tfcmod.TfcModError, ValueError) as problem:
+            raise ModLoadError(mod_dir.name, f"{label} {problem}") from None
+        self._packages: list[str] | None = None
+        self._installed_as: dict[int, int] = {}
+
+    # -- tied to a game folder ------------------------------------------------
+
+    def bind(self, packages: list[str], installed_as: dict[int, int]) -> None:
+        """Which packages this changes, and the numbers its caches go in under."""
+        self._packages = list(packages)
+        self._installed_as = dict(installed_as)
+
+    @property
+    def cache_count(self) -> int:
+        return len(self.tfc.caches)
+
+    def _cooked(self, name: str) -> str:
+        from .upk.tfcmod import COOKED
+        return f"{COOKED}/{name}"
+
+    def transform_targets(self) -> list[str]:
+        """The packages this rebuilds - all of them, once bound."""
+        names = (self._packages if self._packages is not None
+                 else [p.name[:-len(".PackagePatch")] for p in self.tfc.patches.values()])
+        return [self._cooked(name) for name in names]
+
+    def pairs(self) -> list[tuple[Path, str]]:
+        """The pack's caches, under the numbers they were given. Empty until bound."""
+        if not self._installed_as:
+            return []
+        from .upk import tfcmod
+        return tfcmod.cache_targets(self.tfc, self._installed_as)
+
+    def asset_targets(self) -> set[str]:
+        return set(self.transform_targets()) | {target for _, target in self.pairs()}
+
+    def transform_target(self, target: str, stock: bytes) -> bytes:
+        from .upk import tfcmod
+        return tfcmod.transform(self.tfc, Path(target).name, stock, self._installed_as)
+
+    def to_pristine(self, raw: bytes) -> bytes:
+        # There is no working backwards from a patched package; the stock copy
+        # is the one the asset runner keeps the first time it replaces it.
+        return raw
+
+    # -- hooks ----------------------------------------------------------------
+
+    def summary(self) -> str:
+        parts = []
+        if self.tfc.patches:
+            parts.append(f"{len(self.tfc.patches)} package patch(es)")
+        if self.tfc.has_textures:
+            parts.append(f"{len(self.tfc.mapping.entries)} texture(s)")
+        detail = ", ".join(parts)
+        if self.description:
+            return f"{self.description} [{detail}]"
+        return f"TFC Installer mod: {detail}"
+
+    def tables(self) -> set[str]:
+        return set()
+
+    def targets(self) -> set[tuple[str, str]]:
+        return set()
+
+    def validate(self, con: sqlite3.Connection, mod_id: str) -> list[str]:
+        # Read again here: a file changed in the mod folder since it was loaded
+        # would otherwise only surface halfway through saving.
+        from .upk import tfcmod
+        try:
+            tfcmod.load(self.tfc.root)
+        except (tfcmod.TfcModError, ValueError) as problem:
+            raise ValidationError(mod_id, f"the TFC Installer mod no longer reads: {problem}")
+        return ["rebuilds game packages from their stock copies each time the mod list "
+                "is saved, which takes a little while for large packages"]
+
+    def snapshot_specs(self, con: sqlite3.Connection) -> list[SnapshotSpec]:
+        return []
+
+    def preview(self, con: sqlite3.Connection) -> DiffPreview:
+        targets = self.transform_targets()
+        rows = [DiffRow(key=target, before="(game file)", after="rebuilt by this mod")
+                for target in targets[:PREVIEW_ROW_LIMIT]]
+        note = "" if len(targets) <= len(rows) else \
+            f"... and {len(targets) - len(rows)} more package(s)"
+        return DiffPreview(self.summary(), "BrgGame/CookedPCConsole", len(targets), rows, note)
+
+    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+        # Game files are rebuilt by the asset runner after the database commits.
+        return PatchResult(rows_changed=0)
+
+
 _PATCH_TYPES: dict[str, type[Patch]] = {
     UpdateSetPatch.type: UpdateSetPatch,
     TextReplacePatch.type: TextReplacePatch,
@@ -1141,6 +1269,7 @@ _PATCH_TYPES: dict[str, type[Patch]] = {
     RawSqlFilePatch.type: RawSqlFilePatch,
     AssetFilePatch.type: AssetFilePatch,
     ExeChecksumPatch.type: ExeChecksumPatch,
+    TfcInstallerPatch.type: TfcInstallerPatch,
 }
 
 PATCH_TYPE_NAMES = tuple(sorted(_PATCH_TYPES))

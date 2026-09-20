@@ -42,6 +42,7 @@ from ..install import (
 )
 from ..errors import ModManagerError
 from ..modedit import ModEditError
+from .. import vanilla_library
 from ..manager import Manager
 from ..watchdog import STATUS_OK, STATUS_STALE, DbStatus
 from .adopt_dialog import AdoptDialog
@@ -62,7 +63,7 @@ class MainWindow(QMainWindow):
         self.task: TaskThread | None = None
         self.unsaved = False
 
-        self.setWindowTitle(APP_NAME)
+        self.setWindowTitle(f"{APP_NAME} {__version__}")
         self.resize(1180, 780)
         # Dropping a mod on the window is how most people will install one.
         self.setAcceptDrops(True)
@@ -98,13 +99,22 @@ class MainWindow(QMainWindow):
 
         self.watchdog_box = QCheckBox("Watchdog")
         self.watchdog_box.setToolTip(
-            f"Poll {DB_FILENAME} and notice when the game replaces it."
+            f"Poll {DB_FILENAME} every few seconds and notice when the game "
+            "replaces it, without needing to click around first. Off by default. "
+            "Only ever shows a \"stale, click Re-apply All\" notice by itself - "
+            "see Auto re-apply for the (also off by default) setting that acts on it."
         )
         self.watchdog_box.setChecked(self.manager.state.settings.watchdog_enabled)
         self.watchdog_box.toggled.connect(self._on_watchdog_toggled)
 
         self.auto_box = QCheckBox("Auto re-apply")
-        self.auto_box.setToolTip("Re-apply the enabled mods as soon as a change is detected.")
+        self.auto_box.setToolTip(
+            "Re-apply the enabled mods the moment a change is detected, with no "
+            "confirmation - including while Steam is still verifying game files, "
+            "which can race it. Off by default; leave it off unless you want that "
+            "convenience and accept the risk. With it off, a change still shows a "
+            "\"click Re-apply All\" notice - nothing is written until you do."
+        )
         self.auto_box.setChecked(self.manager.state.settings.auto_reapply)
         self.auto_box.toggled.connect(self._on_auto_toggled)
 
@@ -238,6 +248,10 @@ class MainWindow(QMainWindow):
 
         self.buttons = [self.save_button, self.reapply_button, self.revert_button, validate]
 
+        version_label = QLabel(f"v{__version__}")
+        version_label.setObjectName("dim")
+        self.statusBar().addPermanentWidget(version_label)
+
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
         self._add_action(file_menu, "Choose database...", self.choose_database, "Ctrl+O")
@@ -318,7 +332,7 @@ class MainWindow(QMainWindow):
         )
         enabled = len(self.manager.state.enabled_mods)
         suffix = " - unsaved changes" if self.unsaved else ""
-        self.setWindowTitle(f"{APP_NAME} - {enabled} mod(s) enabled{suffix}")
+        self.setWindowTitle(f"{APP_NAME} {__version__} - {enabled} mod(s) enabled{suffix}")
 
     def _set_status(self, status: DbStatus) -> None:
         palette = colors(self.dark)
@@ -606,7 +620,7 @@ class MainWindow(QMainWindow):
         else:
             QGuiApplication.restoreOverrideCursor()
 
-    def _show_progress(self, message: str) -> None:
+    def _show_progress(self, message: str, determinate: bool = False) -> None:
         """A small window naming the slow thing that is happening.
 
         Reading a 60 MB database, or rebuilding one and applying a content pack
@@ -617,7 +631,8 @@ class MainWindow(QMainWindow):
         self._close_progress()
         if not message:
             return
-        dialog = QProgressDialog(message, "", 0, 0, self)  # 0..0 = no known length
+        # 0..0 is a bar that just moves, for work that cannot say how far it is.
+        dialog = QProgressDialog(message, "", 0, 100 if determinate else 0, self)
         dialog.setWindowTitle(APP_NAME)
         dialog.setCancelButton(None)
         dialog.setWindowModality(Qt.WindowModality.WindowModal)
@@ -625,9 +640,21 @@ class MainWindow(QMainWindow):
         dialog.setAutoClose(False)
         dialog.setAutoReset(False)
         dialog.setMinimumWidth(460)
+        if determinate:
+            dialog.setValue(0)
         dialog.show()
         QApplication.processEvents()  # paint it before the work starts
         self._progress = dialog
+
+    def _on_progress(self, text: str, value: int) -> None:
+        progress = getattr(self, "_progress", None)
+        if progress is None:
+            return
+        progress.setLabelText(
+            f"{text}\n\nPlease don't close the manager or start the game until this "
+            "finishes."
+        )
+        progress.setValue(value)
 
     def _close_progress(self) -> None:
         progress = getattr(self, "_progress", None)
@@ -636,12 +663,15 @@ class MainWindow(QMainWindow):
             progress.deleteLater()
         self._progress = None
 
-    def _run(self, work, on_done, message: str = "") -> None:
+    def _run(self, work, on_done, message: str = "", progress: bool = False) -> None:
+        """Run ``work`` off the GUI thread. With ``progress`` it is handed a
+        Progress and the window shows a bar that fills as it reports."""
         if self.task is not None and self.task.isRunning():
             return
         self._busy(True)
-        self._show_progress(message)
-        self.task = TaskThread(work, self)
+        self._show_progress(message, determinate=progress)
+        self.task = TaskThread(work, self, reports_progress=progress)
+        self.task.progressed.connect(self._on_progress)
         self.task.succeeded.connect(lambda result: self._finish(on_done, result, ""))
         self.task.failed.connect(lambda trace: self._finish(on_done, None, trace))
         self.task.start()
@@ -667,12 +697,22 @@ class MainWindow(QMainWindow):
         self._commit_setting_edits()
         if not self._check_database():
             return
-        self._run(self.manager.save_mod_list, self._after_apply)
+        self._run(
+            self.manager.save_mod_list,
+            self._after_apply,
+            message="Applying your mods...",
+            progress=True,
+        )
 
     def reapply_all(self) -> None:
         if not self._check_database():
             return
-        self._run(self.manager.reapply_all, self._after_apply)
+        self._run(
+            self.manager.reapply_all,
+            self._after_apply,
+            message="Re-applying your mods...",
+            progress=True,
+        )
 
     def _after_apply(self, report) -> None:
         self.unsaved = False
@@ -1253,7 +1293,67 @@ class MainWindow(QMainWindow):
             self.choose_database()
         self._offer_to_revert_deleted_mods()
         self._validate_quietly()
+        self._offer_clean_copy()
         self._offer_adoption()
+
+    def _offer_clean_copy(self) -> None:
+        """No clean copy for this build: ask whether this file is one.
+
+        After a game update the manager normally keeps the game's own database
+        as the clean copy for the new build by itself, because Steam had just
+        written it and nothing had touched it since. When it cannot tell, the
+        player can: they know whether they have modded this file yet. Asked
+        once per build - saying no is remembered.
+        """
+        manager = self.manager
+        if not manager.db_path or not manager.db_path.is_file():
+            return
+        if manager.chosen_vanilla() is not None:
+            return
+        version = vanilla_library.database_version(manager.db_path)
+        if not version or version in manager.state.clean_copy_asked:
+            return
+        result = manager.capture_clean_copy()
+        if result.ok:
+            self.statusBar().showMessage(
+                f"Kept your masters.db as the clean copy for build {result.label}", 8000
+            )
+            self.refresh()
+            return
+
+        manager.state.clean_copy_asked.append(version)
+        manager.state.save()
+        detail = f"\n\nWhat it found: {result.reason}." if result.reason else ""
+        answer = QMessageBox.question(
+            self,
+            "A game build I have no clean copy of",
+            f"Your database says it is game build {version}, and no clean copy of that "
+            "build ships with the manager. Without one, nothing can be compared: which "
+            "mods are already in your file, and what a mod actually changes, both need "
+            f"an untouched copy of the same build.{detail}\n\n"
+            "Is this file a fresh, unmodded masters.db — the one the game update just "
+            "put there, with no mods applied to it yet?\n\n"
+            "Yes  - keep it as the clean copy for this build.\n"
+            "No   - leave it alone. Nothing is compared until a clean copy turns up.\n\n"
+            "If you are not sure, say No. Steam's Verify integrity of game files puts "
+            "an untouched copy back, and then this can be answered with Yes.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        kept = manager.keep_as_clean_copy()
+        if not kept.ok:
+            QMessageBox.warning(self, "Not kept", kept.reason)
+            return
+        QMessageBox.information(
+            self,
+            "Kept",
+            f"Kept as the clean copy for build {kept.label}, in\n{kept.kept.parent}\n\n"
+            "If it turns out to have mods in it, delete that folder and everything goes "
+            "back to how it was.",
+        )
+        self.refresh()
 
     def _offer_adoption(self) -> None:
         """First run: if their database is already modded, say so and offer to

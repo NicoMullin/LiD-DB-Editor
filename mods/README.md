@@ -112,6 +112,7 @@ The full form. Everything the mod list shows comes from here:
 | `requires`                   | no       | Mod ids that must also be enabled. Applied before yours                                            |
 | `conflicts_with`             | no       | Mod ids that must not be enabled with yours                                                        |
 | `raw_sql_files_do_not_touch` | no       | Tables your raw SQL leaves alone; see [Conflicts](#conflicts)                                      |
+| `requires_check_off`         | no       | Game files you replace that the game checks; see [Files the game checks](#files-the-game-checks)   |
 | `patches`                    | yes      | One or more, applied in order                                                                      |
 
 ## Layout 4: `mod.json` plus files
@@ -429,6 +430,45 @@ is caught too.
    atomically. A failure here rolls the database back too.
 
 Writing a mod that fails validation is cheap and safe. Test freely.
+
+---
+
+## Files the game checks
+
+`BrgGame-Steam.exe` carries a list of file names with the SHA-1 it expects each
+one to have — on the build this was written against, 7,678 of the 7,882
+packages on disk, plus 221 `.ini` and 139 `.usf` files. Replace a file that is
+named there and the game stops at startup with an error box naming the package,
+before the intro plays.
+
+Most reskins never meet this: 251 files on disk are not named in that list, and
+replacing one of those has always just worked.
+
+If your mod replaces a file that *is* checked, say so:
+
+```json
+"requires_check_off": ["WP_AssaultRifle3102_SF.upk"]
+```
+
+When the mod is ticked, the manager reads that list out of the executable in the
+player's game folder. If the game still checks one of your files, the mod does
+not validate and nothing is written — the player is told which file and why,
+instead of meeting an error box in the game that names a package and explains
+nothing.
+
+Names are matched on the file name alone, ignoring case and any folder in front
+of it. Naming a file that turns out not to be checked costs nothing, and a mod
+that names nothing is never blocked.
+
+Switching the check off is not something this manager does — it does not write
+to `BrgGame-Steam.exe` at all. That is a separate tool.
+
+**One thing to keep in mind if you publish a mod like this.** With the check off,
+your mod loads on any build of the game, including builds it was never made for.
+If a game update changes a package your mod replaces, your mod silently puts the
+old version of that content back, and nothing warns the player. Set
+`game_version` so at least the mismatch is visible, and re-cut your mod against
+the new build when the game changes what you replace.
 
 ---
 

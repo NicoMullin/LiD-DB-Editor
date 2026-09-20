@@ -4,11 +4,15 @@ Every grade's revive costs *your chosen price in* KC, including the default revi
 
 ## Your value
 
-**Price** - default **1 KC**, anything from 1 KC to 1,000,000 KC.
+**Price** - default **1 KC**, anything from 1 KC to 200,000 KC.
 
 Select this mod and open the **Configuration** tab on the right to change it, or right-click it and pick **Change values...**. Press Enter or click away, then **Save Mod List**.
 
-Stock prices run from 1,000 to 50,000 KC depending on grade; this sets them all the same.
+Stock prices run from 1,000 to 50,000 KC depending on grade; this sets them all the same. The
+200,000 ceiling is the highest value this same price field is ever set to
+anywhere in the stock game. (v2.0.0 allowed up to 1,000,000 - lowered in
+v2.0.1 after the same field, on the Decal Draw Price mod, was reported to
+crash the game at a very high value.)
 
 ## What it changes
 

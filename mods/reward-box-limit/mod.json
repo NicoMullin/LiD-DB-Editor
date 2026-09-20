@@ -2,7 +2,7 @@
   "id": "reward-box-limit",
   "name": "Reward Box Limit",
   "description": "The reward box holds {{slots:comma}} instead of 50.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "author": "KSFA",
   "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
   "requires": [],
@@ -14,10 +14,10 @@
       "type": "integer",
       "default": 250,
       "min": 50,
-      "max": 9999,
+      "max": 500,
       "step": 50,
       "unit": "slots",
-      "help": "Stock is 50. It cannot go lower, so nothing waiting in the box is lost."
+      "help": "Stock is 50. It cannot go lower, so nothing waiting in the box is lost. Capped at 500 (10x stock) - the sibling stock fields for this kind of box slot count are all exactly 50, with nothing anywhere near as high as the old 9,999 ceiling."
     }
   ],
   "patches": [

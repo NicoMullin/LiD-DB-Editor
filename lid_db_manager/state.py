@@ -58,8 +58,14 @@ class AppliedRecord:
 
 @dataclass
 class Settings:
-    auto_reapply: bool = True  # A3.3: re-apply automatically on a detected change
-    watchdog_enabled: bool = True
+    # Both off by default: the manager must not act, or even watch, unless the
+    # player explicitly turns it on. auto_reapply was on under A3.3; changed
+    # after it fired mid Steam file-verify, silently racing a game-owned file
+    # operation. watchdog_enabled followed it off the same day, at the user's
+    # request, rather than leave background polling running with nothing
+    # acted on to show for it.
+    auto_reapply: bool = False
+    watchdog_enabled: bool = False
     poll_seconds: int = 5
     dark_mode: bool = True
     keep_backups: int = 5
@@ -102,6 +108,9 @@ class State:
     # Set once the database has been scanned for mods already in it, so the
     # offer is made on a first run and never nags afterwards.
     adoption_offered: bool = False
+    # Builds whose clean copy the player has already been asked about, so
+    # saying no once is not asked again on every start.
+    clean_copy_asked: list[str] = field(default_factory=list)
     enabled_mods: list[str] = field(default_factory=list)
     modpacks: dict[str, list[str]] = field(default_factory=dict)
     applied: dict[str, AppliedRecord] = field(default_factory=dict)
@@ -141,6 +150,7 @@ class State:
         state.last_saved_at = str(data.get("last_saved_at", "") or "")
         state.game_root_override = str(data.get("game_root_override", "") or "")
         state.adoption_offered = bool(data.get("adoption_offered", False))
+        state.clean_copy_asked = [str(b) for b in data.get("clean_copy_asked", []) or []]
         state.enabled_mods = [str(m) for m in data.get("enabled_mods", []) or []]
         state.modpacks = {
             str(name): [str(m) for m in mods]
@@ -178,6 +188,7 @@ class State:
             "last_saved_at": self.last_saved_at,
             "game_root_override": self.game_root_override,
             "adoption_offered": self.adoption_offered,
+            "clean_copy_asked": self.clean_copy_asked,
             "enabled_mods": self.enabled_mods,
             "modpacks": self.modpacks,
             "applied": {mod_id: record.to_dict() for mod_id, record in self.applied.items()},

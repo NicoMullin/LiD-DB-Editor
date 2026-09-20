@@ -11,22 +11,33 @@ from typing import Callable
 
 from PySide6.QtCore import QMutex, QMutexLocker, QThread, Signal
 
+from ..progress import Progress
 from ..watchdog import DbStatus, DbWatcher
 
 
 class TaskThread(QThread):
-    """Runs one callable, then emits either its result or the traceback."""
+    """Runs one callable, then emits either its result or the traceback.
+
+    With ``reports_progress`` the callable is handed a Progress, and what it
+    reports arrives on the GUI thread as ``progressed`` - the window must only
+    ever be touched from there.
+    """
 
     succeeded = Signal(object)
     failed = Signal(str)
+    progressed = Signal(str, int)
 
-    def __init__(self, work: Callable[[], object], parent=None):
+    def __init__(self, work: Callable[..., object], parent=None, *, reports_progress: bool = False):
         super().__init__(parent)
         self._work = work
+        self._reports_progress = reports_progress
 
     def run(self) -> None:
         try:
-            result = self._work()
+            if self._reports_progress:
+                result = self._work(Progress(self.progressed.emit))
+            else:
+                result = self._work()
         except Exception:
             self.failed.emit(traceback.format_exc())
             return

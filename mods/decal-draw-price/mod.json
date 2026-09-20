@@ -2,7 +2,7 @@
   "id": "decal-draw-price",
   "name": "Decal Draw Price",
   "description": "A draw from the Mushroom Club's decal pool costs {{price:comma}} KC instead of 50,000.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "author": "KSFA",
   "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
   "requires": [],
@@ -14,10 +14,10 @@
       "type": "integer",
       "default": 10000,
       "min": 1,
-      "max": 1000000,
+      "max": 200000,
       "step": 1000,
       "unit": "KC",
-      "help": "The stock price is 50,000 KC."
+      "help": "The stock price is 50,000 KC. Capped at 200,000 - the highest price this exact field is ever set to anywhere in the stock game, so it stays inside what the game's own shop screens are proven to handle."
     }
   ],
   "patches": [

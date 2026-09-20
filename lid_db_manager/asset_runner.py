@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import exe_checksums, vetted
+from .progress import Progress, ensure as ensure_progress
 from .sqlutil import sha256_file
 
 # Under paths.backups_dir. Holds the ".original" copies plus a manifest that
@@ -335,19 +336,160 @@ def _wanted_transforms(mods_in_load_order) -> dict[str, tuple[object, str]]:
     """target -> (patch, mod id) for patches that rewrite a game file in place.
 
     A transform is not a copy: there is no file in the mod folder to put down,
-    only a change to make to the file already in the game. The one kind that
-    exists edits a hash inside the executable, and it is limited to recordings
-    that ship with the manager - see vetted.py.
+    only a change to make to the file already in the game. Two kinds exist: one
+    hash inside the executable (limited to recordings that ship with the
+    manager - see vetted.py), and packages rebuilt by a TFC Installer mod, which
+    rewrite many files and say which through ``transform_targets``.
     """
     wanted: dict[str, tuple[object, str]] = {}
     for mod in mods_in_load_order:
         for patch in mod.patches:
-            transform = getattr(patch, "transform", None)
-            if not callable(transform):
+            many = getattr(patch, "transform_targets", None)
+            if callable(many):
+                targets = many()
+            elif callable(getattr(patch, "transform", None)):
+                targets = patch.asset_targets()
+            else:
                 continue
-            for target in patch.asset_targets():
+            for target in targets:
                 wanted[_normalise(target)] = (patch, mod.id)
     return wanted
+
+
+TEXTURE_INDEX_FILE = "texture-index.json"
+
+
+def texture_index_file(backups_dir: Path) -> Path:
+    """Where the list of which package holds which texture is kept between runs."""
+    return Path(backups_dir).parent / "cache" / TEXTURE_INDEX_FILE
+
+
+def _bind_tfc_patches(mods_in_load_order, game_root: Path, backups_dir: Path, log) -> list[str]:
+    """Tie every TFC Installer mod to this game folder, before anything is planned.
+
+    Two things are only known with the game in front of us: which packages hold
+    a copy of each texture a pack replaces, and which Texture2D_N.tfc numbers
+    are free. A cache this manager installed itself last time is not "taken" -
+    it is this run's to reuse - so the same mods in the same order land on the
+    same numbers every time. Returns warnings to pass on.
+    """
+    bound = [(mod, patch) for mod in mods_in_load_order for patch in mod.patches
+             if callable(getattr(patch, "bind", None))]
+    if not bound:
+        return []
+    from .upk import texture_index, tfcmod
+
+    cooked = game_root / tfcmod.COOKED
+    if not cooked.is_dir():
+        raise OSError(f"{cooked} is not there - is this the game folder?")
+    manifest = _load_manifest(backups_dir)
+    ours = set()
+    for target, entry in manifest.items():
+        name = Path(target).name
+        if entry.get("backup") is None and name.startswith("Texture2D_") and name.endswith(".tfc"):
+            suffix = name[len("Texture2D_"):-len(".tfc")]
+            if suffix.isdigit():
+                ours.add(int(suffix))
+    taken = tfcmod.cache_numbers_present(cooked) - ours
+
+    cache_file = texture_index_file(backups_dir)
+    if log and not cache_file.is_file():
+        log.info("finding which game packages hold each texture - the first time "
+                 "takes a few minutes, and is remembered after that")
+    index = texture_index.build(cooked, cache_file)
+
+    # A cache already in the game with exactly the pack's bytes is used as it
+    # is. Without this, a mod installed before - by TFC Installer, or by an
+    # install of the manager whose records are gone - gets a second copy of the
+    # same file under a new number every time. Ones TFC Installer does not
+    # claim are tried first, so its own install is left as it was.
+    tfc_owned = _tfc_installer_caches(game_root)
+    reusable = sorted(taken, key=lambda n: (n in tfc_owned, n))
+
+    warnings = []
+    for mod, patch in bound:
+        installed_as = {}
+        for own_number in sorted(patch.tfc.caches):
+            same = _identical_cache(patch.tfc.caches[own_number], cooked, reusable)
+            if same is not None:
+                reusable.remove(same)
+                installed_as[own_number] = same
+        rest = [i for i in sorted(patch.tfc.caches) if i not in installed_as]
+        installed_as.update(zip(rest, tfcmod.allocate(len(rest), taken)))
+        patch.bind(tfcmod.packages_changed(patch.tfc, index), installed_as)
+        missing = tfcmod.missing_textures(patch.tfc, index)
+        if missing:
+            shown = ", ".join(Path(m.replace("\\", "/")).name for m in missing[:3])
+            more = f" and {len(missing) - 3} more" if len(missing) > 3 else ""
+            warnings.append(f"{mod.id}: {len(missing)} texture(s) in its pack are not in "
+                            f"any package of this game ({shown}{more}) - left alone")
+    return warnings
+
+
+def bind_tfc_patches_for_validation(mods, game_root: Path) -> None:
+    """Enough binding to know which packages each TFC Installer mod rebuilds.
+
+    Validation has no backups folder in hand, so this uses the texture index only
+    if it has already been built and leaves cache numbers alone - it is asking
+    what will change, not deciding it.
+    """
+    bound = [patch for mod in mods for patch in mod.patches
+             if callable(getattr(patch, "bind", None))]
+    if not bound:
+        return
+    from .upk import texture_index, tfcmod
+    cooked = Path(game_root) / tfcmod.COOKED
+    if not cooked.is_dir():
+        return
+    from .paths import AppPaths
+    cache_file = texture_index_file(AppPaths.default().backups_dir)
+    if not cache_file.is_file():
+        return          # the first save builds it; until then patched packages only
+    index = texture_index.build(cooked, cache_file)
+    for patch in bound:
+        patch.bind(tfcmod.packages_changed(patch.tfc, index), {})
+
+
+def bind_tfc_patches_for_revert(mods, game_root: Path, backups_dir: Path) -> None:
+    """Tie TFC Installer mods to the game folder so switching them off is complete.
+
+    A freshly loaded mod does not know which packages hold its textures, or
+    which Texture2D_N.tfc it went in as, and without both, switching it off would
+    leave those behind. The packages come from the same index as installing. The
+    cache is found by what is in it - the installed file is the pack's own,
+    byte for byte - so the answer does not depend on load order or on which
+    other mods happen to be enabled right now.
+    """
+    bound = [patch for mod in mods for patch in mod.patches
+             if callable(getattr(patch, "bind", None))]
+    if not bound:
+        return
+    from .upk import texture_index, tfcmod
+
+    cooked = Path(game_root) / tfcmod.COOKED
+    if not cooked.is_dir():
+        return
+    manifest = _load_manifest(backups_dir)
+    ours = {}
+    for target, entry in manifest.items():
+        name = Path(target).name
+        if entry.get("backup") is None and name.startswith("Texture2D_") and name.endswith(".tfc"):
+            path = cooked / name
+            if path.is_file():
+                ours[name] = path
+    index = texture_index.build(cooked, texture_index_file(backups_dir))
+    for patch in bound:
+        installed_as = {}
+        for pack_number, source in sorted(patch.tfc.caches.items()):
+            size = source.stat().st_size
+            wanted = None
+            for name, path in ours.items():
+                if path.stat().st_size == size and sha256_file(path) == sha256_file(source):
+                    wanted = int(name[len("Texture2D_"):-len(".tfc")])
+                    break
+            if wanted is not None:
+                installed_as[pack_number] = wanted
+        patch.bind(tfcmod.packages_changed(patch.tfc, index), installed_as)
 
 
 def _stage_transforms(
@@ -356,6 +498,7 @@ def _stage_transforms(
     store: Path,
     manifest: dict[str, dict],
     staging: Path,
+    progress: Progress | None = None,
 ) -> tuple[list[tuple[str, Path, Path]], dict[str, Path]]:
     """Work out each transformed file's new contents, without writing to the game.
 
@@ -373,8 +516,11 @@ def _stage_transforms(
     """
     plan: list[tuple[str, Path, Path]] = []
     stock_files: dict[str, Path] = {}
+    progress = ensure_progress(progress)
     staging.mkdir(parents=True, exist_ok=True)
-    for target, (patch, mod_id) in sorted(transforms.items()):
+    ordered = sorted(transforms.items())
+    for number, (target, (patch, mod_id)) in enumerate(ordered):
+        progress.step(number, len(ordered), f"Rebuilding {Path(target).name}...")
         dest = _resolve_target(game_root, target)
         if not dest.is_file():
             raise OSError(f"{mod_id}: {target} is not in the game folder")
@@ -390,16 +536,39 @@ def _stage_transforms(
         if not pristine.is_file():
             raise OSError(f"{mod_id}: the saved copy of {target} is missing")
         found = pristine.read_bytes()
+        if not kept and callable(getattr(patch, "transform_target", None)):
+            # The first time a package is rebuilt, the copy on disk becomes the
+            # way back - so it had better be the game's own. A package another
+            # tool already changed (TFC Installer, most likely) is refused rather
+            # than kept, or switching the mod off would put that tool's version
+            # back instead of the game's.
+            stock_sha1 = stock_hash_for(game_root, dest.name)
+            if stock_sha1 is not None and hashlib.sha1(found).hexdigest() != stock_sha1:
+                # Changed already - by TFC Installer, or by an earlier install of
+                # the manager whose backups are gone. Either way, an untouched
+                # copy proven by the game's own hash is as good as the original.
+                rescued = find_stock_copy(game_root, dest.name, stock_sha1)
+                if rescued is None:
+                    raise OSError(
+                        f"{mod_id}: {dest.name} has already been changed - by an earlier "
+                        "install of this mod, or by TFC Installer - and no untouched copy "
+                        "of it could be found to rebuild from. Steam's \"Verify integrity "
+                        "of game files\" puts the game's own copy back. It also resets "
+                        "masters.db and the game .exe, so switch the file check back off "
+                        "and save your mod list again afterwards.")
+                found = rescued.read_bytes()
+                stock_files[target] = rescued
         try:
             stock = patch.to_pristine(found)
-            produced = patch.transform(stock)
+            per_file = getattr(patch, "transform_target", None)
+            produced = per_file(target, stock) if callable(per_file) else patch.transform(stock)
         except Exception as exc:  # the patch says why; the runner just refuses
             raise OSError(f"{mod_id}: {target} was not changed - {exc}") from exc
         staged = staging / _flatten(target)
         staged.parent.mkdir(parents=True, exist_ok=True)
         staged.write_bytes(produced)
         plan.append((target, staged, dest))
-        if stock != found:
+        if stock != found and target not in stock_files:
             # The file on disk already carried the change. Keep the stock form
             # instead, so unticking the mod has something real to go back to.
             stock_path = staging / (_flatten(target) + ".stock")
@@ -454,6 +623,96 @@ def expected_checksums(game_root: Path, transforms=None) -> dict[str, str]:
         if recipe is not None:
             expected[recipe.package.lower()] = recipe.checksum_after.lower()
     return expected
+
+
+TFC_BACKUP_GLOB = "TFCInstallerBackups*"
+
+
+def find_stock_copy(game_root: Path, file_name: str, stock_sha1: str) -> Path | None:
+    """An untouched copy of a game file, for when the one in the game is changed.
+
+    TFC Installer keeps the file it replaced as ``<name>Backup`` under
+    TFCInstallerBackups in the game folder. Whatever is found there is only
+    trusted if its SHA-1 is the one the game's executable lists for that file,
+    so a backup from an older game build, or of an already-modded file, is
+    passed over rather than used.
+    """
+    wanted = (file_name + "Backup").lower()
+    for folder in sorted(Path(game_root).glob(TFC_BACKUP_GLOB)):
+        if not folder.is_dir():
+            continue
+        for candidate in folder.rglob("*"):
+            if candidate.name.lower() != wanted or not candidate.is_file():
+                continue
+            try:
+                if _sha1_file(candidate) == stock_sha1.lower():
+                    return candidate
+            except OSError:
+                continue
+    return None
+
+
+def _sha1_file(path: Path) -> str:
+    digest = hashlib.sha1()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _tfc_installer_caches(game_root: Path) -> set[int]:
+    """Texture2D_N.tfc numbers TFC Installer says it put into the game."""
+    out = set()
+    for folder in Path(game_root).glob(TFC_BACKUP_GLOB):
+        if not folder.is_dir():
+            continue
+        for marker in folder.rglob("Texture2D_*.tfcInstalled"):
+            suffix = marker.name[len("Texture2D_"):-len(".tfcInstalled")]
+            if suffix.isdigit():
+                out.add(int(suffix))
+    return out
+
+
+def _identical_cache(pack_file: Path, cooked: Path, candidates: list[int]) -> int | None:
+    """A Texture2D_N.tfc already in the game with exactly this pack's bytes."""
+    size = pack_file.stat().st_size
+    wanted = None
+    for number in candidates:
+        existing = cooked / f"Texture2D_{number}.tfc"
+        try:
+            if existing.stat().st_size != size:
+                continue
+            wanted = wanted or sha256_file(pack_file)
+            if sha256_file(existing) == wanted:
+                return number
+        except OSError:
+            continue
+    return None
+
+
+def stock_hash_for(game_root: Path, file_name: str) -> str | None:
+    """The SHA-1 the game shipped this file with, from its executable's list.
+
+    Found even when the file check has been switched off: that only changes the
+    last letter of each name - ``Cafe_KIS.upk`` becomes ``cafe_kis.upx`` - and
+    leaves the hash beside it exactly as it was. None when the game does not
+    list the file, or the executable cannot be read.
+    """
+    exe = Path(game_root) / vetted.GAME_EXE
+    if not exe.is_file():
+        return None
+    try:
+        entries = exe_checksums.read_entries(exe.read_bytes())
+    except Exception:
+        return None
+    wanted = file_name.lower()
+    entry = entries.get(wanted)
+    if entry is not None:
+        return entry.sha1
+    for name, entry in entries.items():
+        if len(name) == len(wanted) and name[:-1] == wanted[:-1] and name[-1] in "xy":
+            return entry.sha1
+    return None
 
 
 def _is_game_exe(target: str) -> bool:
@@ -640,8 +899,10 @@ def apply_asset_patches(
     backups_dir: Path,
     *,
     log=None,
+    progress: Progress | None = None,
 ) -> AssetApplyReport:
     """Copy every enabled mod's game files into place, last-wins by load order."""
+    progress = ensure_progress(progress)
     report = AssetApplyReport()
     game_root = Path(game_root)
     if not game_root.is_dir():
@@ -650,6 +911,10 @@ def apply_asset_patches(
         return report
 
     try:
+        for warning in _bind_tfc_patches(mods_in_load_order, game_root, backups_dir, log):
+            report.warnings.append(warning)
+            if log:
+                log.warn(warning)
         wanted = _wanted_files(mods_in_load_order)
         transforms = _wanted_transforms(mods_in_load_order)
     except OSError as exc:
@@ -720,9 +985,12 @@ def apply_asset_patches(
     try:
         # Transforms first: they read the pristine file, so they must be worked
         # out before anything this run writes.
+        # Rebuilding packages is the slow part; copying files is quick.
         staged_plan, stock_files = _stage_transforms(
-            transforms, game_root, store, manifest, rollback_dir / "staged"
+            transforms, game_root, store, manifest, rollback_dir / "staged",
+            progress.part(0.0, 0.8 if transforms else 0.0, "Rebuilding game packages..."),
         )
+        copying = progress.part(0.8 if transforms else 0.0, 1.0, "Copying game files...")
         for target, source, dest in staged_plan:
             if dest.is_file() and sha256_file(dest) == sha256_file(source):
                 # Already exactly what this mod wants: installed by hand, or
@@ -761,7 +1029,8 @@ def apply_asset_patches(
 
     done: list[tuple[str, Path, bool]] = []  # target, dest, existed_before_this_run
     try:
-        for target, source, dest in plan:
+        for number, (target, source, dest) in enumerate(plan):
+            copying.step(number, len(plan), f"Copying {Path(target).name}...")
             existed = dest.is_file()
             # Rollback copy of this run's starting state.
             if existed:

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QFont
+from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTreeWidget, QTreeWidgetItem
 
+from ..conflict import SERIOUS
 from ..manager import Manager
 from ..vetted import GAME_EXE
 from .theme import STATUS_GLYPH, STATUS_KEY, STATUS_TEXT, status_color
@@ -29,6 +30,36 @@ def _affects(tables: list[str], asset_targets: list[str]) -> str:
     bits = list(tables)
     bits += [f"file: {target.rsplit('/', 1)[-1]}" for target in asset_targets]
     return ", ".join(bits) or "-"
+
+
+DOT_SIZE = 12
+
+# What each dot means, for the tooltip - colour alone does not say it.
+DOT_TOOLTIP = {
+    "failed": (
+        "Red dot: this mod failed, or another mod overwrites the very same values "
+        "it changes, so some of its changes are lost."
+    ),
+    "pending": (
+        "Yellow dot: this mod shares a table with another mod, or has a warning. "
+        "Nothing is proven to be overwritten."
+    ),
+}
+
+
+def _dot(color: QColor | None) -> QIcon:
+    """A round dot for the mod's name, or an empty space the same size so the
+    names without one still line up."""
+    pixmap = QPixmap(DOT_SIZE, DOT_SIZE)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    if color is not None:
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        painter.drawEllipse(1, 1, DOT_SIZE - 2, DOT_SIZE - 2)
+        painter.end()
+    return QIcon(pixmap)
 
 
 def _touches_executable(targets) -> bool:
@@ -65,6 +96,7 @@ class ModListWidget(QTreeWidget):
         # but not worth showing twenty times over, so the list starts folded up
         # and remembers what was opened across the rebuilds a toggle triggers.
         self._expanded: set[str] = set()
+        self._dots: dict[tuple[bool, str], QIcon] = {}  # (dark, level) -> dot
 
         # Column 0 carries the checkbox and the load-order number together.
         self.setColumnCount(4)
@@ -159,10 +191,18 @@ class ModListWidget(QTreeWidget):
             item.setText(2, f"{STATUS_GLYPH[status]} {STATUS_TEXT[status]}")
             item.setText(3, _affects(sorted(mod.tables()), mod.asset_targets()))
 
+            # A dot instead of opening the row: the warning is there to be
+            # seen, and the arrow is there for whoever wants to read it.
+            level = self._problem_level(mod.id, conflicts, validation)
+            item.setIcon(1, self._dot_for(level))
+            name_tips = [DOT_TOOLTIP[level] + " Open the row to read why."] if level else []
+
             if marked:
                 item.setForeground(1, QBrush(status_color(self.dark, "pending")))
-                item.setToolTip(1, EXE_TOOLTIP)
+                name_tips.append(EXE_TOOLTIP)
                 item.setToolTip(3, EXE_TOOLTIP)
+            if name_tips:
+                item.setToolTip(1, "\n\n".join(name_tips))
 
             color = status_color(self.dark, STATUS_KEY[status])
             item.setForeground(2, QBrush(color))
@@ -186,16 +226,14 @@ class ModListWidget(QTreeWidget):
             detail.setData(0, MOD_ID_ROLE, mod.id)
             detail.setText(0, self._detail_text(mod, status, conflicts, validation))
             detail.setForeground(0, QBrush(status_color(self.dark, "dim")))
-            if self._problem_messages(mod.id, conflicts, validation):
-                detail.setForeground(0, QBrush(status_color(self.dark, "pending")))
+            if level:
+                detail.setForeground(0, QBrush(status_color(self.dark, level)))
 
             self._add_parts(item, mod)
-            # Folded unless the user opened it - or unless there is something
-            # wrong with it, because a warning nobody can see is no warning.
-            item.setExpanded(
-                mod.id in self._expanded
-                or bool(self._problem_messages(mod.id, conflicts, validation))
-            )
+            # Folded unless the user opened it. A mod with a problem used to
+            # open itself, which on a long list meant half of it was open; the
+            # dot says there is something to read instead.
+            item.setExpanded(mod.id in self._expanded)
 
         for failure in self.manager.scan.failures:
             item = QTreeWidgetItem(self)
@@ -269,6 +307,27 @@ class ModListWidget(QTreeWidget):
             if applied is not None and applied.error:
                 messages.insert(0, f"FAILED: {applied.error}")
         return messages
+
+    def _problem_level(self, mod_id: str, conflicts, validation) -> str:
+        """The theme colour for this mod's dot: "failed" (red), "pending"
+        (yellow), or "" for no dot.
+
+        Red when the mod failed, or another mod provably overwrites the same
+        cells or file. Yellow for anything else worth a look - a shared table,
+        a warning, a missing requirement.
+        """
+        messages = self._problem_messages(mod_id, conflicts, validation)
+        if not messages:
+            return ""
+        if any(m.startswith("FAILED") for m in messages):
+            return "failed"
+        return "failed" if conflicts.severity_for(mod_id) == SERIOUS else "pending"
+
+    def _dot_for(self, level: str) -> QIcon:
+        key = (self.dark, level)
+        if key not in self._dots:
+            self._dots[key] = _dot(status_color(self.dark, level) if level else None)
+        return self._dots[key]
 
     def _detail_text(self, mod, status: str, conflicts, validation) -> str:
         lines = [mod.description or "(no description)"]

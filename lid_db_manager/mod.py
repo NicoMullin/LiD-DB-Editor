@@ -20,7 +20,8 @@ from .settings import (
 )
 
 REQUIRED_FIELDS = ("id", "name", "description", "version", "author")
-STRING_LIST_FIELDS = ("requires", "conflicts_with", "raw_sql_files_do_not_touch")
+STRING_LIST_FIELDS = ("requires", "conflicts_with", "raw_sql_files_do_not_touch",
+                      "requires_check_off")
 
 # Source layouts, per the detection rule in the spec.
 SOURCE_JSON = "mod.json"
@@ -55,6 +56,12 @@ class Mod:
     game_versions: list[str] = field(default_factory=list)
     requires: list[str] = field(default_factory=list)
     conflicts_with: list[str] = field(default_factory=list)
+    # Game files this mod replaces that the game will refuse unless its file
+    # check has been switched off for them. The executable keeps a hash for
+    # some of its files; replace one that is still listed and the game stops at
+    # startup with an error naming it. A mod that names its files here is
+    # refused with an explanation instead, before anything is written.
+    requires_check_off: list[str] = field(default_factory=list)
     raw_sql_files_do_not_touch: list[str] = field(default_factory=list)
     source: str = SOURCE_JSON
     apply_mode: str = APPLY_DIRECT
@@ -265,6 +272,9 @@ def load_mod_json(mod_dir: Path) -> Mod:
         game_versions=game_versions,
         requires=_as_string_list(data.get("requires"), mod_ref, "requires"),
         conflicts_with=_as_string_list(data.get("conflicts_with"), mod_ref, "conflicts_with"),
+        requires_check_off=_as_string_list(
+            data.get("requires_check_off"), mod_ref, "requires_check_off"
+        ),
         raw_sql_files_do_not_touch=_as_string_list(
             data.get("raw_sql_files_do_not_touch"), mod_ref, "raw_sql_files_do_not_touch"
         ),
