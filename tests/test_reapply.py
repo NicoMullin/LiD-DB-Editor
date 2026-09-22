@@ -272,6 +272,31 @@ class SayingSoBeforeItLooksLikeAFault(Base):
                 self.assertIsNone(row_already_there(con, statement))
         con.close()
 
+    def test_a_row_whose_text_runs_over_several_lines_still_matches(self) -> None:
+        """The game's mail and tips are paragraphs, with the line breaks in them.
+
+        Squeezing the statement onto one line to read it rewrote the very text
+        it was about to look for, so a row sitting right there in the table
+        came back as missing.
+        """
+        target = self.root / "lines.db"
+        a_database(target)
+        con = sqlite3.connect(target)
+        con.execute(
+            "INSERT INTO master_part_equipment VALUES ('PT_NOTE', 3, ?)",
+            ("Dear Senpai,\n \nthis update\n-- and the next --\nchanges a lot.",),
+        )
+        con.commit()
+        con.close()
+        con = connect(target)
+        self.assertTrue(row_already_there(
+            con,
+            'INSERT OR REPLACE INTO "master_part_equipment" ("id", "slot", "note") '
+            "VALUES ('PT_NOTE', 3, 'Dear Senpai,\n \nthis update\n"
+            "-- and the next --\nchanges a lot.');",
+        ))
+        con.close()
+
     def test_a_null_in_the_row_still_matches(self) -> None:
         target = self.root / "nulls.db"
         a_database(target)

@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import apply as A
+from . import bytepatch
 from . import package as P
 from . import packagepatch as PP
 from . import texture2d as T2
@@ -168,6 +169,7 @@ def transform(mod: TfcMod, package_name: str, stock: bytes,
     Texture2D_3.tfc in the game, if three are there already.
     """
     package = P.read(stock)
+    flat_before = package.data
     patch_file = mod.patches.get(package_name.lower())
     if patch_file is not None:
         try:
@@ -192,7 +194,14 @@ def transform(mod: TfcMod, package_name: str, stock: bytes,
         if updates:
             flat, _ = A.apply_textures(package, updates)
             package = P.read(flat)
-    return package.data
+
+    # Written back as chunks when it can be: a change usually touches a few of
+    # them, and the rest are copied across still compressed, so the package
+    # stays near the size the game shipped instead of two to three times it.
+    # Anything that cannot be done that way is written flat, which the game
+    # also reads - that was the only way this worked before.
+    packed = bytepatch.write_chunks(stock, flat_before, package.data)
+    return packed if packed is not None else package.data
 
 
 def cache_numbers_present(cooked_dir: Path) -> set[int]:

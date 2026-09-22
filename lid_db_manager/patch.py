@@ -16,6 +16,7 @@ step (see asset_runner) once the database transaction has committed.
 from __future__ import annotations
 
 import re
+import struct
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,6 +56,12 @@ FULL_TABLE_SNAPSHOT_LIMIT = 200_000
 
 # How many rows a diff preview shows before it says "... and N more".
 PREVIEW_ROW_LIMIT = 50
+
+# How many statements a raw-SQL preview lists. A shared dump of whole tables
+# runs to six figures of INSERTs: listing them all built a 23 MB block of text,
+# and laying that out is what made the window go blank and look as though the
+# program had died.
+PREVIEW_STATEMENT_LIMIT = 40
 
 
 @dataclass
@@ -510,6 +517,10 @@ class RawSqlPatch(Patch):
 
     type = "raw_sql"
 
+    # Set on the class so the file-backed subclass, which skips this one's
+    # __init__, starts with a cache too. See _parsed().
+    _parsed_cache: tuple[object, list[str], list[str], set[str], set[str]] | None = None
+
     def __init__(self, data: dict, mod_dir: Path, index: int):
         super().__init__(data, mod_dir, index)
         self.sql: str = data.get("sql") or ""
@@ -528,20 +539,47 @@ class RawSqlPatch(Patch):
         first = " ".join(self.sql_text().split())
         return (first[:110] + "...") if len(first) > 110 else first
 
+    def _cache_key(self) -> object:
+        """What tells a stale parse from a good one. The SQL itself, here."""
+        return self.sql_text()
+
+    def _parsed(self) -> tuple[object, list[str], list[str], set[str], set[str]]:
+        """Split and scan the script once, and keep it while the text is the same.
+
+        One pass through the mod list asks a patch for its statements, its
+        tables and the tables it creates several times over, and for a 24 MB
+        dump of whole tables each of those is seconds of work on identical
+        text. _cache_key() is what says the text has changed since last time.
+        """
+        key = self._cache_key()
+        cache = self._parsed_cache
+        if cache is None or cache[0] != key:
+            text = self.sql_text()
+            statements = split_statements(text)
+            cache = (
+                key,
+                [s for s in statements if not is_transaction_control(s)],
+                [s for s in statements if is_transaction_control(s)],
+                tables_written_by(text),
+                tables_created_by(text),
+            )
+            self._parsed_cache = cache
+        return cache
+
     def statements(self) -> list[str]:
         """The statements that will actually run - transaction control removed."""
-        return [s for s in split_statements(self.sql_text()) if not is_transaction_control(s)]
+        return list(self._parsed()[1])
 
     def transaction_statements(self) -> list[str]:
         """The BEGIN/COMMIT/ROLLBACK lines that were dropped, for the warning."""
-        return [s for s in split_statements(self.sql_text()) if is_transaction_control(s)]
+        return list(self._parsed()[2])
 
     def tables(self) -> set[str]:
-        return tables_written_by(self.sql_text())
+        return set(self._parsed()[3])
 
     def creates_tables(self) -> set[str]:
         """Tables this patch brings into being, rather than writing to."""
-        return tables_created_by(self.sql_text())
+        return set(self._parsed()[4])
 
     def targets(self) -> set[tuple[str, str]]:
         return {(table, "*") for table in self.tables()}
@@ -598,8 +636,13 @@ class RawSqlPatch(Patch):
         # the same thing was installed by its own installer first. That is not a
         # problem and the apply will go through, but it explains why saving
         # changes nothing, so it is worth saying before it looks like a fault.
+        # Not said about a script that recreates the tables it writes. That is
+        # a dump of whole tables rather than a set of additions, and nearly
+        # every row in one matches the database whatever the mod changes - so
+        # "it is all there already" would be true of a clean database too, and
+        # would tell somebody their rebalance was installed when it is not.
         checked, present = inserts_already_present(con, statements)
-        if checked and present == checked:
+        if checked and present == checked and not self.creates_tables():
             warnings.append(
                 f"{self.source_label()}: everything it adds is already in your "
                 "database - something else appears to have installed this content "
@@ -711,10 +754,24 @@ class RawSqlPatch(Patch):
             )
             for table in tables
         ]
-        note = "Raw SQL - row-level preview is not available. Statements:\n" + "\n".join(
-            self.statements()
-        )
+        note = self._statement_listing()
         return DiffPreview(self.summary(), ", ".join(tables) or "(unknown)", len(rows), rows, note)
+
+    def _statement_listing(self) -> str:
+        """The statements, as much of them as is worth putting on screen.
+
+        Each line is shortened to its gist and the list stops at
+        PREVIEW_STATEMENT_LIMIT. A preview is there to say what a mod does, and
+        nobody reads 145,000 INSERTs off a panel - but the window had to lay
+        them all out first, which is what looked like a crash.
+        """
+        statements = self.statements()
+        shown = [_statement_gist(s) for s in statements[:PREVIEW_STATEMENT_LIMIT]]
+        rest = len(statements) - len(shown)
+        if rest > 0:
+            shown.append(f"... and {rest} more statement(s)")
+        return "Raw SQL - row-level preview is not available. Statements:\n" + "\n".join(shown)
+
 
     @staticmethod
     def _why(con: sqlite3.Connection, statement: str, exc: sqlite3.Error) -> str:
@@ -827,6 +884,24 @@ class RawSqlFilePatch(RawSqlPatch):
 
     def source_label(self) -> str:
         return self.rel_path
+
+    def _cache_key(self) -> object:
+        """The file's stamp rather than its contents.
+
+        A shared dump runs to tens of megabytes, and reading it back only to
+        find it unchanged costs more than everything else a refresh of the mod
+        list does. The chosen values go in too: they are rendered into the text.
+        """
+        try:
+            stat = self.path.stat()
+        except OSError:
+            return None  # gone - sql_text() reads as empty, and says so again
+        return (
+            str(self.path),
+            stat.st_mtime_ns,
+            stat.st_size,
+            tuple(sorted(self.setting_values.items())),
+        )
 
     def sql_text(self) -> str:
         # Read at apply-time so editing the .sql file doesn't need a rescan.
@@ -1262,6 +1337,178 @@ class TfcInstallerPatch(Patch):
         return PatchResult(rows_changed=0)
 
 
+class PackageBytesPatch(Patch):
+    """A few bytes changed inside a game package, found by what surrounds them.
+
+    Some numbers are not in ``masters.db``: they are compiled into the
+    UnrealScript bytecode inside a package. The wait before a dead enemy drops
+    its reward is one. Changing it means rewriting bytes in BrgGame.upk, which
+    is what this does - see upk/bytepatch.py for how one chunk of a 179 MB file
+    is rebuilt without touching the rest.
+
+        {
+          "type": "package_bytes",
+          "target": "BrgGame/CookedPCConsole/BrgGame.upk",
+          "edits": [
+            {
+              "name": "Item Drop Delay Time",
+              "find": [{"hex": "2c061f"}, {"text": "Item Drop Delay Time"},
+                       {"hex": "00282c"}],
+              "follows": [{"hex": "251ecdcccc3d16"}],
+              "write": {"type": "u8", "value": 0}
+            }
+          ]
+        }
+
+    ``find`` is the bytes just BEFORE the value and ``follows`` the bytes just
+    after it, so a site is still found once it has been changed - which is what
+    lets the mod be re-applied, or read back, without putting the file back
+    first. Every write is fixed-width, so nothing in the package moves.
+
+    The game keeps a checksum for most packages and refuses a changed one at
+    startup, so a mod using this says ``requires_check_off`` for its target.
+    """
+
+    type = "package_bytes"
+
+    WIDTHS = {"u8": 1, "i32": 4}
+
+    def __init__(self, data: dict, mod_dir: Path, index: int):
+        super().__init__(data, mod_dir, index)
+        label = f"patch #{index + 1} (package_bytes)"
+        self.target = _clean_game_relative(data.get("target"), label, mod_dir.name)
+        if not self.target.lower().endswith(".upk"):
+            raise ModLoadError(mod_dir.name, f"{label} 'target' has to be a .upk package")
+        raw_edits = data.get("edits")
+        if not isinstance(raw_edits, list) or not raw_edits:
+            raise ModLoadError(mod_dir.name, f"{label} needs a non-empty 'edits' list")
+        self.edits = [self._read_edit(entry, mod_dir, label, n)
+                      for n, entry in enumerate(raw_edits)]
+
+    def _read_edit(self, entry, mod_dir: Path, label: str, number: int) -> dict:
+        where = f"{label} edit #{number + 1}"
+        if not isinstance(entry, dict):
+            raise ModLoadError(mod_dir.name, f"{where} is not a JSON object")
+        write = entry.get("write")
+        if not isinstance(write, dict):
+            raise ModLoadError(mod_dir.name, f"{where} needs a 'write'")
+        kind = str(write.get("type") or "u8")
+        if kind not in self.WIDTHS:
+            raise ModLoadError(
+                mod_dir.name,
+                f"{where} writes {kind!r}, which is not one of: "
+                + ", ".join(sorted(self.WIDTHS)))
+        try:
+            value = int(write.get("value"))
+        except (TypeError, ValueError):
+            raise ModLoadError(mod_dir.name, f"{where} 'value' is not a whole number") from None
+        limits = {"u8": (0, 255), "i32": (-2**31, 2**31 - 1)}[kind]
+        if not limits[0] <= value <= limits[1]:
+            raise ModLoadError(mod_dir.name,
+                               f"{where} value {value} does not fit in {kind}")
+        return {
+            "name": str(entry.get("name") or "").strip() or f"edit #{number + 1}",
+            "find": _signature(entry.get("find"), mod_dir, where, "find"),
+            "follows": _signature(entry.get("follows") or [], mod_dir, where, "follows"),
+            "type": kind,
+            "value": value,
+        }
+
+    # -- game files -----------------------------------------------------------
+
+    def transform_targets(self) -> list[str]:
+        return [self.target]
+
+    def asset_targets(self) -> set[str]:
+        return {self.target}
+
+    def transform_target(self, target: str, stock: bytes) -> bytes:
+        from .upk import bytepatch
+
+        data = stock
+        for edit in self.edits:
+            try:
+                site = bytepatch.find(data, edit["find"], follows=edit["follows"])
+            except bytepatch.SiteError as problem:
+                raise ValueError(f"{edit['name']}: {problem}") from None
+            raw = bytearray(site.raw)
+            if edit["type"] == "u8":
+                raw[site.at] = edit["value"]
+            else:
+                struct.pack_into("<i", raw, site.at, edit["value"])
+            data = bytepatch.rewrite(data, site, bytes(raw))
+        return data
+
+    def to_pristine(self, raw: bytes) -> bytes:
+        # A changed package cannot be read backwards to the stock one; the copy
+        # the asset runner keeps the first time is the way back.
+        return raw
+
+    # -- hooks ----------------------------------------------------------------
+
+    def summary(self) -> str:
+        names = ", ".join(edit["name"] for edit in self.edits)
+        detail = f"{Path(self.target).name}: {names}"
+        return f"{self.description} [{detail}]" if self.description else detail
+
+    def tables(self) -> set[str]:
+        return set()
+
+    def targets(self) -> set[tuple[str, str]]:
+        return set()
+
+    def validate(self, con: sqlite3.Connection, mod_id: str) -> list[str]:
+        return ["changes bytes inside a game package, so the game's file check has to "
+                "be off for it - and the package is rebuilt on every save"]
+
+    def snapshot_specs(self, con: sqlite3.Connection) -> list[SnapshotSpec]:
+        return []
+
+    def preview(self, con: sqlite3.Connection) -> DiffPreview:
+        rows = [DiffRow(key=edit["name"], before="(as the game ships it)",
+                        after=str(edit["value"]))
+                for edit in self.edits[:PREVIEW_ROW_LIMIT]]
+        return DiffPreview(self.summary(), Path(self.target).name, len(self.edits), rows, "")
+
+    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+        # Game files are written by the asset runner after the database commits.
+        return PatchResult(rows_changed=0)
+
+
+def _signature(parts, mod_dir: Path, where: str, field: str) -> bytes:
+    """Bytes from a list of {"hex": ...} and {"text": ...} pieces.
+
+    Two ways of saying it because a signature is normally both: bytecode around
+    a readable label. Written out rather than as one hex blob so a reader can
+    see which part is which.
+    """
+    if isinstance(parts, (str, bytes)):
+        parts = [{"hex": parts}]
+    if not isinstance(parts, list):
+        raise ModLoadError(mod_dir.name, f"{where} '{field}' is not a list")
+    out = bytearray()
+    for piece in parts:
+        if not isinstance(piece, dict) or len(piece) != 1:
+            raise ModLoadError(
+                mod_dir.name,
+                f"{where} '{field}' takes pieces of one key: 'hex' or 'text'")
+        kind, value = next(iter(piece.items()))
+        if kind == "text":
+            out += str(value).encode("latin-1", "strict")
+        elif kind == "hex":
+            try:
+                out += bytes.fromhex(str(value).replace(" ", ""))
+            except ValueError:
+                raise ModLoadError(mod_dir.name,
+                                   f"{where} '{field}' has hex that is not hex: {value!r}") from None
+        else:
+            raise ModLoadError(mod_dir.name,
+                               f"{where} '{field}' has an unknown piece {kind!r}")
+    if field == "find" and not out:
+        raise ModLoadError(mod_dir.name, f"{where} needs a 'find'")
+    return bytes(out)
+
+
 _PATCH_TYPES: dict[str, type[Patch]] = {
     UpdateSetPatch.type: UpdateSetPatch,
     TextReplacePatch.type: TextReplacePatch,
@@ -1270,6 +1517,7 @@ _PATCH_TYPES: dict[str, type[Patch]] = {
     AssetFilePatch.type: AssetFilePatch,
     ExeChecksumPatch.type: ExeChecksumPatch,
     TfcInstallerPatch.type: TfcInstallerPatch,
+    PackageBytesPatch.type: PackageBytesPatch,
 }
 
 PATCH_TYPE_NAMES = tuple(sorted(_PATCH_TYPES))

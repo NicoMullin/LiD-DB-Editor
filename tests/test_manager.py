@@ -382,6 +382,7 @@ class ShippedModTests(unittest.TestCase):
         "LET IT DIE Crossover Content v3.79",
         "Colored PlayStation Buttons v1.4",
         "Tower Static Radio",
+        "instant-drops",
     }
 
     # By S3er0i9ng, shipped with their permission. Named exactly as a drop of

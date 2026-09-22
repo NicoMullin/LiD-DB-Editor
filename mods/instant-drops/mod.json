@@ -1,0 +1,43 @@
+{
+  "id": "instant-drops",
+  "name": "Instant Drops",
+  "description": "Kills drop their reward after {{tenths}} tenths of a second instead of the usual 20 (two seconds).",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "game_version": ["5.0.4.1.0 - 1.89", "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)"],
+  "requires": [],
+  "conflicts_with": [],
+  "requires_check_off": ["BrgGame.upk"],
+  "settings": [
+    {
+      "id": "tenths",
+      "label": "Wait before the reward drops",
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 20,
+      "unit": " tenths of a second",
+      "help": "0 drops it the moment the enemy dies. 10 is one second. 20 is what the game ships with. Whole tenths only - the game stores this as one byte multiplied by 0.1."
+    }
+  ],
+  "patches": [
+    {
+      "type": "package_bytes",
+      "id": "drop-delay",
+      "description": "Item Drop Delay Time: {{tenths}} tenths of a second",
+      "target": "BrgGame/CookedPCConsole/BrgGame.upk",
+      "edits": [
+        {
+          "name": "Item Drop Delay Time",
+          "find": [
+            {"hex": "2c061f"},
+            {"text": "Item Drop Delay Time"},
+            {"hex": "00282c"}
+          ],
+          "follows": [{"hex": "251ecdcccc3d16"}],
+          "write": {"type": "u8", "value": "{{tenths}}"}
+        }
+      ]
+    }
+  ]
+}

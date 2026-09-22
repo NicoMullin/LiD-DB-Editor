@@ -646,9 +646,9 @@ away.
 
 ## Mods included
 
-Fourteen, in `mods/`, each with its own `readme.md`: twelve tweaks of mine, and
-two larger mods by S3er0i9ng included with their permission
-([below](#by-s3er0i9ng)).
+Fifteen, in `mods/`, each with its own `readme.md`: twelve tweaks of mine, one
+that changes a number inside a game package, and two larger mods by S3er0i9ng
+included with their permission ([below](#by-s3er0i9ng)).
 
 Every one of mine comes down to a number, and **the number is yours to choose**
 in the mod's **Configuration** tab — see
@@ -713,6 +713,21 @@ strength — `weapon-durability-2x` and `-5x`, `tdm-rewards-2x`, `-5x` and `-10x
 with its replacement switched on at the same value, in the same place in the
 load order, and still able to be switched off. The old folders are moved into
 `mods/_retired/`, not deleted.
+
+### Not in the database
+
+| Mod             | What it does                                            | Default | You can choose             |
+|-----------------|---------------------------------------------------------|---------|----------------------------|
+| `instant-drops` | Kills drop their reward as the enemy dies, not 2s later | 0       | 0 to 20 tenths of a second |
+
+The wait is not a database value: it is compiled into the script bytecode
+inside `BrgGame.upk`, so this mod changes that one byte instead. **The game's
+file check has to be off for `BrgGame.upk`** - see
+[Mods that replace artwork the game checks](#mods-that-replace-artwork-the-game-checks).
+Switching the mod off puts the game's own package back, byte for byte.
+
+The finding is from **Claudia-diva's LID-Patches** (MIT), where it is the
+`dropdelay` patch.
 
 ### By S3er0i9ng
 
@@ -896,6 +911,12 @@ manager says which ones before it writes anything — see
 **It is slower than a normal mod.** Packages are rebuilt from scratch on every
 save, and some are tens of megabytes, so a save can take a minute. The progress
 window names each package as it goes.
+
+Only the parts of a package that actually change are rewritten: Glados changes
+three of the sixty-five chunks `Cafe_KIS.upk` is stored in, and the other
+sixty-two are copied across exactly as the game shipped them. So the packages
+stay near their original size - for Glados and Tommy Gun together, 186 MB
+instead of the 295 MB an all-at-once rebuild would write.
 
 **Already installed that mod with TFC Installer?** That is fine. The manager
 rebuilds from an untouched copy of each package — TFC Installer keeps one, and
@@ -1228,6 +1249,47 @@ generated at install time — what runs on a player's machine is a file in this
 repository that can be read and diffed. `tools/build_buttons_recipe.py` writes
 one, from a mod folder and a real game executable, opening the executable
 read-only and recording nothing if any check fails. Players never run this.
+
+## Changing a number inside a package
+
+Not everything worth modding is in `masters.db`. Some numbers are compiled into
+the UnrealScript bytecode inside a package - the wait before a dead enemy drops
+its reward is one. The `package_bytes` patch type changes those:
+
+```json
+{
+  "type": "package_bytes",
+  "target": "BrgGame/CookedPCConsole/BrgGame.upk",
+  "edits": [
+    {
+      "name": "Item Drop Delay Time",
+      "find": [{"hex": "2c061f"}, {"text": "Item Drop Delay Time"}, {"hex": "00282c"}],
+      "follows": [{"hex": "251ecdcccc3d16"}],
+      "write": {"type": "u8", "value": 0}
+    }
+  ]
+}
+```
+
+- **`find`** is the bytes immediately *before* the value, and **`follows`** the
+  bytes immediately after it. Matching on what surrounds the value rather than
+  on the value itself means the site is still found once it has been changed -
+  which is what lets the mod be re-applied, or read back, without putting the
+  file back first. A signature that appears twice in one chunk is refused
+  rather than guessed at.
+- **`write`** is `u8` (one byte) or `i32` (four, signed). Both are fixed width,
+  so nothing in the package moves and no offset in its header changes.
+- **`value`** can be a setting: `"value": "{{tenths}}"` writes whatever the
+  player chose.
+
+A package is stored as compressed chunks. Only the chunk holding the change is
+decoded, rewritten and appended, and its table entry repointed - so a 179 MB
+package grows by about a megabyte and everything else in it stays as the game
+shipped it. Reverting copies the kept original back.
+
+The game keeps a checksum for most packages, so a mod doing this has to say
+`"requires_check_off": ["BrgGame.upk"]`, and the manager refuses to apply it
+until that check is off.
 
 ## Editing a mod
 
@@ -1752,6 +1814,15 @@ Installer has rebuilt them, and the mod folder itself).
 They build a miniature `masters.db` from `tests/fixtures.py`, so no
 game files are needed. The GUI tests run offscreen and skip themselves if
 PySide6 is not installed.
+
+## Credit
+
+- **S3er0i9ng** - the Crossover Content pack, Colored PlayStation Buttons and
+  Tower Static Radio, bundled with their permission.
+- **FCH823** (with Wastelander121) - TFC Installer, whose `.PackagePatch` and
+  texture-pack formats this reads, used with their permission.
+- **Claudia-diva** - LID-Patches (MIT), where the drop-delay finding and the
+  way a package chunk is rebuilt in place come from.
 
 ## License
 

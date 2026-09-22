@@ -1056,8 +1056,14 @@ class MainWindow(QMainWindow):
         if not self._install_queue or (self.task is not None and self.task.isRunning()):
             return
         source = self._install_queue.pop(0)
-        # Inspecting a database means diffing it, which takes a second or two.
-        self._run(lambda: self.manager.inspect_install(source), self._after_inspect)
+        # Inspecting a database means diffing it, and a large .sql file has to
+        # be read through - either one takes long enough that with nothing on
+        # screen it looks as though the window has died.
+        self._run(
+            lambda: self.manager.inspect_install(source),
+            self._after_inspect,
+            message=f"Looking at {source.name}...",
+        )
 
     def _after_inspect(self, candidate) -> None:
         if candidate is None:
@@ -1118,6 +1124,20 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self._drain_install_queue)
             return
 
+        # Everything after this reads the mod that was just added, and a
+        # shared dump of whole tables is tens of megabytes of SQL to split and
+        # scan - long enough that the window stops painting and Windows greys
+        # it out, which reads as a crash. The reading happens on the worker
+        # thread, behind a progress window; what it works out is kept on the
+        # patch, so the refresh that follows is instant.
+        self._run(
+            lambda: [mod.targets() for mod in mods],
+            lambda _warmed: self._after_install(mods, candidate),
+            message=f"Reading {candidate.source.name}...",
+        )
+
+    def _after_install(self, mods, candidate) -> None:
+        """Show what was added. Runs once the mod has been read through."""
         self.refresh()
         if mods:
             self.mod_list.select_mods([mod.id for mod in mods])
@@ -1203,6 +1223,7 @@ class MainWindow(QMainWindow):
                 "Content pack\".",
             )
         QTimer.singleShot(0, self._drain_install_queue)
+
 
     # -- settings ----------------------------------------------------------
 

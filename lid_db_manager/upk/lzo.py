@@ -5,8 +5,14 @@ LZO1X - the algorithm Unreal Engine 3 used on PC. Python has no LZO in its
 standard library, and a compiled extension would be one more thing to install,
 so this is the decompressor written out by hand from the published format.
 
-Only decompression lives here. Writing packages back does not need it: see
-package.py for why patched packages are written uncompressed.
+Writing back needs no real compressor. A block of literals is valid LZO1X and
+decodes to itself, so ``store`` hands the game back the bytes it wants without
+the work of matching - see bytepatch.py, where one chunk of a package is
+rebuilt in place and everything else is left exactly as the game shipped it.
+
+The literal-run encoding is FCH-independent and comes from the published
+format; the same trick is used by Claudia-diva's LID-Patches (MIT), which is
+where this approach was taken from.
 """
 
 from __future__ import annotations
@@ -154,4 +160,36 @@ def decompress(data: bytes, expected_size: int) -> bytes:
         raise LzoError(
             f"the block decoded to {len(out):,} bytes, not the {expected_size:,} "
             "the package says it holds")
+    return bytes(out)
+
+
+#: Ends every LZO1X stream: an M4 marker with no following data.
+_END = bytes([0x11, 0x00, 0x00])
+
+
+def store(data: bytes) -> bytes:
+    """``data`` as one LZO1X literal run - valid, and the same size plus a few.
+
+    Compressing properly would save space in a file the game is about to read
+    back into memory anyway; what matters here is that the block decodes to
+    exactly these bytes, so a package can be rebuilt without a compressor.
+    """
+    if not data:
+        return _END
+    out = bytearray()
+    size = len(data)
+    if size >= 19:
+        # Token 0, then (size - 18) written as a run of zero bytes worth 255
+        # each and a final non-zero remainder.
+        left = size - 18
+        zeros, remainder = (left - 1) // 255, left - 255 * ((left - 1) // 255)
+        out.append(0)
+        out += b"\x00" * zeros
+        out.append(remainder)
+    elif size >= 4:
+        out.append(size - 3)        # a token of 1..15 means that many literals
+    else:
+        out.append(17 + size)       # the short form, only valid at the start
+    out += data
+    out += _END
     return bytes(out)

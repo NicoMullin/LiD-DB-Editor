@@ -41,7 +41,20 @@ _CREATE_TABLE_RE = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-_COMMENT_RE = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
+# Everything in a SQL script that is not bare code: string literals, quoted
+# identifiers and comments. Matching them in one pass, left to right, is what
+# keeps them from being read inside one another - a "--" in a line of dialogue
+# opens no comment, and a quote inside a comment opens no literal.
+_NOISE_RE = re.compile(
+    r"""'(?:[^']|'')*'     # string literal
+      | "(?:[^"]|"")*"     # quoted identifier
+      | `[^`]*`            # quoted identifier, MySQL style
+      | \[[^\]]*\]         # bracketed identifier
+      | --[^\n]*           # line comment
+      | /\*.*?\*/          # block comment
+    """,
+    re.DOTALL | re.VERBOSE,
+)
 
 
 def quote_ident(name: str) -> str:
@@ -146,12 +159,10 @@ def row_already_there(con: sqlite3.Connection, statement: str) -> bool | None:
     wrong guess must never be possible: anything unrecognised returns None.
     """
     # Comments come through attached to the statement after them, so the SQL
-    # rarely starts at the first character.
-    body = [
-        line for line in statement.splitlines()
-        if line.strip() and not line.lstrip().startswith("--")
-    ]
-    text = " ".join(" ".join(body).split())
+    # rarely starts at the first character. Only the comments go: the text the
+    # statement inserts is left exactly as written, newlines and all, because
+    # the probe below compares it against what is in the table.
+    text = strip_comments(statement).strip()
     guarded = _INSERT_GUARDED.match(text)
     if guarded:
         # The statement already carries the test; just run it.
@@ -177,13 +188,19 @@ def inserts_already_present(
 ) -> tuple[int, int]:
     """(how many added rows were checked, how many were already there).
 
-    Stops after ``sample`` so validating a large mod stays quick.
+    Stops after ``sample`` so validating a large mod stays quick, and spreads
+    that sample over the whole script rather than taking it from the front. A
+    big mod is usually a dump of one table after another, and the tables it
+    opens with are often ones it did not change at all - a sample taken only
+    from there would report a rebalance of the later tables as already
+    installed. A short script is walked in order, as before.
     """
     checked = present = 0
-    for statement in statements:
+    stride = max(1, len(statements) // (sample * 2))
+    for index in range(0, len(statements), stride):
         if checked >= sample:
             break
-        answer = row_already_there(con, statement)
+        answer = row_already_there(con, statements[index])
         if answer is None:
             continue
         checked += 1
@@ -237,8 +254,76 @@ def count_where(con: sqlite3.Connection, table: str, where: str | None) -> int:
     return int(con.execute(sql).fetchone()[0])
 
 
+def _blanked(text: str) -> str:
+    """The same text as spaces, with its line breaks kept."""
+    return "".join("\n" if char == "\n" else " " for char in text)
+
+
+def _blank_noise(sql: str, *, literals: bool) -> str:
+    """Blank out comments - and optionally string literals - in place.
+
+    The result is the same length as the input and keeps its line breaks, so
+    offsets into it still line up with the original text.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        text = match.group()
+        if text.startswith(("--", "/*")):
+            return _blanked(text)
+        if literals and text.startswith("'"):
+            return "'" + _blanked(text[1:-1]) + "'"
+        return text  # a quoted identifier - that is where table names live
+
+    return _NOISE_RE.sub(replace, sql)
+
+
 def strip_comments(sql: str) -> str:
-    return _COMMENT_RE.sub(" ", sql)
+    """Remove comments, and only comments.
+
+    A "--" inside a string literal is text, not a comment. A mod that rewrites
+    the game's text tables carries thousands of lines of dialogue, so a blunt
+    regex would eat to the end of the line and could swallow real SQL with it.
+    """
+    return _blank_noise(sql, literals=False)
+
+
+def mask_literals(sql: str) -> str:
+    """Remove comments and the contents of string literals.
+
+    What a mod's data says is not SQL. A line of in-game mail reading "this
+    update adds new routes" must not be read as a write to a table "adds".
+    """
+    return _blank_noise(sql, literals=True)
+
+
+def _each_statement(chunk: str) -> list[str]:
+    """Split one complete buffer where it holds more than one statement.
+
+    A script almost always puts one statement per line, and then there is
+    nothing to do. But nothing stops a mod writing several on one line, and
+    handing them over as one string fails - SQLite's driver takes a single
+    statement at a time, so the mod was turned away with "you can only execute
+    one statement at a time", which says nothing about what to change.
+
+    The quick count first is what keeps this off the hot path: only a buffer
+    that could hold a second statement is scanned character by character.
+    """
+    if chunk.count(";") < 2:
+        return [chunk.strip()]
+    pieces: list[str] = []
+    start = 0
+    for index, char, _depth in _scan_tokens(chunk):
+        if char != ";":
+            continue
+        piece = chunk[start : index + 1]
+        if not sqlite3.complete_statement(piece):
+            continue  # a semicolon inside a BEGIN...END trigger body
+        pieces.append(piece.strip())
+        start = index + 1
+    rest = chunk[start:].strip()
+    if rest:
+        pieces.append(rest)
+    return pieces
 
 
 def split_statements(sql: str) -> list[str]:
@@ -252,9 +337,9 @@ def split_statements(sql: str) -> list[str]:
     for line in sql.splitlines(keepends=True):
         buffer += line
         if sqlite3.complete_statement(buffer):
-            stripped = buffer.strip()
-            if strip_comments(stripped).strip().rstrip(";").strip():
-                statements.append(stripped)
+            for piece in _each_statement(buffer):
+                if strip_comments(piece).strip().rstrip(";").strip():
+                    statements.append(piece)
             buffer = ""
     tail = buffer.strip()
     if tail and strip_comments(tail).strip():
@@ -405,7 +490,22 @@ def tables_written_by(sql: str) -> set[str]:
     to snapshot before a raw-SQL patch runs and what to warn about in conflict
     detection. Over-snapshotting is safe; missing a table is not.
     """
-    return {match.group("table") for match in _WRITE_STMT_RE.finditer(strip_comments(sql))}
+    text = mask_literals(sql)
+    return {
+        match.group("table")
+        for match in _WRITE_STMT_RE.finditer(text)
+        if not _is_foreign_key_rule(text, match.start())
+    }
+
+
+# The UPDATE in "REFERENCES other(id) ON UPDATE CASCADE" is a foreign-key rule
+# inside a CREATE TABLE, not a statement: the word after it is an action -
+# CASCADE, RESTRICT, SET NULL - rather than a table.
+_ON_BEFORE_RE = re.compile(r"\bon\s+$", re.IGNORECASE)
+
+
+def _is_foreign_key_rule(text: str, start: int) -> bool:
+    return bool(_ON_BEFORE_RE.search(text, max(0, start - 40), start))
 
 
 _CREATE_HEAD_RE = re.compile(
@@ -438,7 +538,7 @@ def tables_created_by(sql: str) -> set[str]:
     catches a typo'd table name. A CREATE is the exception, so validation has to
     know which names to let through.
     """
-    return {match.group("table") for match in _CREATE_TABLE_RE.finditer(strip_comments(sql))}
+    return {match.group("table") for match in _CREATE_TABLE_RE.finditer(mask_literals(sql))}
 
 
 def compile_only(con: sqlite3.Connection, statement: str) -> None:
