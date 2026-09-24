@@ -1,4 +1,4 @@
-## VirusTotal scan of the current code of BETA V0.8.0
+## VirusTotal scan of the current code of BETA V0.9.0
 https://www.virustotal.com/gui/url/63368c8eb96033d99a7a4bc4788535a4810c7ddc300b740e84036b356da2371e
 
 ## Interactive Readme Site
