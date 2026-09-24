@@ -162,6 +162,106 @@ class SwitchingPartsOnAndOff(unittest.TestCase):
         self.assertEqual([p.key for p in mod.patches], ["#1", "#2"])
 
 
+class PartsThatShipSwitchedOff(unittest.TestCase):
+    """An optional extra inside a mod, off until somebody asks for it.
+
+    Every part used to be on the moment its mod was, which is right for a
+    rework's tables but wrong for an extra that changes how the game feels.
+    Adding one to a mod people already have would otherwise switch it on for
+    them without a word.
+    """
+
+    OPTIONAL = {
+        "patches": [
+            {
+                "type": "update_set", "id": "always", "description": "The main thing",
+                "table": "master_skill", "set": {"buy_money": 1},
+            },
+            {
+                "type": "update_set", "id": "extra", "description": "An optional extra",
+                "ships_on": False,
+                "table": "master_shop_product_price", "set": {"price": 2},
+            },
+        ]
+    }
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.paths = AppPaths(self.root).ensure()
+        self.db = build_db(self.root / "masters.db")
+        write_mod(self.paths.mods_dir, "optional", self.OPTIONAL)
+        self.manager = Manager(self.paths)
+        self.manager.set_db_path(self.db)
+        self.manager.set_enabled("optional", True)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _active(self) -> list[str]:
+        mod = self.manager.scan.get("optional")
+        return [patch.key for patch in self.manager.active_mod(mod).patches]
+
+    def test_it_is_off_when_the_mod_is_first_switched_on(self) -> None:
+        self.assertEqual(self._active(), ["always"])
+
+    def test_a_part_that_says_nothing_still_ships_on(self) -> None:
+        """Every mod written before this one has to behave as it always did."""
+        mod = self.manager.scan.get("optional")
+        self.assertTrue(mod.patches[0].ships_on)
+        self.assertFalse(mod.patches[1].ships_on)
+
+    def test_ticking_it_on_and_off_again(self) -> None:
+        self.manager.set_part_enabled("optional", "extra", True)
+        self.assertEqual(self._active(), ["always", "extra"])
+        self.manager.set_part_enabled("optional", "extra", False)
+        self.assertEqual(self._active(), ["always"])
+
+    def test_the_choice_survives_a_reopen(self) -> None:
+        self.manager.set_part_enabled("optional", "extra", True)
+        self.manager.state.save()
+        reopened = State.load(self.manager.state.path)
+        self.assertTrue(reopened.is_part_on("optional", "extra", False))
+
+    def test_only_a_choice_that_differs_is_written_down(self) -> None:
+        """Both maps hold exceptions to the mod as written, so leaving
+        everything alone leaves nothing behind to go stale."""
+        self.assertEqual(self.manager.state.enabled_patches, {})
+        self.assertEqual(self.manager.state.disabled_patches, {})
+        self.manager.set_part_enabled("optional", "extra", True)
+        self.assertEqual(self.manager.state.enabled_patches, {"optional": ["extra"]})
+        self.manager.set_part_enabled("optional", "extra", False)
+        self.assertEqual(self.manager.state.enabled_patches, {})
+
+    def test_the_two_kinds_of_part_do_not_get_muddled(self) -> None:
+        self.manager.set_part_enabled("optional", "extra", True)
+        self.manager.set_part_enabled("optional", "always", False)
+        self.assertEqual(self._active(), ["extra"])
+        self.assertEqual(self.manager.state.disabled_patches, {"optional": ["always"]})
+        self.assertEqual(self.manager.state.enabled_patches, {"optional": ["extra"]})
+
+    def test_it_is_not_applied_while_it_is_off(self) -> None:
+        self.assertTrue(self.manager.save_mod_list().ok)
+        prices = dict(query(self.db, "SELECT id, price FROM master_shop_product_price"))
+        self.assertNotEqual(prices["PRD_ITEM_01"], 2)
+        self.manager.set_part_enabled("optional", "extra", True)
+        self.assertTrue(self.manager.save_mod_list().ok)
+        prices = dict(query(self.db, "SELECT id, price FROM master_shop_product_price"))
+        self.assertEqual(prices["PRD_ITEM_01"], 2)
+
+    def test_an_older_state_file_reads_exactly_as_it_did(self) -> None:
+        """enabled_patches is new, so a state.json without it must still load."""
+        import json
+
+        raw = json.loads(self.manager.state.path.read_text(encoding="utf-8"))
+        raw.pop("enabled_patches", None)
+        raw["disabled_patches"] = {"optional": ["always"]}
+        self.manager.state.path.write_text(json.dumps(raw), encoding="utf-8")
+        reopened = State.load(self.manager.state.path)
+        self.assertFalse(reopened.is_part_on("optional", "always", True))
+        self.assertFalse(reopened.is_part_on("optional", "extra", False))
+
+
 @unittest.skipUnless(HAVE_QT, "PySide6 is not installed")
 class PartsInTheList(unittest.TestCase):
     app = None

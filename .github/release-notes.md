@@ -27,55 +27,71 @@ run the manager compares it with a clean copy of the same game build, says which
 mods it can already see in there, and offers to take them over. The moment you
 pick a database it also keeps a permanent `masters.db.original` copy.
 
-### What's new in Beta V0.7.0
+### What's new in Beta V0.9.0
 
-**Mods made for TFC Installer install directly.** Drag in a mod folder built for
-TFC Installer — GLaDOS, Tommy Gun and the like — and the manager rebuilds the
-game's packages itself and installs the textures. No TFC Installer needed, and
-unticking the mod puts the game's own files back. If a package was already
-changed by TFC Installer or by an older install, it now rebuilds from an
-untouched copy found in TFC Installer's own backups instead of refusing, and
-texture files no longer pile up with a new copy on every reinstall.
+**Search, filter and sort the mod list.** One row of controls above the list: a
+search box, a category, tags, and a sort order. Search matches a mod's name,
+author, description, category and tags. Sorting only changes what you are looking
+at — it never changes the load order, so what you see can never quietly change
+what gets applied.
 
-**A loading bar while your mods are applied.** Save Mod List and Re-apply All
-now show a small window naming each step — backing up, each mod, rebuilding each
-game package, copying files — so a long save no longer looks like a freeze.
+**Give a mod your own categories and tags.** Every mod that ships with the
+manager comes with sensible ones already set, and you can change them or add your
+own on any mod, including somebody else's. They are written into the mod's
+`mod.json`, so they travel with the folder if you copy it to another machine. If
+the author releases an update and you drop it in, their file replaces yours and
+your tags on that mod go with it.
 
-**Warning dots in the mod list.** A yellow dot means something worth a look,
-like two mods writing the same table. A red dot means one mod overwrites the
-exact values another one sets, or the mod failed. Rows no longer force
-themselves open — open one when you want to read why. Hovering a mod's name
-explains its dot.
+**Make all the text bigger or smaller.** **View → Text size**, from 70% to 200%.
+Everything scales with it — padding, row heights and the headings — not just the
+letters, so nothing ends up cramped or clipped. The setting is remembered.
 
-**Game build 5.0.4.2 supported,** with a clean copy of it included. That update
-changed only the Steam version number and left the in-game one reading 1.89,
-which made the manager treat the patch as if you had edited the file yourself.
+**A new mod: Reward Pickup.** Dropped Kill Coins, SPLithium and Bloodnium come
+straight to you instead of scattering across the floor. Two parts you can tick
+separately, and an adjustable stagger between the pieces. It also brings a new
+kind of mod — one that writes a game **config file** rather than the database or
+a package. The game reads several of those at startup but never shipped them, so
+nothing the game came with is edited, and switching the mod off deletes the file
+again.
 
-**After a game update the manager keeps its own clean copy.** The `masters.db`
-Steam has just written is untouched by definition, so it is kept as the
-reference copy for the new build — no waiting for a release that ships one. It
-only does that when the file shows no sign of a mod, and when it cannot tell, it
-asks you.
+**The Coin Locker mod does two more things.** As well as the total size, you can
+now set **how many slots each purchase adds** (1 to 1,000, stock is 10) and
+**what a purchase costs**. Both are parts, switched off until you tick them.
+Slots per purchase is the one that makes a big locker usable: at stock, filling a
+10,000-slot locker means buying the expansion a thousand times.
 
-**Mods can say they need the game's file check switched off.** The game keeps a
-hash for most of its own packages and refuses a replacement at startup. A mod
-that replaces one of those now says so, and the manager explains it before
-anything is written instead of letting you meet that error box. Colored
-PlayStation Buttons uses this instead of changing a hash inside the game's
-executable.
+**The Hash Patcher is fast again.** Switching the check off for everything took
+about a minute with the window frozen; it now takes under half a second. Typing
+in its search box was close to a second per pass and is now instant. Opening the
+panel is twice as quick.
 
-**Drop in a plain folder holding one `.sql` file** (plus an `assets` folder if it
-has one) and it installs as a mod — no `mod.json` to write. SQL exported from DB
-Browser for SQLite is understood, including its `"main".` table prefixes.
+**Quieter, more accurate conflict warnings.** The mod list used to warn when two
+mods wrote the same **table**, which meant warnings about mods that never
+actually met — dozens of mods write `master_text` without touching the same
+thing. Now it only tells you when two mods write the same **box**: same row, same
+column. Change a weapon's damage in one mod and its durability in another and you
+will hear nothing; change the damage in both and you get a red dot naming the
+column. With every included mod switched on at once, that took the warnings from
+fourteen down to none.
 
 **Fixes**
 
-- A rebuild that failed part way used to leave your database replaced by the
-  clean copy. Your own file now comes back, along with your mod list and the
-  saved rows that let each mod be switched off.
-- Rebuilds keep the load order recorded inside your database — and read it from
-  your backups when a game update has wiped it.
-- The Crossover pack is marked as working on 1.89, so it no longer shows a
-  version warning.
+- **A mod could lose part of its own way back.** If you changed a mod's value and
+  saved again, rows first written by the later save were not recorded, and
+  unticking the mod afterwards left those rows on the modded values instead of
+  putting them back. This affected every mod with an adjustable value. The
+  records this release writes are complete, and the ones already on disk are
+  repaired.
+- Every included mod is now marked as working on game build 1.89, so they no
+  longer show a version warning. That is not a guess: for each mod, every row it
+  writes was compared between the 1.88 and 1.89 clean databases and found
+  identical.
+- The Configuration tab showed a literal `&nbsp;&nbsp;` in some mods' settings
+  instead of a gap. Setting names, limits and help text are now always shown as
+  plain text, so nothing a mod author writes can affect the layout.
+- Renaming a mod to the same name with different capitals no longer refuses with
+  "a mod folder called that already exists".
+- Two places where a chosen text size was being thrown away, so the diff panel
+  and the mod list ignored it.
 
-788 tests pass on Python 3.13 and 3.14.
+1,210 tests pass on Python 3.13 and 3.14.

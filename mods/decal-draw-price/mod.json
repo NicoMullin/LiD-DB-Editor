@@ -4,7 +4,18 @@
   "description": "A draw from the Mushroom Club's decal pool costs {{price:comma}} KC instead of 50,000.",
   "version": "2.0.1",
   "author": "KSFA",
-  "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
+  "category": "Economy",
+  "tags": [
+    "coins",
+    "decals",
+    "mushroom-club",
+    "prices"
+  ],
+  "game_version": [
+    "5.0.3.0.0 - 1.87",
+    "5.0.4.0.0 - 1.88",
+    "5.0.4.1.0 - 1.89"
+  ],
   "requires": [],
   "conflicts_with": [],
   "settings": [

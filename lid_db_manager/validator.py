@@ -93,7 +93,28 @@ def game_version_warning(con: sqlite3.Connection, mod: Mod) -> str:
     )
 
 
-def still_checked(mod: Mod, game_root: Path | None) -> list[str]:
+def listed_names(game_root: Path | None) -> set[str] | None:
+    """Every file name the game's executable keeps a hash for, lower case.
+
+    None when there is nothing to read - a loose test folder, or a layout this
+    does not know - which is different from "it lists nothing".
+
+    Reading it means parsing a 45 MB executable, so a caller asking about several
+    mods reads it once and passes the answer to ``still_checked`` rather than
+    letting each mod read it again.
+    """
+    if game_root is None:
+        return None
+    exe = Path(game_root) / vetted.GAME_EXE
+    if not exe.is_file():
+        return None
+    try:
+        return {name.lower() for name in exe_checksums.read_entries(exe.read_bytes())}
+    except Exception:
+        return None
+
+
+def still_checked(mod: Mod, game_root: Path | None, listed: set[str] | None = None) -> list[str]:
     """Which of this mod's declared files the game still keeps a hash for.
 
     The executable carries a list of file names with the hash it expects each to
@@ -112,14 +133,12 @@ def still_checked(mod: Mod, game_root: Path | None) -> list[str]:
         rebuilt = getattr(patch, "transform_targets", None)
         if callable(rebuilt) and callable(getattr(patch, "bind", None)):
             names += [t for t in rebuilt() if t.lower().endswith(".upk")]
-    if not names or game_root is None:
+    if not names:
         return []
-    exe = Path(game_root) / vetted.GAME_EXE
-    if not exe.is_file():
-        return []
-    try:
-        listed = {name.lower() for name in exe_checksums.read_entries(exe.read_bytes())}
-    except Exception:
+    # Read here only when the caller has not already done it for us.
+    if listed is None:
+        listed = listed_names(game_root)
+    if listed is None:
         return []
     seen, out = set(), []
     for name in names:
@@ -130,30 +149,36 @@ def still_checked(mod: Mod, game_root: Path | None) -> list[str]:
     return out
 
 
-def check_off_error(mod: Mod, game_root: Path | None) -> str:
+def check_off_error(mod: Mod, game_root: Path | None,
+                    listed: set[str] | None = None) -> str:
     """Why this mod cannot be applied as the game stands, or ""."""
-    blocked = still_checked(mod, game_root)
+    blocked = still_checked(mod, game_root, listed)
     if not blocked:
         return ""
     files = ", ".join(blocked)
     one = len(blocked) == 1
+    it = "it" if one else "them"
     return (
         f"this mod replaces {files}, which your game still checks. Applied as it "
         f"is, the game would refuse {'that file' if one else 'those files'} at "
-        "startup with an error naming "
-        f"{'it' if one else 'them'}, before the intro. Switch the game's file "
-        f"check off for {'it' if one else 'them'} first, then apply this again."
+        f"startup with an error naming {it}, before the intro.\n"
+        f"    To fix it: Tools > Hash Patcher, tick {files}, then "
+        f"'Switch off for the ticked files'. Saving again will then work.\n"
+        "    That takes the file off the list of ones the game checks. It "
+        "changes one byte per file and no program code, and the Hash Patcher "
+        "puts it back whenever you want."
     )
 
 
 def validate_mod(con: sqlite3.Connection, mod: Mod,
-                 game_root: Path | None = None) -> ModValidation:
+                 game_root: Path | None = None,
+                 listed: set[str] | None = None) -> ModValidation:
     """Validate a single mod against an open, read-only connection."""
     result = ModValidation(mod_id=mod.id, warnings=list(mod.load_warnings))
     mismatch = game_version_warning(con, mod)
     if mismatch:
         result.warnings.append(mismatch)
-    blocked = check_off_error(mod, game_root)
+    blocked = check_off_error(mod, game_root, listed)
     if blocked:
         result.errors.append(blocked)
     for patch in mod.patches:
@@ -174,8 +199,19 @@ def validate_mod(con: sqlite3.Connection, mod: Mod,
     return result
 
 
-def validate(db_path: Path, mods: list[Mod], installed_ids: set[str] | None = None) -> ValidationReport:
-    """Validate the enabled mod list, in the order it will be applied."""
+def validate(
+    db_path: Path,
+    mods: list[Mod],
+    installed_ids: set[str] | None = None,
+    game_root: Path | None = None,
+) -> ValidationReport:
+    """Validate the enabled mod list, in the order it will be applied.
+
+    ``game_root`` is the folder holding BrgGame. Passing it matters when the
+    database is not in the game's own layout - a loose copy, or a folder the
+    player pointed at by hand - because it cannot be derived from db_path then,
+    and without it a mod blocked by the game's file check reads as fine.
+    """
     report = ValidationReport()
     db_path = Path(db_path)
     if not db_path.is_file():
@@ -198,7 +234,7 @@ def validate(db_path: Path, mods: list[Mod], installed_ids: set[str] | None = No
         # Where the game is, worked out from the database's own place, so a mod
         # that needs the game's file check off can be told apart from one that
         # does not. None for a loose copy, and then nothing is claimed.
-        game_root = asset_runner.game_root_for(db_path)
+        game_root = game_root or asset_runner.game_root_for(db_path)
         if game_root is not None:
             # So TFC Installer mods know every package they will rebuild, for
             # the file-check test below. Cheap once the texture index exists.
@@ -206,8 +242,10 @@ def validate(db_path: Path, mods: list[Mod], installed_ids: set[str] | None = No
                 asset_runner.bind_tfc_patches_for_validation(ordered, game_root)
             except (OSError, ValueError):
                 pass
+        # One read of the executable for the whole run rather than one per mod.
+        listed = listed_names(game_root)
         for mod in ordered:
-            report.results.append(validate_mod(con, mod, game_root))
+            report.results.append(validate_mod(con, mod, game_root, listed))
     finally:
         con.close()
     return report

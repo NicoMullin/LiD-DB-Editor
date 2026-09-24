@@ -4,6 +4,10 @@
   "description": "Annotated template. Copy this folder, rename it, and edit the fields.",
   "version": "0.1.0",
   "author": "your-name-here",
+  "category": "Examples",
+  "tags": [
+    "template"
+  ],
   "homepage": "https://github.com/you/your-mod-repo",
   "requires": [],
   "conflicts_with": [],

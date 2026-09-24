@@ -17,6 +17,7 @@ import json
 import shutil
 from pathlib import Path
 
+from .browse import clean_category, clean_tags
 from .errors import ModManagerError
 from .mod import Mod
 from .snapshot import snapshot_path
@@ -28,7 +29,7 @@ class ModEditError(ModManagerError):
 
 # Keys mod.json holds that this module owns. Everything else in the file -
 # patches, requires, apply mode - is left exactly as the author wrote it.
-_OWNED_KEYS = ("id", "name", "description", "version", "author")
+_OWNED_KEYS = ("id", "name", "description", "version", "author", "category", "tags")
 
 
 def safe_folder_name(name: str) -> str:
@@ -102,11 +103,15 @@ def edit_mod(
     author: str | None = None,
     version: str | None = None,
     readme: str | None = None,
+    category: str | None = None,
+    tags=None,
 ) -> str:
     """Apply an edit, renaming the folder if the name changed. Returns the new id.
 
-    ``description``, ``author``, ``version`` and ``readme`` are left alone when
-    None, so a caller can change just one thing.
+    Every field is left alone when None, so a caller can change just one thing.
+    A ``category`` or ``tags`` that comes out empty is removed from the mod.json
+    rather than written as "" or [] - the file should say what the mod is, not
+    list the things it is not.
     """
     name = name.strip()
     if not name:
@@ -118,7 +123,18 @@ def edit_mod(
     renaming = new_id != mod.id
 
     if renaming and target.exists():
-        raise ModEditError(f"a mod folder called {new_id!r} already exists")
+        try:
+            same = target.samefile(folder)
+        except OSError:  # pragma: no cover - only if the path stops resolving
+            same = False
+        if same:
+            # Only the capitals differ, and on Windows that is the same folder,
+            # so the rename would refuse against the mod itself. This is reachable
+            # without anybody typing a new name: a bare "loose.sql" folder shows
+            # as "Loose", and saving anything about it asks for that folder name.
+            new_id, renaming = mod.id, False
+        else:
+            raise ModEditError(f"a mod folder called {new_id!r} already exists")
 
     data = _mod_json_payload(mod, folder)
     original_json = (folder / "mod.json").read_bytes() if (folder / "mod.json").is_file() else None
@@ -142,6 +158,18 @@ def edit_mod(
             data["author"] = author.strip() or "unknown"
         if version is not None:
             data["version"] = version.strip() or "1.0.0"
+        if category is not None:
+            cleaned = clean_category(category)
+            if cleaned:
+                data["category"] = cleaned
+            else:
+                data.pop("category", None)
+        if tags is not None:
+            cleaned_tags = clean_tags(tags)
+            if cleaned_tags:
+                data["tags"] = cleaned_tags
+            else:
+                data.pop("tags", None)
         data.setdefault("author", "unknown")
         data.setdefault("version", "1.0.0")
         _write_mod_json(target, data)

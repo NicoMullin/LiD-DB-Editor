@@ -194,6 +194,7 @@ def apply_mods(
     keep_snapshots: set[str] | None = None,
     record: bool = False,
     progress: Progress | None = None,
+    game_root: Path | None = None,
 ) -> ApplyReport:
     """Validate, snapshot and apply every mod in ``mods`` as one transaction.
 
@@ -210,7 +211,7 @@ def apply_mods(
     ordered = list(mods)  # already in load order
 
     if not skip_validation:
-        report.validation = validate(db_path, ordered, installed_ids)
+        report.validation = validate(db_path, ordered, installed_ids, game_root)
         for warning in _validation_warnings(report.validation):
             log.warn(warning)
         if not report.validation.ok:
@@ -321,11 +322,21 @@ def apply_mods(
     for captured in pending_snapshots:
         # Re-applying a mod that is already on this database would capture the
         # state it produced, and reverting would then restore the modded values
-        # rather than the originals. Keep the snapshot taken the first time.
+        # rather than the originals. Keep the snapshot taken the first time -
+        # but fold in any row it has never seen, which is how a mod whose
+        # setting has moved since stays fully undoable. See snapshot.merged.
         if captured.mod_id in (keep_snapshots or set()) and snapshot_module.snapshot_path(
             snapshots_dir, captured.mod_id
         ).is_file():
-            continue
+            try:
+                kept = snapshot_module.load(snapshots_dir, captured.mod_id)
+            except RevertError as exc:
+                log.warn(f"{captured.mod_id}: the kept snapshot could not be read "
+                         f"({exc}); leaving it as it is")
+                continue
+            if kept is None:
+                continue
+            captured = snapshot_module.merged(kept, captured)
         try:
             snapshot_module.save(snapshots_dir, captured)
         except OSError as exc:

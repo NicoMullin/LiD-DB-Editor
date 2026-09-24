@@ -13,6 +13,7 @@ from fixtures import write_mod
 
 from lid_db_manager.errors import ModLoadError
 from lid_db_manager.mod_loader import load_mod_folder
+from lid_db_manager.patch import PackageBytesPatch
 from lid_db_manager.upk import bytepatch, lzo
 from lid_db_manager.upk import package as P
 
@@ -27,6 +28,12 @@ HAVE_GAME = GAME_PACKAGE.is_file()
 
 DROP_DELAY = b"\x2c\x06\x1f" + b"Item Drop Delay Time" + b"\x00\x28\x2c"
 DROP_DELAY_TAIL = b"\x25\x1e\xcd\xcc\xcc\x3d\x16"
+
+# The three labels the coin's flight is compiled behind. Only the coin is
+# thrown; every other currency is simply placed where it dropped.
+SPEED_Z = b"\x2c\x09\x1f" + b"Speed Z" + b"\x00\x27\x2c"
+SPEED_XY = b"\x2c\x0a\x1f" + b"Speed XY" + b"\x00\x27\x1d"
+MAX_MOVE = b"\x2c\x12\x1f" + b"Max Move Time" + b"\x00\x28\x2c"
 
 
 class StoreTests(unittest.TestCase):
@@ -243,6 +250,63 @@ class ShippedModTests(unittest.TestCase):
         self.assertGreaterEqual(setting.maximum, 20, "20 tenths is what the game ships")
 
 
+class TheCoinPart(unittest.TestCase):
+    """"Stop coins being thrown", the optional half of Instant Drops."""
+
+    def setUp(self) -> None:
+        self.mod = load_mod_folder(PROJECT_ROOT / "mods" / "instant-drops")
+        self.part = next(p for p in self.mod.patches if p.key == "flat-coins")
+
+    def test_it_ships_switched_off(self) -> None:
+        """It changes how the game feels, so it is asked for rather than given."""
+        self.assertFalse(self.part.ships_on)
+        self.assertTrue(self.mod.patches[0].ships_on)
+
+    def test_it_writes_five_numbers_across_three_labels(self) -> None:
+        names = [edit["name"] for edit in self.part.edits]
+        self.assertEqual(
+            names,
+            [
+                "Speed Z (launch)",
+                "Speed Z (cap)",
+                "Speed XY (launch)",
+                "Speed XY (cap)",
+                "Max Move Time",
+            ],
+        )
+
+    def test_the_two_numbers_behind_one_label_are_told_apart_by_skip(self) -> None:
+        """A label carries a launch value and the cap on it, two bytes apart.
+        The second cannot have a signature of its own, because the bytes in
+        between include the first - which is exactly what this changes."""
+        launch, cap = self.part.edits[0], self.part.edits[1]
+        self.assertEqual(launch["find"], cap["find"])
+        self.assertEqual(0, launch["skip"])
+        self.assertEqual(2, cap["skip"])
+
+    def test_max_move_time_is_not_taken_to_zero(self) -> None:
+        """Zero is a degenerate duration, and the collection hop is timed
+        against the same clock."""
+        edit = self.part.edits[-1]
+        self.assertEqual("Max Move Time", edit["name"])
+        self.assertEqual(1, edit["value"])
+
+    def test_an_edit_cannot_skip_backwards(self) -> None:
+        from lid_db_manager.errors import ModLoadError
+
+        with self.assertRaises(ModLoadError):
+            PackageBytesPatch(
+                {
+                    "type": "package_bytes",
+                    "target": "BrgGame/CookedPCConsole/BrgGame.upk",
+                    "edits": [{"find": [{"hex": "aabb"}], "skip": -1,
+                               "write": {"type": "u8", "value": 0}}],
+                },
+                PROJECT_ROOT,
+                0,
+            )
+
+
 @unittest.skipUnless(HAVE_GAME, "needs LET IT DIE installed (set LID_GAME_UPK)")
 class AgainstTheRealPackageTests(unittest.TestCase):
     """The one that matters: the game's own 179 MB package."""
@@ -264,6 +328,48 @@ class AgainstTheRealPackageTests(unittest.TestCase):
         differing = [i for i in range(len(before)) if before[i] != after[i]]
         self.assertEqual(1, len(differing))
         self.assertEqual(0, after[differing[0]])
+
+    def test_the_coin_sites_hold_what_the_mod_expects(self) -> None:
+        for signature, expected in (
+            (SPEED_Z, (40, 90)),      # launch, and the cap on it
+            (MAX_MOVE, (40,)),        # 40 x 0.1 = four seconds of rolling
+        ):
+            site = bytepatch.find(self.data, signature)
+            got = (site.raw[site.at],) if len(expected) == 1 else (
+                site.raw[site.at], site.raw[site.at + 2])
+            self.assertEqual(expected, got, signature)
+        site = bytepatch.find(self.data, SPEED_XY)
+        self.assertEqual(-15, struct.unpack_from("<i", site.raw, site.at)[0])
+        self.assertEqual(15, site.raw[site.at + 5])
+
+    def test_the_coin_part_flattens_all_five_and_nothing_else(self) -> None:
+        mod = load_mod_folder(PROJECT_ROOT / "mods" / "instant-drops")
+        part = next(p for p in mod.patches if p.key == "flat-coins")
+        out = part.transform_target(
+            "BrgGame/CookedPCConsole/BrgGame.upk", self.data)
+        before, after = P.read(self.data).data, P.read(out).data
+        self.assertEqual(len(before), len(after), "the decoded package must not move")
+        differing = [i for i in range(len(before)) if before[i] != after[i]]
+        # 40 -> 0 and 90 -> 0 behind Speed Z, all four bytes of -15 -> 0 and
+        # 15 -> 0 behind Speed XY, and 40 -> 1 for Max Move Time.
+        self.assertEqual(8, len(differing))
+        site = bytepatch.find(out, SPEED_Z)
+        self.assertEqual((0, 0), (site.raw[site.at], site.raw[site.at + 2]))
+        site = bytepatch.find(out, SPEED_XY)
+        self.assertEqual(0, struct.unpack_from("<i", site.raw, site.at)[0])
+        self.assertEqual(0, site.raw[site.at + 5])
+        site = bytepatch.find(out, MAX_MOVE)
+        self.assertEqual(1, site.raw[site.at])
+
+    def test_the_coin_part_leaves_the_drop_delay_alone(self) -> None:
+        """The two parts are switched separately, so neither may touch the
+        other's number."""
+        mod = load_mod_folder(PROJECT_ROOT / "mods" / "instant-drops")
+        part = next(p for p in mod.patches if p.key == "flat-coins")
+        out = part.transform_target(
+            "BrgGame/CookedPCConsole/BrgGame.upk", self.data)
+        site = bytepatch.find(out, DROP_DELAY, follows=DROP_DELAY_TAIL)
+        self.assertEqual(20, site.raw[site.at])
 
     def test_bytes_that_are_not_in_the_package_are_refused(self) -> None:
         with self.assertRaises(bytepatch.SiteError):

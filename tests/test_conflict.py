@@ -11,10 +11,8 @@ from fixtures import build_db, write_mod
 from lid_db_manager.conflict import (
     KIND_COLUMN,
     KIND_DECLARED,
-    KIND_RAW_SQL,
     KIND_TEXT,
     SERIOUS,
-    WARNING,
     analyze,
 )
 from lid_db_manager.mod_loader import scan_mods
@@ -44,6 +42,12 @@ def raw_sql(sql: str, **extra) -> dict:
     return {"patches": [{"type": "raw_sql", "sql": sql}], **extra}
 
 
+# SQL whose SET expression cannot be read but whose WHERE can. A WHERE resolves
+# independently of the SET, so this is the only shape that reaches the raw-SQL
+# branch with its rows known - which is what the comparison now needs.
+OPAQUE = "UPDATE master_skill SET val0 = max(1, 2)"
+
+
 class ConflictTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -56,7 +60,12 @@ class ConflictTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _analyze(self, *definitions: tuple[str, dict]):
-        """Analysis with no database - table granularity, the coarse fallback."""
+        """Analysis with no database, so no mod's rows can be worked out.
+
+        Nothing is reported from this: a conflict now has to be shown, and
+        without the rows there is nothing to show. The app always has a database
+        by the time anything can be applied.
+        """
         for mod_id, data in definitions:
             write_mod(self.mods, mod_id, data)
         found = scan_mods(self.mods)
@@ -76,13 +85,22 @@ class ConflictTests(unittest.TestCase):
             con.close()
 
     def test_same_table_and_column_conflicts(self) -> None:
-        report = self._analyze(
+        report = self._analyze_with_db(
             ("a-mod", update_set("master_skill", "buy_money")),
             ("b-mod", update_set("master_skill", "buy_money")),
         )
         self.assertEqual([c.kind for c in report.conflicts], [KIND_COLUMN])
         self.assertIn("master_skill.buy_money", report.conflicts[0].detail)
         self.assertIn("b-mod wins", report.conflicts[0].message())
+
+    def test_the_same_column_says_nothing_until_the_rows_are_known(self) -> None:
+        # Same column, but which rows is unknowable without the database, so
+        # there is nothing to report. Neither mod is accused of anything.
+        report = self._analyze(
+            ("a-mod", update_set("master_skill", "buy_money")),
+            ("b-mod", update_set("master_skill", "buy_money")),
+        )
+        self.assertEqual(report.conflicts, [])
 
     def test_different_columns_of_the_same_table_do_not_conflict(self) -> None:
         report = self._analyze(
@@ -124,25 +142,59 @@ class ConflictTests(unittest.TestCase):
         self.assertEqual([c.message() for c in report.conflicts], [])
 
     def test_the_same_column_still_conflicts(self) -> None:
-        report = self._analyze(
+        report = self._analyze_with_db(
             ("a-mod", raw_sql("UPDATE master_skill SET buy_money = 1")),
             ("b-mod", update_set("master_skill", "buy_money")),
         )
         self.assertEqual([c.kind for c in report.conflicts], [KIND_COLUMN])
 
-    def test_sql_that_cannot_be_read_still_takes_the_whole_table(self) -> None:
-        """The fallback has to stay: raw SQL can do anything."""
-        for sql in (
-            "DELETE FROM master_skill WHERE id = 'SKL_EXPUP_01'",
-            "UPDATE master_skill SET val0 = (SELECT MAX(val0) FROM master_skill)",
-            "UPDATE master_skill SET val0 = max(1, 2)",
-        ):
+    #: Statements that write cells nobody can name a column for.
+    NAMES_NO_COLUMN = (
+        "DELETE FROM master_skill WHERE id = 'SKL_EXPUP_01'",
+        "INSERT OR REPLACE INTO master_skill (id, buy_money, val0) "
+        "VALUES ('SKL_NEW_01', 1, 1)",
+    )
+
+    def test_sql_that_names_no_column_resolves_to_nothing(self) -> None:
+        """A DELETE or an INSERT cannot be pinned to a column, so it claims none.
+
+        This is the deliberate hole. Such a mod is now trusted rather than
+        suspected, because "it might be the same box" is the guess that produced
+        thirteen yellow dots nobody could act on.
+        """
+        from lid_db_manager.conflict import footprint
+
+        for sql in self.NAMES_NO_COLUMN:
             with self.subTest(sql=sql):
-                report = self._analyze(
+                write_mod(self.mods, "a-mod", raw_sql(sql))
+                mod = scan_mods(self.mods).by_id["a-mod"]
+                self.assertEqual(footprint(mod).columns, set())
+
+    def test_sql_that_names_no_column_is_never_a_conflict(self) -> None:
+        for sql in self.NAMES_NO_COLUMN:
+            with self.subTest(sql=sql):
+                report = self._analyze_with_db(
                     ("a-mod", raw_sql(sql)),
                     ("b-mod", update_set("master_skill", "buy_money")),
                 )
-                self.assertEqual([c.kind for c in report.conflicts], [KIND_RAW_SQL])
+                self.assertEqual(report.conflicts, [])
+
+    def test_an_awkward_set_expression_still_gives_up_its_column(self) -> None:
+        # The value is unreadable; the column name never was. Brackets and a
+        # comma inside a function call must not cut the assignment in half.
+        report = self._analyze_with_db(
+            ("a-mod", raw_sql("UPDATE master_skill SET val0 = max(1, 2)")),
+            ("b-mod", update_set("master_skill", "val0")),
+        )
+        self.assertEqual([c.kind for c in report.conflicts], [KIND_COLUMN])
+        self.assertIn("master_skill.val0", report.conflicts[0].detail)
+
+    def test_an_awkward_set_expression_on_another_column_is_quiet(self) -> None:
+        report = self._analyze_with_db(
+            ("a-mod", raw_sql("UPDATE master_skill SET val0 = max(1, 2)")),
+            ("b-mod", update_set("master_skill", "buy_money")),
+        )
+        self.assertEqual(report.conflicts, [])
 
     def test_raw_sql_opt_out_suppresses_the_warning(self) -> None:
         report = self._analyze(
@@ -214,7 +266,9 @@ class ConflictTests(unittest.TestCase):
         )
         self.assertEqual([c.kind for c in report.conflicts], [KIND_COLUMN])
 
-    def test_an_insert_makes_the_table_unknown_so_it_still_conflicts(self) -> None:
+    def test_an_insert_adds_a_row_nobody_can_name_so_nothing_is_claimed(self) -> None:
+        # An INSERT writes a row that does not exist yet and names no column to
+        # compare, so sharing master_text with it is not a conflict.
         report = self._analyze_with_db(
             ("a-mod", raw_sql(
                 "INSERT OR REPLACE INTO master_text (sct, id, snd, lang, txt, type) "
@@ -222,7 +276,29 @@ class ConflictTests(unittest.TestCase):
             ("b-mod", raw_sql(
                 "UPDATE master_text SET txt = 'x' WHERE sct = 'AREA_NAME'")),
         )
-        self.assertEqual([c.kind for c in report.conflicts], [KIND_RAW_SQL])
+        self.assertEqual(report.conflicts, [])
+
+    def test_two_raw_sql_mods_on_the_same_box_are_reported(self) -> None:
+        # The shape that matters in practice: two third-party .sql mods, both
+        # bracket-quoted, both rewriting the same cell.
+        report = self._analyze_with_db(
+            ("a-mod", raw_sql(
+                "UPDATE [master_text] SET [txt] = 'a' WHERE [sct] = 'AREA_NAME'")),
+            ("b-mod", raw_sql(
+                "UPDATE [master_text] SET [txt] = 'b' WHERE [sct] = 'AREA_NAME'")),
+        )
+        self.assertEqual([c.kind for c in report.conflicts], [KIND_COLUMN])
+        self.assertIn("master_text.txt", report.conflicts[0].detail)
+
+    def test_two_raw_sql_mods_on_the_same_row_but_other_columns_are_quiet(self) -> None:
+        # The user's example: damage on the metal bat versus its durability.
+        report = self._analyze_with_db(
+            ("a-mod", raw_sql(
+                "UPDATE [master_text] SET [txt] = 'a' WHERE [sct] = 'AREA_NAME'")),
+            ("b-mod", raw_sql(
+                "UPDATE [master_text] SET [snd] = 'b' WHERE [sct] = 'AREA_NAME'")),
+        )
+        self.assertEqual(report.conflicts, [])
 
     def test_update_set_on_the_same_column_but_different_rows_is_not_a_conflict(self) -> None:
         report = self._analyze_with_db(
@@ -255,7 +331,7 @@ class ConflictTests(unittest.TestCase):
         self.assertEqual([c.message() for c in report.conflicts], [])
 
     def test_for_mod_collects_everything_naming_that_mod(self) -> None:
-        report = self._analyze(
+        report = self._analyze_with_db(
             ("a-mod", update_set("master_skill", "buy_money")),
             ("b-mod", update_set("master_skill", "buy_money")),
         )
@@ -275,23 +351,39 @@ class ConflictTests(unittest.TestCase):
         self.assertEqual(report.severity_for("a-mod"), SERIOUS)
         self.assertEqual(report.severity_for("b-mod"), SERIOUS)
 
-    def test_the_same_column_with_rows_unknown_is_only_a_warning(self) -> None:
+    def test_the_same_column_with_rows_unknown_says_nothing_at_all(self) -> None:
         report = self._analyze(
             ("a-mod", update_set("master_skill", "buy_money")),
             ("b-mod", update_set("master_skill", "buy_money")),
         )
-        self.assertEqual([c.severity for c in report.conflicts], [WARNING])
-        self.assertEqual(report.severity_for("a-mod"), WARNING)
+        self.assertEqual(report.conflicts, [])
+        self.assertEqual(report.severity_for("a-mod"), "")
 
-    def test_a_shared_table_through_raw_sql_is_only_a_warning(self) -> None:
+    def test_raw_sql_on_the_same_box_is_a_red_dot_like_any_other(self) -> None:
         report = self._analyze_with_db(
-            ("a-mod", raw_sql(
-                "INSERT OR REPLACE INTO master_text (sct, id, snd, lang, txt, type) "
-                "VALUES ('AREA_NAME', 'TXT_NEW', '', 'int', 'hi', 0)")),
-            ("b-mod", raw_sql(
-                "UPDATE master_text SET txt = 'x' WHERE sct = 'AREA_NAME'")),
+            ("a-mod", raw_sql(f"{OPAQUE} WHERE id = 'SKL_EXPUP_01'")),
+            ("b-mod", raw_sql(f"{OPAQUE} WHERE id = 'SKL_EXPUP_01'")),
         )
-        self.assertEqual([c.severity for c in report.conflicts], [WARNING])
+        self.assertEqual([c.severity for c in report.conflicts], [SERIOUS])
+        self.assertEqual(report.severity_for("a-mod"), SERIOUS)
+
+    def test_a_shared_table_alone_is_not_a_warning_any_more(self) -> None:
+        report = self._analyze_with_db(
+            ("a-mod", raw_sql(f"{OPAQUE} WHERE id = 'SKL_EXPUP_01'")),
+            ("b-mod", raw_sql(f"{OPAQUE} WHERE id = 'SKL_POWER_01'")),
+        )
+        self.assertEqual(report.conflicts, [])
+        self.assertEqual(report.severity_for("a-mod"), "")
+
+    def test_a_shared_row_alone_is_not_a_warning_either(self) -> None:
+        # Same row of the same table, different columns - the metal bat's damage
+        # and its durability. This is the case the user asked to go quiet.
+        report = self._analyze_with_db(
+            ("a-mod", update_set("master_skill", "buy_money", "id = 'SKL_EXPUP_01'")),
+            ("b-mod", update_set("master_skill", "val0", "id = 'SKL_EXPUP_01'")),
+        )
+        self.assertEqual(report.conflicts, [])
+        self.assertEqual(report.severity_for("a-mod"), "")
 
     def test_the_same_text_entry_is_serious(self) -> None:
         report = self._analyze(("a-mod", text_replace("TXT_A")), ("b-mod", text_replace("TXT_A")))
@@ -303,6 +395,47 @@ class ConflictTests(unittest.TestCase):
             ("b-mod", update_set("master_text", "txt")),
         )
         self.assertEqual(report.severity_for("a-mod"), SERIOUS)
+
+    def test_messages_for_colours_each_line_by_its_own_severity(self) -> None:
+        """The details panel paints per message; the list's dot is per mod.
+
+        An overwritten cell shown in the same yellow as "a mod it needs is not
+        ticked" tells the reader those are the same kind of thing.
+        """
+        write_mod(self.mods, "a-mod", {
+            "requires": ["not-installed"],
+            **update_set("master_skill", "buy_money"),
+        })
+        write_mod(self.mods, "b-mod", update_set("master_skill", "buy_money"))
+        from lid_db_manager.sqlutil import connect
+
+        found = scan_mods(self.mods)
+        con = connect(self.db, read_only=True)
+        try:
+            report = analyze(found.mods, set(found.by_id), con)
+        finally:
+            con.close()
+        by_severity = dict((severity, message)
+                           for severity, message in report.messages_for("a-mod"))
+        self.assertIn(SERIOUS, by_severity)
+        self.assertIn("master_skill.buy_money", by_severity[SERIOUS])
+        self.assertIn("warning", by_severity)
+        self.assertIn("not-installed", by_severity["warning"])
+
+    def test_messages_for_says_the_same_things_as_for_mod(self) -> None:
+        report = self._analyze_with_db(
+            ("a-mod", update_set("master_skill", "buy_money")),
+            ("b-mod", update_set("master_skill", "buy_money")),
+        )
+        self.assertEqual([m for _s, m in report.messages_for("a-mod")],
+                         report.for_mod("a-mod"))
+
+    def test_messages_for_a_mod_nobody_mentions_is_empty(self) -> None:
+        report = self._analyze_with_db(
+            ("a-mod", update_set("master_skill", "buy_money")),
+            ("b-mod", update_set("master_text", "txt")),
+        )
+        self.assertEqual(report.messages_for("a-mod"), [])
 
     def test_a_mod_nobody_mentions_has_no_severity(self) -> None:
         report = self._analyze(

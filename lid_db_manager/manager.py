@@ -8,7 +8,7 @@ returns a report, so callers decide how to present the outcome.
 from __future__ import annotations
 
 import copy
-from dataclasses import fields, replace
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 
 import shutil
@@ -16,11 +16,15 @@ import sqlite3
 
 from . import adopt
 from . import asset_runner
+from . import browse
 from . import backup as backup_module
 from . import db_record
 from . import dbdiff
+from . import exe_check_off
+from . import validator
 from . import vanilla_capture
 from . import vanilla_library
+from . import vetted
 from . import install as install_module
 from . import migrations
 from . import modedit
@@ -55,6 +59,29 @@ MOD_FAILED = "failed"  # red
 MOD_DISABLED = "disabled"
 
 DELTAS_KEPT_PER_MOD = 6
+
+
+@dataclass(frozen=True)
+class FileCheckStatus:
+    """What the executable's file list says right now.
+
+    ``reason`` is filled in when nothing could be read - no game folder, no
+    executable, or a layout this does not know - and the rest is then empty.
+    Nothing is guessed: a status that cannot be established says so.
+    """
+
+    exe: Path | None = None
+    checked: list[str] = field(default_factory=list)
+    switched_off: list[str] = field(default_factory=list)
+    reason: str = ""
+
+    @property
+    def readable(self) -> bool:
+        return not self.reason
+
+    @property
+    def all_off(self) -> bool:
+        return self.readable and not self.checked and bool(self.switched_off)
 
 
 class Manager:
@@ -152,6 +179,76 @@ class Manager:
             f"Game folder set to {path}" if path else "Game folder override cleared"
         )
 
+    # -- the game's own file check ----------------------------------------
+
+    def file_check_status(self) -> "FileCheckStatus":
+        """What the game currently verifies, and what has been switched off."""
+        game_root = self.asset_game_root
+        if game_root is None:
+            return FileCheckStatus(reason="the game folder could not be found")
+        exe = Path(game_root) / vetted.GAME_EXE
+        if not exe.is_file():
+            return FileCheckStatus(reason=f"{vetted.GAME_EXE} is not in the game folder")
+        try:
+            raw = exe.read_bytes()
+            off = exe_check_off.switched_off_names(raw)
+            checked = exe_check_off.checked_names(raw)
+        except Exception as exc:
+            return FileCheckStatus(reason=f"the file list could not be read ({exc})")
+        return FileCheckStatus(exe=exe, checked=checked, switched_off=off)
+
+    def blocked_packages(self) -> list[str]:
+        """Files an enabled mod replaces that the game still checks.
+
+        The list inside the executable is read once here. Letting every mod read
+        it meant parsing 45 MB per enabled mod, which the Hash Patcher then paid
+        again on each refresh.
+        """
+        game_root = self.asset_game_root
+        listed = validator.listed_names(game_root)
+        if listed is None:
+            return []
+        names: list[str] = []
+        seen: set[str] = set()
+        for mod in self.enabled_mods():
+            for name in validator.still_checked(mod, game_root, listed):
+                if name.lower() not in seen:
+                    seen.add(name.lower())
+                    names.append(name)
+        return names
+
+    def _write_file_check(self, change, what: str) -> list[str]:
+        """Shared path for switching off and back on. Returns what changed."""
+        status = self.file_check_status()
+        if status.reason:
+            raise RuntimeError(status.reason)
+        locked = asset_runner.game_lock_reason(self.db_path)
+        if locked:
+            raise RuntimeError(locked)
+        asset_runner.keep_stock_executable(Path(status.exe).parents[2], self.paths.backups_dir)
+        raw = Path(status.exe).read_bytes()
+        changed, done = change(raw)
+        if not done:
+            return []
+        asset_runner.write_executable(Path(status.exe).parents[2], changed)
+        self.log.info(f"{what}: {len(done)} file(s) - {', '.join(done[:6])}"
+                      + (" ..." if len(done) > 6 else ""))
+        return done
+
+    def switch_file_check_off(self, packages) -> list[str]:
+        """Stop the game verifying those packages. Returns the ones changed."""
+        return self._write_file_check(
+            lambda raw: exe_check_off.switch_off(raw, packages),
+            "Switched the game's file check off",
+        )
+
+    def switch_file_check_on(self, packages=None) -> list[str]:
+        """Put packages back under the game's check. None means all of them."""
+        return self._write_file_check(
+            lambda raw: exe_check_off.switch_on(raw, packages),
+            "Switched the game's file check back on",
+        )
+
     def asset_backups(self) -> list[asset_runner.AssetBackupEntry]:
         return asset_runner.list_asset_backups(self.paths.backups_dir)
 
@@ -238,21 +335,39 @@ class Manager:
     def active_mod(self, mod: Mod) -> Mod:
         """``mod`` with its chosen values, and without the parts switched off."""
         mod = self.configured(mod)
-        off = self.state.disabled_patches.get(mod.id)
-        if not off:
+        kept = [
+            patch
+            for patch in mod.patches
+            if self.state.is_part_on(mod.id, patch.key, patch.ships_on)
+        ]
+        if len(kept) == len(mod.patches):
             return mod
-        kept = [patch for patch in mod.patches if patch.key not in off]
         return replace(mod, patches=kept)
 
     def set_part_enabled(self, mod_id: str, patch_key: str, enabled: bool) -> None:
         """Switch one part of a mod on or off, without touching the rest."""
-        self.state.set_part_enabled(mod_id, patch_key, enabled)
+        mod = self.scan.get(mod_id)
+        ships_on = True
+        if mod is not None:
+            for patch in mod.patches:
+                if patch.key == patch_key:
+                    ships_on = patch.ships_on
+                    break
+        self.state.set_part_enabled(mod_id, patch_key, enabled, ships_on=ships_on)
         self._conflict_cache = None
         self._delta_cache.pop(mod_id, None)
 
     def move_mod(self, mod_id: str, delta: int) -> bool:
         """Move a mod up or down the load order. Returns True if it moved."""
         moved = self.state.move(mod_id, delta)
+        if moved:
+            self._conflict_cache = None
+            self.state.save()
+        return moved
+
+    def set_mod_position(self, mod_id: str, position: int) -> bool:
+        """Move a mod to a given place in the load order. True if it moved."""
+        moved = self.state.set_position(mod_id, position)
         if moved:
             self._conflict_cache = None
             self.state.save()
@@ -350,7 +465,9 @@ class Manager:
             report = ValidationReport(fatal="no database selected")
             self.last_validation = report
             return report
-        self.last_validation = validate(self.db_path, self.enabled_mods(), self.installed_ids())
+        self.last_validation = validate(
+            self.db_path, self.enabled_mods(), self.installed_ids(), self.asset_game_root
+        )
         return self.last_validation
 
     def _apply(self, *, take_backup: bool, progress: Progress | None = None) -> ApplyReport:
@@ -445,6 +562,7 @@ class Manager:
             keep_snapshots=keep_snapshots,
             record=True,
             progress=progress,
+            game_root=self.asset_game_root,
         )
         self.last_apply = report
         self.last_validation = report.validation
@@ -1124,6 +1242,8 @@ class Manager:
         author: str | None = None,
         version: str | None = None,
         readme: str | None = None,
+        category: str | None = None,
+        tags=None,
     ) -> Mod | None:
         """Rename and re-describe a mod in place. Returns it under its new id."""
         mod = self.scan.get(mod_id)
@@ -1138,6 +1258,8 @@ class Manager:
             author=author,
             version=version,
             readme=readme,
+            category=category,
+            tags=tags,
         )
         if new_id != mod_id:
             self.log.info(f"Renamed {mod_id} to {new_id}")
@@ -1147,6 +1269,30 @@ class Manager:
         self._delta_cache.pop(mod_id, None)
         self.rescan()
         return self.scan.get(new_id)
+
+    # -- what kind of mod it is -------------------------------------------
+
+    def set_mod_filing(
+        self, mod_id: str, *, category: str | None = None, tags=None
+    ) -> Mod | None:
+        """Change a mod's category and/or tags, and nothing else about it.
+
+        Goes through ``edit_mod`` with the mod's own name, so the folder is not
+        renamed and a bare ``.sql`` mod gains a real mod.json the same way giving
+        it a name does.
+        """
+        mod = self.scan.get(mod_id)
+        if mod is None:
+            raise modedit.ModEditError(f"no such mod: {mod_id}")
+        return self.edit_mod(mod_id, mod.name, category=category, tags=tags)
+
+    def categories(self) -> dict[str, int]:
+        """Every category in use, with how many mods are in it."""
+        return browse.category_counts(self.scan.mods)
+
+    def tags(self) -> dict[str, int]:
+        """Every tag in use, with how many mods carry it, commonest first."""
+        return browse.tag_counts(self.scan.mods)
 
     def install_database(
         self,

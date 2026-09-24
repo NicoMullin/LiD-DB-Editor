@@ -20,7 +20,7 @@ def run(paths: AppPaths | None = None) -> int:
     app.setOrganizationName("lid-db-mod-manager")
 
     manager = Manager(paths)
-    apply_theme(app, manager.state.settings.dark_mode)
+    apply_theme(app, manager.state.settings.dark_mode, manager.state.settings.text_scale)
 
     window = MainWindow(manager)
     window.show()

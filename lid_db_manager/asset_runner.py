@@ -28,7 +28,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import exe_checksums, vetted
+from . import configini, exe_check_off, exe_checksums, vetted
 from .progress import Progress, ensure as ensure_progress
 from .sqlutil import sha256_file
 
@@ -354,6 +354,67 @@ def _wanted_transforms(mods_in_load_order) -> dict[str, tuple[object, str]]:
             for target in targets:
                 wanted[_normalise(target)] = (patch, mod.id)
     return wanted
+
+
+def _wanted_ini(mods_in_load_order) -> dict[str, list[tuple[str, str, str, str]]]:
+    """target -> [(section, key, value, mod id)] for config files, in load order.
+
+    Unlike a copy, two mods writing the same config file do not fight over it:
+    the keys are collected from all of them and laid down in order, so each one
+    gets the keys it asked for and only a key both of them set is decided by
+    load order. That is the whole reason a config file is not just an asset.
+    """
+    wanted: dict[str, list[tuple[str, str, str, str]]] = {}
+    for mod in mods_in_load_order:
+        for patch in mod.patches:
+            entries = getattr(patch, "ini_entries", None)
+            if not callable(entries):
+                continue
+            target = _normalise(patch.target)
+            for section, key, value in entries():
+                wanted.setdefault(target, []).append((section, key, value, mod.id))
+    return wanted
+
+
+def _stage_ini(
+    ini: dict[str, list[tuple[str, str, str, str]]],
+    game_root: Path,
+    store: Path,
+    manifest: dict[str, dict],
+    staging: Path,
+) -> dict[str, tuple[Path, str]]:
+    """Work out each config file's new contents, without writing to the game.
+
+    Built from the *pristine* file - the copy kept the first time any mod
+    claimed it, or nothing at all when the manager created it - rather than
+    from what is on disk. Reading the current file back would keep keys an
+    earlier run wrote and this one no longer sets, so unticking a part would
+    leave its values behind in the game.
+
+    Returns the same shape ``_wanted_files`` does, so the staged file goes
+    through the ordinary backup, copy and rollback path from here on.
+    """
+    out: dict[str, tuple[Path, str]] = {}
+    if ini:
+        staging.mkdir(parents=True, exist_ok=True)
+    for target, contributions in sorted(ini.items()):
+        dest = _resolve_target(game_root, target)
+        entry = manifest.get(target)
+        if entry is not None and entry.get("backup"):
+            kept = store / entry["backup"]
+            if not kept.is_file():
+                raise OSError(f"the saved copy of {target} is missing")
+            base = kept.read_bytes()
+        elif entry is not None:
+            base = None  # the manager created it; the game shipped no such file
+        else:
+            base = dest.read_bytes() if dest.is_file() else None
+        produced = configini.build(base, [(s, k, v) for s, k, v, _ in contributions])
+        staged = staging / _flatten(target)
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_bytes(produced)
+        out[target] = (staged, contributions[-1][3])
+    return out
 
 
 TEXTURE_INDEX_FILE = "texture-index.json"
@@ -756,6 +817,53 @@ def stock_executable(raw: bytes) -> bytes:
     return raw
 
 
+def keep_stock_executable(game_root: Path, backups_dir: Path) -> Path | None:
+    """Make sure the permanent copy of the stock executable exists.
+
+    Taken once, ever, like every other ".original", and only from a file whose
+    check is still on - so an executable that has already been switched off can
+    never quietly become this machine's idea of stock, which is the trap the
+    standalone tool fell into.
+
+    Switching back on does not need this copy: it reads what each name was off
+    the name itself. This is insurance, not the way back.
+    """
+    exe = game_root / vetted.GAME_EXE
+    if not exe.is_file():
+        return None
+    manifest = _load_manifest(backups_dir)
+    store = _store_dir(backups_dir)
+    kept = manifest.get(vetted.GAME_EXE, {}).get("backup")
+    if kept and (store / kept).is_file():
+        return store / kept
+    if exe_check_off.switched_off_names(exe.read_bytes()):
+        return None  # not stock, so not worth keeping as if it were
+    store.mkdir(parents=True, exist_ok=True)
+    name = _free_backup_name(store, vetted.GAME_EXE, set())
+    shutil.copy2(exe, store / name)
+    if sha256_file(store / name) != sha256_file(exe):
+        (store / name).unlink(missing_ok=True)
+        raise OSError("backup of the game executable did not verify")
+    manifest[vetted.GAME_EXE] = {"backup": name}
+    _save_manifest(backups_dir, manifest)
+    return store / name
+
+
+def write_executable(game_root: Path, raw: bytes) -> None:
+    """Put new bytes in the executable's place, atomically."""
+    dest = game_root / vetted.GAME_EXE
+    handle, tmp_name = tempfile.mkstemp(
+        prefix="." + dest.name + ".lid-", suffix=".tmp", dir=dest.parent
+    )
+    os.close(handle)
+    tmp = Path(tmp_name)
+    try:
+        tmp.write_bytes(raw)
+        os.replace(tmp, dest)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def stock_checksums(game_root: Path) -> dict[str, str]:
     """What the game's *unmodified* executable expects for each package."""
     exe = Path(game_root) / vetted.GAME_EXE
@@ -917,20 +1025,24 @@ def apply_asset_patches(
                 log.warn(warning)
         wanted = _wanted_files(mods_in_load_order)
         transforms = _wanted_transforms(mods_in_load_order)
+        ini = _wanted_ini(mods_in_load_order)
     except OSError as exc:
         report.ok = False
         report.error = str(exc)
         if log:
             log.error(report.error)
         return report
-    if not wanted and not transforms:
+    if not wanted and not transforms and not ini:
         return report
 
     # Checked before a single byte is copied: a refused file fails the whole
     # run, so a pack is never left half-installed around the file it wanted.
     refused = [
         (target, mod_id, reason)
-        for target, (_source, mod_id) in sorted(wanted.items())
+        for target, mod_id in sorted(
+            [(t, m) for t, (_source, m) in wanted.items()]
+            + [(t, c[-1][3]) for t, c in ini.items()]
+        )
         if (reason := forbidden_target_reason(target))
     ]
     if refused:
@@ -948,6 +1060,19 @@ def apply_asset_patches(
     _empty_dir(rollback_dir)
     manifest = _load_manifest(backups_dir)
     taken_names = {entry["backup"] for entry in manifest.values() if entry.get("backup")}
+
+    # Config files are worked out here rather than copied from the mod folder,
+    # then join the ordinary copy plan - so everything below treats them as any
+    # other game file, including the backup and the all-or-nothing rollback.
+    if ini:
+        try:
+            wanted.update(_stage_ini(ini, game_root, store, manifest, rollback_dir / "ini"))
+        except (OSError, UnicodeError) as exc:
+            report.ok = False
+            report.error = f"a game config file could not be worked out: {exc}"
+            if log:
+                log.error(report.error)
+            return report
 
     # Files the game checks against the table inside its executable. One that
     # does not match is not loaded - the game stops with an error naming it -

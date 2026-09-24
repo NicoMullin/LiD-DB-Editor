@@ -91,6 +91,33 @@ See
   6.11 that means 3.11 to 3.13. (The command line works on any 3.11+.)
 - Windows, macOS or Linux. Developed on Windows.
 
+## Text size
+
+**View ▸ Text size**, or the keyboard:
+
+| Key                | What it does            |
+|--------------------|-------------------------|
+| **Ctrl** and **+** | Bigger, in steps of 10% |
+| **Ctrl** and **-** | Smaller                 |
+| **Ctrl** and **0** | Back to 100%            |
+
+**Ctrl** and **=** does the same as **Ctrl** and **+**, since **+** is a shifted
+key on most layouts.
+
+The View menu also lists 80%, 90%, 100%, 110%, 125%, 150%, 175% and 200%
+directly, with the one you are on ticked. Anything from **70% to 200%** is
+allowed; the steps just land on multiples of ten.
+
+It changes every bit of text in the window at once — the mod list, the panels
+on the right, the log, the menus and the dialogs — and the padding grows with
+it, so larger type is not squeezed into boxes sized for the old font. It is
+remembered, so it is there next time you open the program.
+
+This is the program's own text, not Windows' display scaling. If everything is
+too small on a 4K screen, Windows' own scaling makes the whole window bigger;
+this makes only the writing bigger, which is usually what you want when the
+window itself is fine.
+
 ## Running it
 
 Note there is a release with a prebuilt exe if you do not want to install Python
@@ -241,6 +268,80 @@ delete it. Deleting one that is applied offers to put its rows back first.
 Ticking a mod keeps your place in the list rather than jumping back to the top,
 which matters once you have more mods than fit on screen.
 
+### Finding a mod
+
+Above the list: a search box, a **category**, a **Tags** button and a **Sort**
+box.
+
+The search looks at everything a mod says about itself — its name, description,
+author, folder name, category and tags — and every word you type has to appear
+somewhere, in any order. So `coin limit` finds the Coin Locker mod without that
+being a phrase anywhere in it.
+
+**Category** is one answer to "what kind of mod is this", so a mod has exactly
+one. **Tags** cut across categories, so a mod has as many as it likes; ticking a
+second tag shows you *more* mods, not fewer. The boxes are built from the mods
+you actually have, with counts, so a category nobody is using is never offered.
+
+Right-clicking a mod also offers **Show only ‹its category›** and **Show only
+mods tagged**, which is usually how you end up browsing — from one coin mod to
+the rest of them.
+
+**Clear** puts everything back. While anything is hidden the list says
+`Showing 4 of 22`, and if a filter matches nothing at all the list says so
+rather than looking empty.
+
+| Sort             | What it is for                                                                     |
+|------------------|------------------------------------------------------------------------------------|
+| **Load order**   | The real order things apply in. The default, and the only one you can move mods in |
+| **Name**         | Finding a mod you know the name of                                                 |
+| **Category**     | Reading the whole library a group at a time                                        |
+| **Status**       | Failed first, then pending, then applied, then switched off - problems at the top  |
+| **Newest first** | What you just imported, by when the mod folder was written                         |
+
+**Sorting never changes your load order.** It changes the order of the rows on
+screen and nothing else; the number in the first column still says where each
+mod really applies. Because that number would be measured against rows that are
+no longer next to it, sorting by anything other than load order makes it
+read-only and greys out Move up and Move down, with a line under the list saying
+why. Set Sort back to **Load order** and they come back.
+
+A filter does the same to Move up and Move down, for the same reason — "swap with
+the row next to this one" is a lie when rows are hidden. Typing a number still
+works, because "go to position 5" means the same thing either way.
+
+The sort is remembered between sessions. The search and the filters are
+deliberately not: a filter left on from last time hides mods, and nobody
+suspects the list.
+
+### Giving a mod a category and tags
+
+**Right-click ▸ Edit details**, or F2. Category is a dropdown you can also type
+into — the suggestions are only suggestions, and anything you type is kept
+exactly as typed. Tags go in one box, separated by commas.
+
+Tags are tidied to one spelling as they save — `Coin Locker` becomes
+`coin-locker` — so the same tag on two mods is always the same tag, and the
+dialog shows you what it is about to write when that differs from what you
+typed. Clearing either one takes it out of the `mod.json` rather than writing an
+empty value.
+
+Both go into the mod's own `mod.json`:
+
+```json
+{
+  "category": "Economy",
+  "tags": ["coins", "storage", "limits"]
+}
+```
+
+which means they travel with the mod folder if you share it — and that a new
+release of somebody else's mod, dropped in over the old one, arrives with their
+tags rather than yours.
+
+Every mod shipped here already has both. A mod with neither is listed under
+**Uncategorised**, which is a place in the list, not a problem.
+
 ### Choosing a mod's value
 
 Select a mod and open the **Configuration** tab on the right. Every value the
@@ -312,9 +413,10 @@ away.
 
 ## Mods included
 
-Fifteen, in `mods/`, each with its own `readme.md`: twelve tweaks of mine, one
-that changes a number inside a game package, and two larger mods by S3er0i9ng
-included with their permission ([below](#by-s3er0i9ng)).
+Seventeen, in `mods/`, each with its own `readme.md`: twelve database tweaks of
+mine, one that changes a number inside a game package, one that writes a game
+config file, and three larger mods by S3er0i9ng included with their permission
+([below](#by-s3er0i9ng)).
 
 Every one of mine comes down to a number, and **the number is yours to choose**
 in the mod's **Configuration** tab — see
@@ -333,11 +435,15 @@ touch it.
 
 ### Space
 
-| Mod                | What it does                                     | Default | You can choose  |
-|--------------------|--------------------------------------------------|---------|-----------------|
-| `bank-limit`       | Both banks hold more, all 99 levels              | x10     | x1 to x100      |
-| `reward-box-limit` | The reward box holds this many instead of 50     | 250     | 50 to 9,999     |
-| `storage-limit`    | The Coin Locker expands to this instead of 2,000 | 10,000  | 2,000 to 99,999 |
+| Mod                | What it does                                     | Default  | You can choose  |
+|--------------------|--------------------------------------------------|----------|-----------------|
+| `bank-limit`       | Both banks hold more, all 99 levels              | x10      | x1 to x100      |
+| `reward-box-limit` | The reward box holds this many instead of 50     | 250      | 50 to 9,999     |
+| `storage-limit`    | The Coin Locker expands to this instead of 2,000 | 10,000   | 2,000 to 20,000 |
+|                    | … and how many slots each purchase adds (part)   | 100      | 1 to 1,000      |
+|                    | … and what one purchase costs (part)             | 1,000 KC | 1 to 200,000 KC |
+
+`storage-limit`'s last two rows are **parts, switched off until you tick them** — look under the mod in the list. Slots per purchase is the one that makes a big locker usable: at stock, filling a 10,000-slot locker means buying the expansion a thousand times.
 
 ### Durability and ammo
 
@@ -382,18 +488,34 @@ load order, and still able to be switched off. The old folders are moved into
 
 ### Not in the database
 
-| Mod             | What it does                                            | Default | You can choose             |
-|-----------------|---------------------------------------------------------|---------|----------------------------|
-| `instant-drops` | Kills drop their reward as the enemy dies, not 2s later | 0       | 0 to 20 tenths of a second |
+| Mod             | What it does                                                 | Default | You can choose                 |
+|-----------------|--------------------------------------------------------------|---------|--------------------------------|
+| `instant-drops` | Kills drop their reward as the enemy dies, not 2s later      | 0       | 0 to 20 tenths of a second     |
+| `reward-pickup` | Dropped currency comes straight to you instead of scattering | 0       | 0 to 20 hundredths of a second |
 
-The wait is not a database value: it is compiled into the script bytecode
-inside `BrgGame.upk`, so this mod changes that one byte instead. **The game's
-file check has to be off for `BrgGame.upk`** - see
+Neither of these numbers is a database value, and the two mods reach the game by
+different routes. `instant-drops` changes bytes compiled into the script
+bytecode inside `BrgGame.upk`. `reward-pickup` writes
+`BrgGame/Config/BrgUIDebugEditParams.ini`, a config file the game reads at
+startup but never shipped - so nothing the game came with is edited, and
+switching the mod off deletes the file again.
+
+Both have a part you tick separately:
+
+| Mod             | Part                                                 | Ships |
+|-----------------|------------------------------------------------------|-------|
+| `instant-drops` | Stop coins being thrown - coins land where they drop | off   |
+| `reward-pickup` | Pieces fly straight to you                           | on    |
+| `reward-pickup` | Fewer, bigger pieces - same payout, less physics     | off   |
+
+**The game's file check has to be off** - for `BrgGame.upk` and for
+`BrgUIDebugEditParams.ini` respectively. The manager does that for you when you
+save; see
 [Mods that replace artwork the game checks](#mods-that-replace-artwork-the-game-checks).
-Switching the mod off puts the game's own package back, byte for byte.
+Switching `instant-drops` off puts the game's own package back, byte for byte.
 
-The finding is from **Claudia-diva's LID-Patches** (MIT), where it is the
-`dropdelay` patch.
+The findings behind both are from **Claudia-diva's LID-Patches** (MIT), where
+they are the `dropdelay` and `drops` patches.
 
 ### By S3er0i9ng
 
@@ -409,10 +531,10 @@ All three are included with their author's permission; the originals are at
 [Mods that replace artwork the game checks](#mods-that-replace-artwork-the-game-checks).
 
 Ticking the Crossover pack alongside the durability, ammo or magazine mods, or
-Nitro Boost, shows a "both write table" warning. The manager can only compare
-the pack's SQL a whole table at a time; they share a table but no rows — the
-pack switches hidden gear on and adds new rows, and those mods change other
-columns and other text.
+Nitro Boost, used to show a "both write table" warning. It no longer does: they
+share a table but never the same box — the pack switches hidden gear on and adds
+new rows, while those mods change other columns of other rows. See
+[Only the same box is reported](#only-the-same-box-is-reported).
 
 ## Adding mods
 
@@ -957,6 +1079,53 @@ The game keeps a checksum for most packages, so a mod doing this has to say
 `"requires_check_off": ["BrgGame.upk"]`, and the manager refuses to apply it
 until that check is off.
 
+## Setting a value in a game config file
+
+A third place the game keeps its numbers, after `masters.db` and the bytecode
+inside a package: an Unreal `config` class reads them out of a `.ini` in
+`BrgGame/Config` at startup, and falls back to the values compiled into it when
+the file is not there. Several of those files are never shipped, so writing one
+supplies values the game was always ready to take without editing anything it
+came with. The `config_ini` patch type does that:
+
+```json
+{
+  "type": "config_ini",
+  "target": "BrgGame/Config/BrgUIDebugEditParams.ini",
+  "section": "BrgGame.BrgUIDebugEditParams",
+  "values": {
+    "mCoin_SpawnWait": "{{stagger}}",
+    "mCoin_FullAutoMode": 1
+  }
+}
+```
+
+- **`section`** is the name inside the brackets, written without them. A section
+  that is not in the file is added; one that is, is found whatever its case.
+- **`values`** are written in the order they are listed, and may be settings.
+  `true` and `false` become `True` and `False`, the way Unreal writes them.
+
+**Only the keys named are written.** Everything else in the file is left where
+it was, byte for byte — comments, blank lines, other sections, its own line
+endings and encoding. So a config a player wrote themselves survives the mod
+being switched on, and two mods writing different keys of the same file both get
+what they asked for instead of the later one winning the whole file. Only a key
+both of them set is decided by load order.
+
+The new contents are worked out from the *pristine* file — the copy kept the
+first time any mod claimed it, or nothing at all when the manager created it —
+never from what the last run left behind. That is what makes unticking a part
+take its keys back out of the game rather than leaving them there.
+
+From then on it is an ordinary game file: backed up on first claim, rolled back
+as a whole if anything fails, and on revert put back to the kept copy or deleted
+if the manager created it.
+
+The game checks its config files against the same list its packages are in, so a
+mod doing this says `"requires_check_off": ["BrgUIDebugEditParams.ini"]` and the
+Hash Patcher covers it exactly as it covers a package — the same one-byte edit,
+no program code.
+
 ## Editing a mod
 
 **Tools → Edit mod details**, or F2 with a mod selected. Name, description,
@@ -1009,11 +1178,14 @@ Once a mod has been checked against a newer build and still does exactly the
 same thing, list both. Any build in the list counts as a match:
 
 ```json
-{ "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"] }
+{ "game_version": ["5.0.4.0.0 - 1.88", "5.0.4.1.0 - 1.89"] }
 ```
 
-Every mod that ships with the manager has been checked this way against 1.88:
-each one changes exactly the same values on 1.88 as on 1.87.
+Every mod that ships with the manager has been checked this way against **1.89**.
+The check is not a guess: for each mod, every row it writes was compared between
+the 1.88 and 1.89 clean databases and found identical, so the mod lands exactly
+as it did before. Both `5.0.4.1` and `5.0.4.2` report themselves as
+`5.0.4.1.0 - 1.89`, so one entry covers both.
 
 When both are present and they differ, validation adds a warning naming each:
 
@@ -1046,16 +1218,31 @@ A mod with something worth knowing about gets a **coloured dot** next to its
 name. The row stays folded — open it with the arrow when you want to read why,
 and hover the name for a one-line version.
 
-| Dot        | What it means                                                                                         |
-|------------|-------------------------------------------------------------------------------------------------------|
-| **Yellow** | Worth a look. Two mods write the same table, a mod it needs is not ticked, or a patch matches no rows |
-| **Red**    | One mod overwrites the exact values another one sets, or this mod failed to apply                     |
-| None       | Nothing to report                                                                                     |
+| Dot        | What it means                                                                                               |
+|------------|-------------------------------------------------------------------------------------------------------------|
+| **Yellow** | Worth a look. A mod it needs is not ticked, it sits above something it requires, or a patch matches no rows |
+| **Red**    | Two mods write the same box — same row, same column — or this mod failed to apply                           |
+| None       | Nothing to report                                                                                           |
 
-Neither colour stops anything. A red dot on two mods that write the same values
-is only telling you that the lower one in the load order wins — which may well
-be what you wanted. The text inside the row names the mods, the table and the
+Neither colour stops anything. A red dot on two mods that write the same value is
+only telling you that the lower one in the load order wins — which may well be
+what you wanted. The text inside the row names the mods, the table and the
 column.
+
+### Only the same box is reported
+
+Two mods sharing a table is not a conflict, and neither is sharing a row. Change
+the damage on the metal bat in one mod and its durability in another and you will
+see nothing, because nothing is being overwritten — same row, different column.
+Change the damage in **both** and you get a red dot, because one of them is going
+to lose.
+
+Working that out means reading the columns out of each mod's SQL. That works for
+plain `UPDATE` statements however they are written — `[brackets]`, `"quotes"`,
+functions and sub-selects in the value, string literals with commas and brackets
+inside them. It cannot be done for an `INSERT` or a `DELETE`, which name no
+column to compare, so a mod built from those is left alone rather than guessed
+at.
 
 ## Load order
 
@@ -1472,7 +1659,7 @@ What they do need to know:
 python -m unittest discover -s tests -t tests
 ```
 
-788 tests. A handful need real game files and skip without them - to run those,
+1,210 tests. A handful need real game files and skip without them - to run those,
 point `LID_TFC_REFERENCE` at a folder holding `stock/`, `tfc-output/` and
 `tommygun/` (the packages as the game ships them, the same packages after TFC
 Installer has rebuilt them, and the mod folder itself).

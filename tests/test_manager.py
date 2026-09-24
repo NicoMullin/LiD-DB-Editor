@@ -231,6 +231,44 @@ class ManagerTests(unittest.TestCase):
         self.manager.move_mod("cost", -1)
         self.assertEqual(self.manager.state.enabled_mods, ["cost", "other"])
 
+    def test_a_mod_can_be_put_straight_at_a_place(self) -> None:
+        """Moving one step at a time is a lot of clicks in a long list."""
+        for mod_id in ("one", "two", "three", "four"):
+            write_mod(self.paths.mods_dir, mod_id, COST_MOD)
+        self.manager.rescan()
+        for mod_id in ("one", "two", "three", "four"):
+            self.manager.set_enabled(mod_id, True)
+
+        self.assertTrue(self.manager.set_mod_position("four", 1))
+        self.assertEqual(
+            self.manager.state.enabled_mods, ["four", "one", "two", "three"]
+        )
+        self.assertTrue(self.manager.set_mod_position("four", 3))
+        self.assertEqual(
+            self.manager.state.enabled_mods, ["one", "two", "four", "three"]
+        )
+
+    def test_a_place_past_either_end_lands_at_that_end(self) -> None:
+        """Typing 99 plainly means last. Refusing it would only be a beep."""
+        write_mod(self.paths.mods_dir, "other", COST_MOD)
+        self.manager.rescan()
+        self.manager.set_enabled("cost", True)
+        self.manager.set_enabled("other", True)
+
+        self.assertTrue(self.manager.set_mod_position("cost", 99))
+        self.assertEqual(self.manager.state.enabled_mods, ["other", "cost"])
+        self.assertTrue(self.manager.set_mod_position("cost", -5))
+        self.assertEqual(self.manager.state.enabled_mods, ["cost", "other"])
+
+    def test_a_place_that_changes_nothing_says_so(self) -> None:
+        self.manager.set_enabled("cost", True)
+        self.assertFalse(self.manager.set_mod_position("cost", 1))
+
+    def test_a_disabled_mod_has_no_place_to_be_put_at(self) -> None:
+        """The load order only covers enabled mods."""
+        self.assertFalse(self.manager.set_mod_position("cost", 1))
+        self.assertEqual(self.manager.state.enabled_mods, [])
+
     def test_listed_mods_puts_enabled_ones_first_in_load_order(self) -> None:
         write_mod(self.paths.mods_dir, "aaa-disabled", COST_MOD)
         write_mod(self.paths.mods_dir, "zzz-enabled", COST_MOD)
@@ -383,6 +421,7 @@ class ShippedModTests(unittest.TestCase):
         "Colored PlayStation Buttons v1.4",
         "Tower Static Radio",
         "instant-drops",
+        "reward-pickup",
     }
 
     # By S3er0i9ng, shipped with their permission. Named exactly as a drop of
@@ -541,7 +580,10 @@ class ShippedModTests(unittest.TestCase):
             if {c.first, c.second} == {"overlap-test", "Floor Material Names"}
         ]
         self.assertEqual(len(pair), 1, [c.message() for c in report.conflicts])
-        self.assertIn("1 shared row(s)", pair[0])
+        # The box, named: both mods write master_text.txt of the same row(s).
+        # Sharing the table, or the row alone, is not reported.
+        self.assertRegex(pair[0], r"master_text\.txt \(\d+ shared row\(s\)\)")
+        self.assertNotIn("table master_text", pair[0])
 
 if __name__ == "__main__":
     unittest.main()

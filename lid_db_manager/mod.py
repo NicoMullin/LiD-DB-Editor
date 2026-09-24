@@ -8,6 +8,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from .browse import clean_category, clean_tags
 from .errors import ModLoadError
 from .patch import Patch, RawSqlFilePatch
 from .settings import (
@@ -21,7 +22,7 @@ from .settings import (
 
 REQUIRED_FIELDS = ("id", "name", "description", "version", "author")
 STRING_LIST_FIELDS = ("requires", "conflicts_with", "raw_sql_files_do_not_touch",
-                      "requires_check_off")
+                      "requires_check_off", "tags")
 
 # Source layouts, per the detection rule in the spec.
 SOURCE_JSON = "mod.json"
@@ -63,6 +64,12 @@ class Mod:
     # refused with an explanation instead, before anything is written.
     requires_check_off: list[str] = field(default_factory=list)
     raw_sql_files_do_not_touch: list[str] = field(default_factory=list)
+    # What kind of mod this is, for finding it again: one category and any
+    # number of tags. Both are optional and both are free text - see browse.py.
+    # A mod that says nothing is listed under "Uncategorised" rather than
+    # guessed at.
+    category: str = ""
+    tags: list[str] = field(default_factory=list)
     source: str = SOURCE_JSON
     apply_mode: str = APPLY_DIRECT
     inverse_sql: Path | None = None
@@ -278,6 +285,8 @@ def load_mod_json(mod_dir: Path) -> Mod:
         raw_sql_files_do_not_touch=_as_string_list(
             data.get("raw_sql_files_do_not_touch"), mod_ref, "raw_sql_files_do_not_touch"
         ),
+        category=clean_category(data.get("category")),
+        tags=clean_tags(_as_string_list(data.get("tags"), mod_ref, "tags")),
         source=SOURCE_JSON,
         apply_mode=apply_mode,
         inverse_sql=inverse if inverse.is_file() else None,

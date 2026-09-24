@@ -79,7 +79,9 @@ class RequiresCheckOffTests(unittest.TestCase):
         self.assertEqual([PACKAGE], validator.still_checked(self.mod(), self.game))
         reason = validator.check_off_error(self.mod(), self.game)
         self.assertIn(PACKAGE, reason)
-        self.assertIn("switch the game's file check off", reason.lower())
+        # It has to say where the switch is, not only that it is off.
+        self.assertIn("tools > hash patcher", reason.lower())
+        self.assertIn("switch off for the ticked files", reason.lower())
 
     def test_it_is_allowed_once_the_check_is_off_for_that_file(self) -> None:
         # The name is gone from the list, which is what switching it off does.

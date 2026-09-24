@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import exe_checksums, vetted
+from . import exe_check_off, exe_checksums, vetted
 from .asset_runner import forbidden_target_reason
 from .errors import ApplyError, ModLoadError, ValidationError
 from .settings import render_text
@@ -123,6 +123,11 @@ class Patch:
         self.mod_dir = mod_dir
         self.index = index
         self.description: str = str(data.get("description", "") or "")
+        # Whether this part is on when its mod is first switched on. A patch
+        # that says "ships_on": false is an optional extra - it appears in the
+        # list with its box clear and does nothing until somebody ticks it.
+        # Anything that says nothing ships on, which is every mod so far.
+        self.ships_on: bool = bool(data.get("ships_on", True))
         # What a player's decision to switch this part off is remembered
         # against. An explicit "id" survives the author reordering or inserting
         # patches; the positional fallback does not, so anything meant to be
@@ -246,6 +251,96 @@ def _statement_gist(statement: str, width: int = 110) -> str:
     ]
     gist = " ".join(" ".join(lines).split()) or " ".join(statement.split())
     return gist[:width] + ("..." if len(gist) > width else "")
+
+
+#: An identifier as SQL in the wild spells it. Generated .sql files from the
+#: community use [brackets], hand-written ones use "quotes" or nothing, and
+#: MySQL habits bring `backticks`.
+_IDENT = r'"[^"]+"|\[[^\]]+\]|`[^`]+`|[A-Za-z_]\w*'
+
+
+def _unquote_ident(name: str) -> str:
+    name = name.strip()
+    if len(name) >= 2 and name[0] in '"[`':
+        return name[1:-1]
+    return name
+
+
+def _set_clause(rest: str) -> list[str] | None:
+    """The assignments of an UPDATE's SET clause, or None if unreadable.
+
+    Splitting on commas with a regex cuts ``max(1, 2)`` in half and a string
+    literal like ``'AKAMI (STAR)'`` breaks bracket counting, so this walks the
+    text once: it tracks whether it is inside a quoted string and how deep it is
+    in brackets, stops at the WHERE that belongs to this statement, and splits
+    only on the commas that separate one assignment from the next.
+    """
+    depth = 0
+    quote = ""
+    out: list[str] = []
+    piece: list[str] = []
+    index = 0
+    while index < len(rest):
+        char = rest[index]
+        if quote:
+            piece.append(char)
+            if char == quote:
+                # '' inside a string is an escaped quote, not the end of it.
+                if index + 1 < len(rest) and rest[index + 1] == quote:
+                    piece.append(rest[index + 1])
+                    index += 2
+                    continue
+                quote = ""
+            index += 1
+            continue
+        if char in "'\"`":
+            quote = char
+            piece.append(char)
+            index += 1
+            continue
+        if char == "[":
+            depth += 1
+            piece.append(char)
+            index += 1
+            continue
+        if char == "]":
+            depth -= 1
+            piece.append(char)
+            index += 1
+            continue
+        if char == "(":
+            depth += 1
+            piece.append(char)
+            index += 1
+            continue
+        if char == ")":
+            depth -= 1
+            if depth < 0:
+                return None  # brackets do not balance - do not guess
+            piece.append(char)
+            index += 1
+            continue
+        if depth == 0:
+            if char == ",":
+                out.append("".join(piece))
+                piece = []
+                index += 1
+                continue
+            if char == ";":
+                break
+            if rest[index:index + 6].upper() == " WHERE" and (
+                index + 6 >= len(rest) or not rest[index + 6].isalnum()
+            ):
+                break
+        piece.append(char)
+        index += 1
+    if quote or depth:
+        return None  # ran out mid-string or mid-bracket
+    out.append("".join(piece))
+    stripped = [piece.strip() for piece in out]
+    if not all(stripped):
+        return None  # a trailing or doubled comma
+    return stripped
 
 
 class UpdateSetPatch(Patch):
@@ -800,43 +895,57 @@ class RawSqlPatch(Patch):
             )
         return ""
 
-    # An UPDATE whose SET clause is a list of "column = <simple expression>".
-    # Simple means: no commas and no brackets, so splitting on commas cannot
-    # cut an expression in half. Anything more involved is left unresolved.
-    _PLAIN_UPDATE = re.compile(
-        r"^UPDATE\s+(?:OR\s+\w+\s+)?(?P<table>\"[^\"]+\"|[A-Za-z_]\w*)\s+SET\s+"
-        r"(?P<sets>[^;()]+?)(?:\s+WHERE\s+[^;]+)?;?$",
+    # UPDATE <table> SET <assignments> [WHERE ...]. The table and the assigned
+    # column names are what is wanted; the assigned values can be anything,
+    # because a value never says which cell is written.
+    _UPDATE_HEAD = re.compile(
+        rf"^UPDATE\s+(?:OR\s+\w+\s+)?(?P<table>{_IDENT})\s+SET\s+(?P<rest>.*)$",
         re.IGNORECASE | re.DOTALL,
     )
-    _ASSIGNMENT = re.compile(r"^\s*(\"[^\"]+\"|[A-Za-z_]\w*)\s*=\s*[^,()]+$")
+    _ASSIGNED_COLUMN = re.compile(rf"^\s*(?P<column>{_IDENT})\s*=\s*\S", re.DOTALL)
+    # Statements that cannot overwrite a cell of an existing row, so they say
+    # nothing about which columns a mod writes and must not make the whole patch
+    # unreadable. A CREATE TABLE IF NOT EXISTS in front of 191 UPDATEs is how
+    # generated .sql files normally start.
+    _WRITES_NO_CELL = re.compile(
+        r"^CREATE\s+(?:TEMP\s+|TEMPORARY\s+)?"
+        r"(?:TABLE|INDEX|UNIQUE\s+INDEX|VIEW|TRIGGER)\b",
+        re.IGNORECASE,
+    )
 
     def resolved_targets(self) -> set[tuple[str, str]] | None:
         """(table, column) pairs this writes, or None when it cannot be told.
 
-        Raw SQL is normally treated as writing a whole table, because it can do
-        anything. But the common shape by far is a handful of plain UPDATEs,
-        and for those the columns are readable - which lets two mods that touch
-        the same rows in different columns stop being reported as a conflict.
+        Raw SQL can do anything, but the common shape by far is a run of plain
+        UPDATEs, and for those the columns are readable. That is what lets two
+        mods touching the same rows in different columns stop being reported as
+        a conflict - and, just as much, lets two mods writing the same column of
+        the same row be reported when neither is an ``update_set`` patch.
 
-        Conservative on purpose: anything that is not a plain UPDATE with a
-        plain SET clause gives up and returns None, and the caller falls back
-        to treating the whole table as written.
+        Conservative on purpose: one statement that could write a cell this
+        cannot name - an INSERT, a DELETE, an unreadable SET - and the whole
+        patch returns None rather than an answer that is only partly true.
         """
         found: set[tuple[str, str]] = set()
         statements = [s for s in self.statements() if _statement_gist(s).strip()]
         if not statements:
             return None
         for statement in statements:
-            text = " ".join(_statement_gist(statement, width=10_000).split())
-            match = self._PLAIN_UPDATE.match(text)
+            text = " ".join(_statement_gist(statement, width=1_000_000).split())
+            if self._WRITES_NO_CELL.match(text):
+                continue
+            match = self._UPDATE_HEAD.match(text)
             if not match:
                 return None
-            table = match.group("table").strip('"')
-            for assignment in match.group("sets").split(","):
-                column = self._ASSIGNMENT.match(assignment)
+            assignments = _set_clause(match.group("rest"))
+            if assignments is None:
+                return None
+            table = _unquote_ident(match.group("table"))
+            for assignment in assignments:
+                column = self._ASSIGNED_COLUMN.match(assignment)
                 if not column:
                     return None
-                found.add((table, column.group(1).strip('"')))
+                found.add((table, _unquote_ident(column.group("column"))))
         return found or None
 
     def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
@@ -1188,7 +1297,17 @@ class ExeChecksumPatch(Patch):
         return PatchResult(rows_changed=0)
 
     def transform(self, original: bytes) -> bytes:
-        """The executable's bytes with this one hash changed."""
+        """The executable's bytes with this one hash changed.
+
+        Unless the game no longer checks that file at all. Switching the file
+        check off takes the package out of the executable's list, and a file
+        that is not listed is never verified - so the replacement this mod
+        installs already works, and there is no hash left to keep in step.
+        Writing one is then neither possible nor needed, and the executable is
+        handed back exactly as it came.
+        """
+        if not exe_check_off.is_checked(original, self.recipe.package):
+            return original
         return exe_checksums.apply_entry(
             original, self.recipe.package,
             self.recipe.checksum_before, self.recipe.checksum_after,
@@ -1203,6 +1322,8 @@ class ExeChecksumPatch(Patch):
         makes putting it back possible without ever having seen the file before
         - and without it, the copy kept as the way back would itself be modified.
         """
+        if not exe_check_off.is_checked(raw, self.recipe.package):
+            return raw  # no entry to put back - see transform()
         return exe_checksums.restore_entry(
             raw, self.recipe.package,
             self.recipe.checksum_before, self.recipe.checksum_after,
@@ -1337,6 +1458,120 @@ class TfcInstallerPatch(Patch):
         return PatchResult(rows_changed=0)
 
 
+class ConfigIniPatch(Patch):
+    """Keys set in one of the game's ``.ini`` config files.
+
+    A few of the game's numbers live in neither the database nor a package: an
+    Unreal ``config`` class reads them from ``BrgGame/Config`` at startup, and
+    falls back to its compiled defaults when the file is not there. Several of
+    those files are never shipped, so writing one supplies values the game was
+    always ready to take without editing anything it came with.
+
+        {
+          "type": "config_ini",
+          "target": "BrgGame/Config/BrgUIDebugEditParams.ini",
+          "section": "BrgGame.BrgUIDebugEditParams",
+          "values": {"mCoin_SpawnWait": "{{stagger}}", "mCoin_FullAutoMode": 1}
+        }
+
+    Only the keys named are written. Anything else in the file is left where it
+    was, byte for byte, so a config a player wrote themselves survives a mod
+    being switched on and off - and two mods writing different keys of the same
+    file both get what they asked for instead of the later one winning the
+    whole file. The file's own encoding and line endings are kept; see
+    configini.py for why that matters here.
+
+    The game keeps a checksum for the config files as well as the packages, so
+    a mod using this says ``requires_check_off`` for its target.
+    """
+
+    type = "config_ini"
+
+    def __init__(self, data: dict, mod_dir: Path, index: int):
+        super().__init__(data, mod_dir, index)
+        label = f"patch #{index + 1} (config_ini)"
+        self.target = _clean_game_relative(data.get("target"), label, mod_dir.name)
+        if not self.target.lower().endswith(".ini"):
+            raise ModLoadError(mod_dir.name, f"{label} 'target' has to be a .ini file")
+        self.section = str(data.get("section") or "").strip()
+        if not self.section:
+            raise ModLoadError(mod_dir.name, f"{label} needs a 'section'")
+        if self.section.startswith("[") or self.section.endswith("]"):
+            raise ModLoadError(
+                mod_dir.name,
+                f"{label} 'section' is the name inside the brackets, without them: "
+                f"{self.section!r}",
+            )
+        raw_values = data.get("values")
+        if not isinstance(raw_values, dict) or not raw_values:
+            raise ModLoadError(mod_dir.name, f"{label} needs a non-empty 'values' object")
+        self.values: dict[str, str] = {}
+        for key, value in raw_values.items():
+            name = str(key).strip()
+            if not name or "=" in name or name.startswith(("[", ";", "#")):
+                raise ModLoadError(mod_dir.name, f"{label} has an unusable key {key!r}")
+            if isinstance(value, bool):
+                value = "True" if value else "False"
+            elif value is None:
+                raise ModLoadError(mod_dir.name, f"{label} key {name!r} has no value")
+            text = str(value)
+            # A value is one line of a config file. A newline in it would write
+            # a second key nobody declared, so it is refused rather than
+            # stripped - silently writing something other than what the mod
+            # asked for is the thing this avoids everywhere else too.
+            if "\n" in text or "\r" in text:
+                raise ModLoadError(
+                    mod_dir.name, f"{label} key {name!r} has a line break in its value"
+                )
+            self.values[name] = text
+
+        reason = forbidden_target_reason(self.target)
+        if reason:
+            raise ModLoadError(mod_dir.name, f"{label} {reason}")
+
+    # -- game files -----------------------------------------------------------
+
+    def ini_entries(self) -> list[tuple[str, str, str]]:
+        """(section, key, value) for every key this patch sets, in file order."""
+        return [(self.section, key, value) for key, value in self.values.items()]
+
+    def asset_targets(self) -> set[str]:
+        return {self.target}
+
+    # -- hooks ----------------------------------------------------------------
+
+    def summary(self) -> str:
+        detail = f"{Path(self.target).name}: {len(self.values)} setting(s)"
+        return f"{self.description} [{detail}]" if self.description else detail
+
+    def tables(self) -> set[str]:
+        return set()
+
+    def targets(self) -> set[tuple[str, str]]:
+        return set()
+
+    def validate(self, con: sqlite3.Connection, mod_id: str) -> list[str]:
+        return [
+            f"writes {len(self.values)} setting(s) into {Path(self.target).name}, a game "
+            "config file - the game checks that file, so its check has to be off"
+        ]
+
+    def snapshot_specs(self, con: sqlite3.Connection) -> list[SnapshotSpec]:
+        return []
+
+    def preview(self, con: sqlite3.Connection) -> DiffPreview:
+        items = list(self.values.items())
+        rows = [DiffRow(key=key, before="(the game's own default)", after=value)
+                for key, value in items[:PREVIEW_ROW_LIMIT]]
+        note = "" if len(items) <= len(rows) else f"... and {len(items) - len(rows)} more"
+        return DiffPreview(self.summary(), Path(self.target).name, len(items), rows, note)
+
+    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+        # The config file is written by the asset runner after the database
+        # commits, so it goes through the same backup and rollback as the rest.
+        return PatchResult(rows_changed=0)
+
+
 class PackageBytesPatch(Patch):
     """A few bytes changed inside a game package, found by what surrounds them.
 
@@ -1406,10 +1641,21 @@ class PackageBytesPatch(Patch):
         if not limits[0] <= value <= limits[1]:
             raise ModLoadError(mod_dir.name,
                                f"{where} value {value} does not fit in {kind}")
+        # Two numbers can share one signature - a launch speed and the cap on
+        # it sit two bytes apart behind the same label - so an edit may step
+        # past bytes it is not changing rather than needing a signature of its
+        # own that would have to include a value that moves.
+        try:
+            skip = int(entry.get("skip") or 0)
+        except (TypeError, ValueError):
+            raise ModLoadError(mod_dir.name, f"{where} 'skip' is not a whole number") from None
+        if skip < 0:
+            raise ModLoadError(mod_dir.name, f"{where} 'skip' cannot be negative")
         return {
             "name": str(entry.get("name") or "").strip() or f"edit #{number + 1}",
             "find": _signature(entry.get("find"), mod_dir, where, "find"),
             "follows": _signature(entry.get("follows") or [], mod_dir, where, "follows"),
+            "skip": skip,
             "type": kind,
             "value": value,
         }
@@ -1432,10 +1678,14 @@ class PackageBytesPatch(Patch):
             except bytepatch.SiteError as problem:
                 raise ValueError(f"{edit['name']}: {problem}") from None
             raw = bytearray(site.raw)
+            at = site.at + edit["skip"]
+            width = self.WIDTHS[edit["type"]]
+            if at + width > len(raw):
+                raise ValueError(f"{edit['name']}: the value runs past the end of the chunk")
             if edit["type"] == "u8":
-                raw[site.at] = edit["value"]
+                raw[at] = edit["value"]
             else:
-                struct.pack_into("<i", raw, site.at, edit["value"])
+                struct.pack_into("<i", raw, at, edit["value"])
             data = bytepatch.rewrite(data, site, bytes(raw))
         return data
 
@@ -1518,6 +1768,7 @@ _PATCH_TYPES: dict[str, type[Patch]] = {
     ExeChecksumPatch.type: ExeChecksumPatch,
     TfcInstallerPatch.type: TfcInstallerPatch,
     PackageBytesPatch.type: PackageBytesPatch,
+    ConfigIniPatch.type: ConfigIniPatch,
 }
 
 PATCH_TYPE_NAMES = tuple(sorted(_PATCH_TYPES))

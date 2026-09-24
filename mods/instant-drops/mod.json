@@ -2,12 +2,24 @@
   "id": "instant-drops",
   "name": "Instant Drops",
   "description": "Kills drop their reward after {{tenths}} tenths of a second instead of the usual 20 (two seconds).",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "KSFA",
-  "game_version": ["5.0.4.1.0 - 1.89", "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)"],
+  "category": "Quality of life",
+  "tags": [
+    "drops",
+    "coins",
+    "waiting",
+    "game-files"
+  ],
+  "game_version": [
+    "5.0.4.1.0 - 1.89",
+    "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)"
+  ],
   "requires": [],
   "conflicts_with": [],
-  "requires_check_off": ["BrgGame.upk"],
+  "requires_check_off": [
+    "BrgGame.upk"
+  ],
   "settings": [
     {
       "id": "tenths",
@@ -30,12 +42,126 @@
         {
           "name": "Item Drop Delay Time",
           "find": [
-            {"hex": "2c061f"},
-            {"text": "Item Drop Delay Time"},
-            {"hex": "00282c"}
+            {
+              "hex": "2c061f"
+            },
+            {
+              "text": "Item Drop Delay Time"
+            },
+            {
+              "hex": "00282c"
+            }
           ],
-          "follows": [{"hex": "251ecdcccc3d16"}],
-          "write": {"type": "u8", "value": "{{tenths}}"}
+          "follows": [
+            {
+              "hex": "251ecdcccc3d16"
+            }
+          ],
+          "write": {
+            "type": "u8",
+            "value": "{{tenths}}"
+          }
+        }
+      ]
+    },
+    {
+      "type": "package_bytes",
+      "id": "flat-coins",
+      "description": "Stop coins being thrown",
+      "ships_on": false,
+      "target": "BrgGame/CookedPCConsole/BrgGame.upk",
+      "edits": [
+        {
+          "name": "Speed Z (launch)",
+          "find": [
+            {
+              "hex": "2c091f"
+            },
+            {
+              "text": "Speed Z"
+            },
+            {
+              "hex": "00272c"
+            }
+          ],
+          "write": {
+            "type": "u8",
+            "value": 0
+          }
+        },
+        {
+          "name": "Speed Z (cap)",
+          "find": [
+            {
+              "hex": "2c091f"
+            },
+            {
+              "text": "Speed Z"
+            },
+            {
+              "hex": "00272c"
+            }
+          ],
+          "skip": 2,
+          "write": {
+            "type": "u8",
+            "value": 0
+          }
+        },
+        {
+          "name": "Speed XY (launch)",
+          "find": [
+            {
+              "hex": "2c0a1f"
+            },
+            {
+              "text": "Speed XY"
+            },
+            {
+              "hex": "00271d"
+            }
+          ],
+          "write": {
+            "type": "i32",
+            "value": 0
+          }
+        },
+        {
+          "name": "Speed XY (cap)",
+          "find": [
+            {
+              "hex": "2c0a1f"
+            },
+            {
+              "text": "Speed XY"
+            },
+            {
+              "hex": "00271d"
+            }
+          ],
+          "skip": 5,
+          "write": {
+            "type": "u8",
+            "value": 0
+          }
+        },
+        {
+          "name": "Max Move Time",
+          "find": [
+            {
+              "hex": "2c121f"
+            },
+            {
+              "text": "Max Move Time"
+            },
+            {
+              "hex": "00282c"
+            }
+          ],
+          "write": {
+            "type": "u8",
+            "value": 1
+          }
         }
       ]
     }

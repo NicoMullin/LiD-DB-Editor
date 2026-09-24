@@ -4,9 +4,19 @@
   "description": "Replaces UI_ButtonGuide_STM_SF.upk so the button prompts are the coloured PlayStation ones. Needs the game's file check switched off for that package - the game keeps a hash for it and refuses a replacement otherwise.",
   "version": "1.4",
   "author": "S3er0i9ng",
+  "category": "Visuals",
+  "tags": [
+    "ui",
+    "buttons",
+    "playstation",
+    "game-files",
+    "s3er0i9ng"
+  ],
   "requires": [],
   "conflicts_with": [],
-  "requires_check_off": ["UI_ButtonGuide_STM_SF.upk"],
+  "requires_check_off": [
+    "UI_ButtonGuide_STM_SF.upk"
+  ],
   "patches": [
     {
       "type": "asset_file",

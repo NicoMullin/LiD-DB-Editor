@@ -198,6 +198,29 @@ class EditingAMod(unittest.TestCase):
         self.assertEqual(mod.id, "old-name")
         self.assertEqual(mod.description, "Changed")
 
+    def test_a_name_that_only_changes_the_capitals_does_not_refuse_itself(self) -> None:
+        """The folder is the same one on Windows, so this used to fail.
+
+        It refused with "a mod folder called 'Old-Name' already exists" - the
+        existing folder being the mod's own. Reachable without anybody typing a
+        new name: a bare "loose.sql" folder is shown as "Loose", so saving
+        anything about it asks for a folder name differing only in capitals.
+        """
+        mod = self.manager.edit_mod("old-name", "Old-Name", description="Changed")
+        self.assertIsNotNone(mod)
+        self.assertEqual(mod.description, "Changed")
+        # The folder is left alone and the id still matches it, whichever
+        # spelling the filesystem reports.
+        self.assertTrue(mod.folder.is_dir())
+        self.assertEqual(mod.id, mod.folder.name)
+        self.assertEqual(self._mod_json(mod.id)["id"], mod.id)
+        self.assertEqual(len(mod.patches), 1)
+
+    def test_a_case_only_rename_keeps_the_load_order_slot(self) -> None:
+        self.manager.set_enabled("old-name", True)
+        self.manager.edit_mod("old-name", "Old-Name")
+        self.assertEqual(self.manager.state.enabled_mods, ["old-name"])
+
 
 class EditingASqlOnlyMod(unittest.TestCase):
     """A bare .sql folder has no mod.json - saving details should write one."""

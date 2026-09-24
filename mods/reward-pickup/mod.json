@@ -1,0 +1,75 @@
+{
+  "id": "reward-pickup",
+  "name": "Reward Pickup",
+  "description": "Dropped Kill Coins, SPLithium and Bloodnium fly straight to you instead of scattering, with {{stagger}} hundredths of a second between each piece appearing.",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "category": "Quality of life",
+  "tags": [
+    "drops",
+    "coins",
+    "splithium",
+    "bloodnium",
+    "pickup",
+    "performance",
+    "game-files"
+  ],
+  "game_version": [
+    "5.0.4.1.0 - 1.89",
+    "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)"
+  ],
+  "requires": [],
+  "conflicts_with": [],
+  "requires_check_off": [
+    "BrgUIDebugEditParams.ini"
+  ],
+  "settings": [
+    {
+      "id": "stagger",
+      "label": "Wait between pieces appearing",
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 20,
+      "unit": " hundredths of a second",
+      "help": "How long the game waits before spawning each piece of the reward. 0 puts them all out at once. 4 is what the game uses, which is what makes a big payout trickle in. Whole hundredths only - the game multiplies this by 0.01."
+    }
+  ],
+  "patches": [
+    {
+      "type": "config_ini",
+      "id": "pickup",
+      "description": "Pieces fly straight to you",
+      "target": "BrgGame/Config/BrgUIDebugEditParams.ini",
+      "section": "BrgGame.BrgUIDebugEditParams",
+      "values": {
+        "mCoin_SpawnWait": "{{stagger}}",
+        "mCoin_FullAutoMode": 1,
+        "mCoin_ImplusZ_Min": 0,
+        "mCoin_ImplusZ_Max": 0,
+        "mCoin_ImplusXY_Min": 0,
+        "mCoin_ImplusXY_Max": 0,
+        "mSpirit_SpawnWait": "{{stagger}}",
+        "mSpirit_FullAutoMode": 1,
+        "mBloodnium_SpawnWait": "{{stagger}}",
+        "mBloodnium_FullAutoMode": 1
+      }
+    },
+    {
+      "type": "config_ini",
+      "id": "fewer",
+      "description": "Fewer, bigger pieces",
+      "ships_on": false,
+      "target": "BrgGame/Config/BrgUIDebugEditParams.ini",
+      "section": "BrgGame.BrgUIDebugEditParams",
+      "values": {
+        "mCoin_CoinDivNum": 2,
+        "mCoin_MinCoinNum": 3,
+        "mSpirit_SpiritDivNum": 2,
+        "mSpirit_MinSpiritNum": 3,
+        "mBloodnium_BloodniumDivNum": 2,
+        "mBloodnium_MinBloodniumNum": 3
+      }
+    }
+  ]
+}

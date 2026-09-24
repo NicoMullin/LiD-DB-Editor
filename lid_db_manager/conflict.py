@@ -1,14 +1,22 @@
 """Conflict and dependency analysis across the enabled mod list.
 
-    two update_set mods on the same (table, column)  -> warn, last-wins
-    two text_replace mods on the same matched row    -> warn, last-wins
-    update_set + text_replace                        -> no conflict
-    raw SQL + anything, same table                   -> warn (table granularity)
-    a mod's declared conflicts_with                  -> warn
-    two mods copying the same game file              -> warn, last-wins
+    two mods on the same (table, column) AND the same rows  -> serious
+    two text_replace mods on the same matched row           -> serious
+    update_set + text_replace                               -> no conflict
+    a mod's declared conflicts_with                         -> serious
+    two mods copying the same game file                     -> serious
 
-Each conflict is SERIOUS when one mod provably overwrites the other's cells
-(or file), and a WARNING when they only share a table or might overlap.
+**Only the same box counts.** One mod changing a weapon's damage and another
+changing the same weapon's durability is not a conflict - same row, different
+column. Two mods changing that weapon's damage is. So a conflict needs all three
+to line up: the same table, the same rows, and the same column.
+
+Sharing a table reports nothing, and neither does sharing a row. SQL too opaque
+to say which column it writes reports nothing either, because "might be the same
+box" is exactly the guess this used to make. ``RawSqlPatch.resolved_targets``
+therefore does the real work: it reads the assigned column names out of plain
+UPDATEs, through [bracket] quoting and around string literals, so that two
+third-party .sql mods editing the same cell are still caught.
 
 A mod can suppress raw-SQL warnings for tables it knows its SQL leaves alone by
 listing them in ``raw_sql_files_do_not_touch``.
@@ -26,13 +34,13 @@ from .patch import RawSqlPatch, TextReplacePatch, UpdateSetPatch
 
 KIND_COLUMN = "column"
 KIND_TEXT = "text"
-KIND_RAW_SQL = "raw_sql"
 KIND_DECLARED = "declared"
 KIND_ASSET = "asset"
 
-# How bad a clash is. SERIOUS: the same cells (or the same file) are written by
-# both mods, so one mod's values are provably lost. WARNING: they share a table
-# or might overlap, but it cannot be shown that anything is overwritten.
+# How bad a clash is. Every clash found here is SERIOUS by now: the same cells,
+# or the same file, written by both mods, so one mod's values are provably lost.
+# WARNING is what a missing or out-of-order requirement gets - worth a look, but
+# nothing is being overwritten.
 SERIOUS = "serious"
 WARNING = "warning"
 
@@ -104,6 +112,31 @@ class ConflictReport:
         ]
         return messages
 
+    def messages_for(self, mod_id: str) -> list[tuple[str, str]]:
+        """``for_mod``, but each message carries its own severity.
+
+        The list's dot is one colour per mod, so it uses ``severity_for``. A
+        panel showing the messages themselves can colour each one, and should:
+        an overwritten cell painted the same yellow as "a mod it needs is not
+        ticked" tells the reader they are the same kind of thing.
+        """
+        out = [
+            (conflict.severity, conflict.message())
+            for conflict in self.conflicts
+            if mod_id in (conflict.first, conflict.second)
+        ]
+        out += [
+            (WARNING, requirement.message())
+            for requirement in self.missing_requirements
+            if requirement.mod_id == mod_id
+        ]
+        out += [
+            (WARNING, problem.message())
+            for problem in self.order_problems
+            if problem.mod_id == mod_id
+        ]
+        return out
+
     def severity_for(self, mod_id: str) -> str:
         """SERIOUS, WARNING, or "" when nothing mentions this mod."""
         if any(
@@ -119,20 +152,16 @@ class _ModFootprint:
     """What one mod writes, split by patch kind.
 
     ``rows`` maps a table to the rowids the mod actually writes there, when
-    those can be worked out against the live database. None means "unknown -
-    assume all of them", which is what an INSERT or an unparseable statement
-    gives. Without a database connection every entry is None and analysis falls
-    back to whole-table granularity.
+    those can be worked out against the live database. None means "cannot tell",
+    which is what an INSERT or an unparseable statement gives, and without a
+    database connection every entry is None. Nothing is reported from a None: a
+    conflict has to be shown, so an unknown is silence rather than suspicion.
     """
 
     columns: set[tuple[str, str]] = field(default_factory=set)
     texts: set[tuple] = field(default_factory=set)
-    raw_tables: set[str] = field(default_factory=set)
     rows: dict[str, set[int] | None] = field(default_factory=dict)
     asset_targets: set[str] = field(default_factory=set)
-
-    def all_tables(self) -> set[str]:
-        return {table for table, _ in self.columns} | {key[0] for key in self.texts} | self.raw_tables
 
     def add_rows(self, table: str, rowids: set[int] | None) -> None:
         if table not in self.rows:
@@ -152,18 +181,13 @@ def footprint(mod: Mod, con: sqlite3.Connection | None = None) -> _ModFootprint:
         elif isinstance(patch, TextReplacePatch):
             result.texts |= patch.text_keys()
         elif isinstance(patch, RawSqlPatch):
-            # Raw SQL can do anything, so it normally counts as writing whole
-            # tables. When every statement is a plain UPDATE the columns are
-            # readable, and then it is treated like any other column-level
-            # patch - so two mods changing different columns of the same rows
-            # stop being reported as fighting over them.
-            resolved = patch.resolved_targets()
-            if resolved is not None and not (
-                {table for table, _ in resolved} & excluded
-            ):
-                result.columns |= resolved
-            else:
-                result.raw_tables |= patch.tables() - excluded
+            # Read the columns out of it where that can be done, and claim
+            # nothing at all where it cannot. Claiming the whole table was the
+            # old behaviour, and it produced warnings about mods that never met.
+            resolved = patch.resolved_targets() or ()
+            result.columns |= {
+                (table, column) for table, column in resolved if table not in excluded
+            }
 
         result.asset_targets |= patch.asset_targets()
 
@@ -247,17 +271,19 @@ def analyze(
 
             for table, column in sorted(left.columns & right.columns):
                 shared = _shared_rows(left, right, table)
-                if shared is not None and not shared:
-                    continue  # same column, but no row in common
+                if not shared:
+                    # No row in common, or it cannot be shown that there is one.
+                    # The same column of different rows is two mods minding their
+                    # own business, and guessing otherwise is the noise.
+                    continue
+                # Same table, same rows, same column: the same box.
                 report.conflicts.append(
                     Conflict(
                         KIND_COLUMN,
                         first.id,
                         second.id,
                         f"{table}.{column}{_row_detail(shared)}",
-                        # Rows known to be shared: the same cells, overwritten.
-                        # Rows unknown: they may well not overlap.
-                        SERIOUS if shared else WARNING,
+                        SERIOUS,  # the same cells, provably overwritten
                     )
                 )
 
@@ -265,20 +291,6 @@ def analyze(
                 report.conflicts.append(
                     Conflict(KIND_TEXT, first.id, second.id, _describe_text_key(key), SERIOUS)
                 )
-
-            # Raw SQL is opaque, so it conflicts at table granularity with
-            # anything else that writes the same table.
-            raw_overlap = (left.raw_tables & right.all_tables()) | (
-                right.raw_tables & left.all_tables()
-            )
-            for table in sorted(raw_overlap):
-                shared = _shared_rows(left, right, table)
-                if shared is not None and not shared:
-                    # Both write this table, but never the same row - which is
-                    # the common case for two unrelated master_text mods.
-                    continue
-                detail = f"table {table} (raw SQL){_row_detail(shared)}"
-                report.conflicts.append(Conflict(KIND_RAW_SQL, first.id, second.id, detail))
 
             # Two mods copying the same game file: last in load order wins,
             # same as a whole-table SQL dump.

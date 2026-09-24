@@ -16,10 +16,12 @@ from PySide6.QtWidgets import (
 )
 
 from .. import explain
+from ..conflict import SERIOUS
 from ..manager import Manager
 from ..mod import Mod
 from .setting_editor import SettingEditor
-from .theme import colors
+from ..textsize import DEFAULT_SCALE, clamp_scale
+from .theme import colors, font_px, scaled
 
 MAX_TEXT_CHARS = 400
 
@@ -30,10 +32,14 @@ class DiffView(QWidget):
     # mod id, setting id, value - handed on from a timer, see _on_setting_committed
     settingChanged = Signal(str, str, object)
 
-    def __init__(self, manager: Manager, dark: bool = True, parent=None):
+    def __init__(self, manager: Manager, dark: bool = True, parent=None,
+                 text_scale: int = DEFAULT_SCALE):
         super().__init__(parent)
         self.manager = manager
         self.dark = dark
+        # This panel writes its own HTML, so the stylesheet's font size does not
+        # reach the headings inside it. It is told the scale instead.
+        self.text_scale = clamp_scale(text_scale)
         self.mod_id = ""
         # The value boxes for the mod on show, keyed by setting id.
         self._editors: dict[str, SettingEditor] = {}
@@ -42,10 +48,10 @@ class DiffView(QWidget):
 
         self.title = QLabel("Select a mod")
         self.title.setWordWrap(True)
-        font = self.title.font()
-        font.setPointSize(font.pointSize() + 2)
-        font.setBold(True)
-        self.title.setFont(font)
+        # Sized in the stylesheet rather than by adding to the font here: a
+        # point size set on the widget and a pixel size set in the stylesheet
+        # fight, and the stylesheet wins - so the heading never grew.
+        self.title.setObjectName("panelTitle")
 
         self.tabs = QTabWidget()
         self.details = QTextBrowser()
@@ -209,6 +215,10 @@ class DiffView(QWidget):
     def editor_for(self, setting_id: str) -> SettingEditor | None:
         return self._editors.get(setting_id)
 
+    def set_text_scale(self, scale: int) -> None:
+        """Take a new text size. The window refreshes the panel afterwards."""
+        self.text_scale = clamp_scale(scale)
+
     # -- rendering ---------------------------------------------------------
 
     def _style(self) -> str:
@@ -216,7 +226,8 @@ class DiffView(QWidget):
         return (
             f"<style>"
             f"body {{ color: {palette['text']}; }}"
-            f"h3 {{ margin: 10px 0 4px 0; font-size: 13px; }}"
+            f"h3 {{ margin: {scaled(10, self.text_scale)}px 0 "
+            f"{scaled(4, self.text_scale)}px 0; font-size: {font_px(self.text_scale)}px; }}"
             f"table {{ border-collapse: collapse; width: 100%; }}"
             f"td, th {{ padding: 3px 6px; text-align: left; vertical-align: top;"
             f" border-bottom: 1px solid {palette['border']}; }}"
@@ -263,7 +274,7 @@ class DiffView(QWidget):
             )
         parts.append("</table>")
 
-        problems = self.manager.conflicts().for_mod(mod.id)
+        problems = self.manager.conflicts().messages_for(mod.id)
         validation = self.manager.last_validation
         if validation is not None:
             result = validation.for_mod(mod.id)
@@ -277,7 +288,11 @@ class DiffView(QWidget):
                     parts.append('<p class="dim">No problems found.</p>')
         if problems:
             parts.append("<h3>Conflicts</h3>")
-            parts += [f'<p class="warn">{escape(message)}</p>' for message in problems]
+            parts += [
+                f'<p class="{"fail" if severity == SERIOUS else "warn"}">'
+                f"{escape(message)}</p>"
+                for severity, message in problems
+            ]
         return "".join(parts)
 
     def _readme_html(self, mod: Mod) -> str:

@@ -13,7 +13,19 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from .browse import SORTS, SORT_ORDER
+from .textsize import clamp_scale
 from .sqlutil import sha256_file
+
+
+def _a_sort(raw, fallback: str) -> str:
+    """A sort name this build knows, or the default.
+
+    A state.json written by a newer version, or edited by hand, must not leave
+    the list sorted by something that no longer exists.
+    """
+    text = str(raw or "").strip().lower()
+    return text if text in SORTS else (fallback if fallback in SORTS else SORT_ORDER)
 
 STATE_VERSION = 1
 
@@ -77,6 +89,25 @@ class Settings:
     # or by the folder it sits in. Empty means "whichever matches my database",
     # which is what almost everyone wants - see vanilla_library.
     vanilla_choice: str = ""
+    # Switch the game's file check off for a blocked mod's files without
+    # asking. On, unlike the two above, at the user's decision: without it a
+    # mod that replaces a checked file simply refuses to apply, and the only
+    # way forward is a panel the person has to be told about first. The change
+    # is one byte per file, no program code, the executable is copied before
+    # it is touched, and Tools > Hash Patcher puts it back - so the thing being
+    # done without asking is both small and undoable. It is still written to
+    # the log and said in the status bar, never done quietly, and the box
+    # unticks it for anyone who would rather be asked each time.
+    auto_switch_file_check_off: bool = True
+    # How the mod list is sorted. Remembered because somebody who prefers to
+    # read the list by name wants that every time. The search box and the
+    # category and tag filters are deliberately NOT remembered: a filter left on
+    # from last time hides mods, and "where did my mods go" is a worse first
+    # five minutes than retyping a search.
+    mod_sort: str = "order"
+    # How big the text is, in percent. Remembered because somebody who needs
+    # larger type needs it every time, not once.
+    text_scale: int = 100
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -92,6 +123,15 @@ class Settings:
             keep_backups=max(1, int(data.get("keep_backups", defaults.keep_backups) or 5)),
             icon_folder=str(data.get("icon_folder", defaults.icon_folder) or ""),
             vanilla_choice=str(data.get("vanilla_choice", defaults.vanilla_choice) or ""),
+            auto_switch_file_check_off=bool(
+                data.get(
+                    "auto_switch_file_check_off", defaults.auto_switch_file_check_off
+                )
+            ),
+            mod_sort=_a_sort(data.get("mod_sort"), defaults.mod_sort),
+            text_scale=clamp_scale(
+                data.get("text_scale", defaults.text_scale)
+            ),
         )
 
 
@@ -117,6 +157,10 @@ class State:
     # mod id -> the keys of that mod's patches the player has switched off.
     # Lets one imported rework stay a single mod whose parts toggle.
     disabled_patches: dict[str, list[str]] = field(default_factory=dict)
+    # Parts that ship switched off and have been switched on. Kept apart from
+    # disabled_patches rather than folded into one map of choices, so a
+    # state.json written by an older build still reads exactly as it did.
+    enabled_patches: dict[str, list[str]] = field(default_factory=dict)
     # mod id -> {setting id: the number the player chose}. Only choices that
     # differ from the mod's default are kept, so a mod whose author later
     # changes a default carries players who never touched it along.
@@ -162,6 +206,10 @@ class State:
             for mod_id, record in (data.get("applied") or {}).items()
             if isinstance(record, dict)
         }
+        state.enabled_patches = {
+            str(mod_id): [str(k) for k in (keys or [])]
+            for mod_id, keys in (data.get("enabled_patches") or {}).items()
+        }
         state.disabled_patches = {
             str(mod_id): [str(k) for k in keys]
             for mod_id, keys in (data.get("disabled_patches") or {}).items()
@@ -193,6 +241,7 @@ class State:
             "modpacks": self.modpacks,
             "applied": {mod_id: record.to_dict() for mod_id, record in self.applied.items()},
             "disabled_patches": {k: v for k, v in self.disabled_patches.items() if v},
+            "enabled_patches": {k: v for k, v in self.enabled_patches.items() if v},
             "mod_settings": {k: v for k, v in self.mod_settings.items() if v},
             "settings": self.settings.to_dict(),
         }
@@ -216,16 +265,32 @@ class State:
         """Parts are on unless switched off, so an ordinary mod needs no entry."""
         return patch_key not in self.disabled_patches.get(mod_id, ())
 
-    def set_part_enabled(self, mod_id: str, patch_key: str, enabled: bool) -> None:
-        off = list(self.disabled_patches.get(mod_id, ()))
-        if enabled and patch_key in off:
-            off.remove(patch_key)
-        elif not enabled and patch_key not in off:
-            off.append(patch_key)
-        if off:
-            self.disabled_patches[mod_id] = off
+    def is_part_on(self, mod_id: str, patch_key: str, ships_on: bool) -> bool:
+        """Is this part active, given how it ships and what the player chose?"""
+        if ships_on:
+            return patch_key not in self.disabled_patches.get(mod_id, ())
+        return patch_key in self.enabled_patches.get(mod_id, ())
+
+    def set_part_enabled(
+        self, mod_id: str, patch_key: str, enabled: bool, *, ships_on: bool = True
+    ) -> None:
+        """Record what the player chose for one part.
+
+        Which map it goes in depends on how the part ships, so that in both
+        cases the map holds only choices that differ from the mod as written -
+        and a part left alone is recorded nowhere at all.
+        """
+        which = self.disabled_patches if ships_on else self.enabled_patches
+        wanted = (not enabled) if ships_on else enabled
+        keys = list(which.get(mod_id, ()))
+        if wanted and patch_key not in keys:
+            keys.append(patch_key)
+        elif not wanted and patch_key in keys:
+            keys.remove(patch_key)
+        if keys:
+            which[mod_id] = keys
         else:
-            self.disabled_patches.pop(mod_id, None)
+            which.pop(mod_id, None)
 
     def order_of(self, mod_id: str) -> int | None:
         """1-based position in the load order, or None when disabled."""
@@ -240,6 +305,22 @@ class State:
         old = self.enabled_mods.index(mod_id)
         new = old + delta
         if not 0 <= new < len(self.enabled_mods):
+            return False
+        self.enabled_mods.insert(new, self.enabled_mods.pop(old))
+        return True
+
+    def set_position(self, mod_id: str, position: int) -> bool:
+        """Put a mod at a 1-based position in the load order.
+
+        A position off either end is pulled to the nearest end rather than
+        refused: typing 99 into the box plainly means "last", and a mod that
+        would not move is not an error worth a beep.
+        """
+        if mod_id not in self.enabled_mods:
+            return False
+        old = self.enabled_mods.index(mod_id)
+        new = max(0, min(position - 1, len(self.enabled_mods) - 1))
+        if new == old:
             return False
         self.enabled_mods.insert(new, self.enabled_mods.pop(old))
         return True

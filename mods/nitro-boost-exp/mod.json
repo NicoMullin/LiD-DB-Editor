@@ -4,7 +4,17 @@
   "description": "Nitro Boost and Turbo-charged Engine give {{percent:comma}}% EXP instead of 40% / 10%, and their in-game descriptions are rewritten to say so.",
   "version": "3.0.0",
   "author": "KSFA",
-  "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
+  "category": "Quality of life",
+  "tags": [
+    "exp",
+    "levelling",
+    "nitro-boost"
+  ],
+  "game_version": [
+    "5.0.3.0.0 - 1.87",
+    "5.0.4.0.0 - 1.88",
+    "5.0.4.1.0 - 1.89"
+  ],
   "requires": [],
   "conflicts_with": [],
   "settings": [

@@ -262,6 +262,69 @@ def restore(con: sqlite3.Connection, snapshot: Snapshot) -> tuple[int, list[str]
 # -- on-disk storage -----------------------------------------------------
 
 
+def merged(kept: Snapshot, fresh: Snapshot) -> Snapshot:
+    """``kept`` with anything ``fresh`` knows about that it does not, added.
+
+    Re-applying a mod must not re-record what the mod itself wrote, so the
+    snapshot taken the first time is the one that counts - but it is not always
+    the whole story. The rows a mod writes are worked out by comparing it
+    against vanilla, so a row that already held the value the mod was set to is
+    not in it. Change the setting and that row does change, and the kept
+    snapshot has never heard of it: reverting leaves it at the mod's value for
+    good.
+
+        revive-cost at 1,000 KC leaves PRD_CONTINUE_MONEY alone - it is 1,000
+        already. Move the setting to 5,000 and that row changes too, and
+        without this it stays at 5,000 after the mod is switched off.
+
+    So a row appearing for the first time is added, with the value it has now -
+    which is its pre-mod value, because the mod has not touched it before. A row
+    already recorded keeps the value recorded first, always: that is the one
+    taken before this mod wrote anything, and the fresh one would be the mod's
+    own work. Nothing recorded is ever overwritten or dropped.
+    """
+    out = Snapshot(
+        mod_id=kept.mod_id,
+        captured_at=kept.captured_at,
+        db_path=kept.db_path,
+        db_sha256_before=kept.db_sha256_before,
+        entries=[SnapshotEntry(e.kind, e.table, list(e.columns), [list(r) for r in e.rows])
+                 for e in kept.entries],
+        format=kept.format,
+    )
+    # A whole-table or "did not exist" entry already covers everything about
+    # that table, so nothing per-row can add to it.
+    covered = {e.table for e in out.entries if e.kind in ("table", "absent")}
+    by_shape = {
+        (e.kind, e.table, tuple(e.columns)): e
+        for e in out.entries
+        if e.kind not in ("table", "absent")
+    }
+    for entry in fresh.entries:
+        if entry.table in covered:
+            continue
+        if entry.kind in ("table", "absent"):
+            # The mod has grown into a kind of change the first snapshot could
+            # not undo. Recording it is strictly better than not.
+            if not any(e.table == entry.table for e in out.entries):
+                out.entries.append(
+                    SnapshotEntry(entry.kind, entry.table, list(entry.columns),
+                                  [list(r) for r in entry.rows])
+                )
+            continue
+        shape = (entry.kind, entry.table, tuple(entry.columns))
+        existing = by_shape.get(shape)
+        if existing is None:
+            new_entry = SnapshotEntry(entry.kind, entry.table, list(entry.columns),
+                                      [list(r) for r in entry.rows])
+            out.entries.append(new_entry)
+            by_shape[shape] = new_entry
+            continue
+        known = {row[0] for row in existing.rows}
+        existing.rows.extend(list(row) for row in entry.rows if row[0] not in known)
+    return out
+
+
 def snapshot_path(snapshots_dir: Path, mod_id: str) -> Path:
     safe = "".join(ch if (ch.isalnum() or ch in "-_.") else "_" for ch in mod_id)
     return Path(snapshots_dir) / f"{safe}.json"

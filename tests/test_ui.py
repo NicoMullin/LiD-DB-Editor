@@ -22,12 +22,34 @@ from fixtures import build_db, write_mod
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PySide6.QtCore import QCoreApplication, Qt
+    from PySide6.QtCore import QCoreApplication, QEvent, Qt
     from PySide6.QtWidgets import QApplication
 
     HAVE_QT = True
 except ImportError:  # pragma: no cover - depends on the environment
     HAVE_QT = False
+
+
+def destroy(window) -> None:
+    """Close a test window and actually get rid of it.
+
+    ``close()`` only hides it, and ``deleteLater()`` alone does nothing here
+    because ``processEvents()`` deliberately skips DeferredDelete. Without the
+    last line this module ended a run with ten thousand live widgets, and every
+    later test that hands the application a style sheet - which changing the text
+    size does - had to re-style all of them.
+    """
+    if window is None:
+        return
+    window.close()
+    window.setParent(None)
+    window.deleteLater()
+    app = QApplication.instance()
+    if app is not None:
+        # Only the deferred deletes, not processEvents(): pumping the whole queue
+        # here also fires the one-shot first-run timer of every window some other
+        # test module left alive, each of which puts up a modal box.
+        app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -84,7 +106,7 @@ class ModListToggleTests(unittest.TestCase):
         self._settle()
 
     def tearDown(self) -> None:
-        self.window.close()
+        destroy(self.window)
         self._settle()
         self._tmp.cleanup()
 
@@ -315,7 +337,7 @@ class ModListFoldingTests(unittest.TestCase):
         self._settle()
 
     def tearDown(self) -> None:
-        self.window.close()
+        destroy(self.window)
         self._settle()
         self._tmp.cleanup()
 
@@ -479,7 +501,7 @@ class ModConfigurationTabTests(unittest.TestCase):
         self._settle()
 
     def tearDown(self) -> None:
-        self.window.close()
+        destroy(self.window)
         self._settle()
         self._tmp.cleanup()
 
@@ -694,7 +716,7 @@ class DropInstallTests(unittest.TestCase):
         self._wait_for_idle()
         mw.QMessageBox = self._real_box
         mw.InstallDialog = self._real_dialog
-        self.window.close()
+        destroy(self.window)
         self._settle()
         self._tmp.cleanup()
 
@@ -854,7 +876,7 @@ class AdoptionFlowTests(unittest.TestCase):
         self._settle()
 
     def tearDown(self) -> None:
-        self.window.close()
+        destroy(self.window)
         self._settle()
         self._tmp.cleanup()
 
@@ -1088,6 +1110,237 @@ class AdoptionFlowTests(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_QT, "PySide6 is not installed")
+class TheMenusTests(unittest.TestCase):
+    """Mods is the list itself; Tools is the database and the game folder."""
+
+    app = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        from lid_db_manager.manager import Manager
+        from lid_db_manager.paths import AppPaths
+        from lid_db_manager.ui.main_window import MainWindow
+
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        paths = AppPaths(root).ensure()
+        self.db = build_db(root / "game" / "masters.db")
+        self.manager = Manager(paths)
+        self.manager.set_db_path(self.db)
+        self.window = MainWindow(self.manager)
+
+    def tearDown(self) -> None:
+        destroy(self.window)
+        QCoreApplication.processEvents()
+        self._tmp.cleanup()
+
+    def _menu(self, title: str):
+        for action in self.window.menuBar().actions():
+            if action.text().replace("&", "") == title:
+                return action.menu()
+        raise AssertionError(f"no {title} menu")
+
+    def _items(self, title: str) -> list[str]:
+        return [a.text() for a in self._menu(title).actions() if not a.isSeparator()]
+
+    def _sections(self, title: str) -> list[str]:
+        return [a.text() for a in self._menu(title).actions() if a.isSeparator() and a.text()]
+
+    def test_the_menu_bar_reads_left_to_right_in_the_order_you_use_it(self) -> None:
+        titles = [a.text().replace("&", "") for a in self.window.menuBar().actions()]
+        self.assertEqual(titles, ["File", "Mods", "Tools", "View", "Help"])
+
+    def test_the_view_menu_holds_the_text_size(self) -> None:
+        items = self._items("View")
+        for expected in ("Bigger text", "Smaller text", "Normal size"):
+            self.assertIn(expected, items)
+        self.assertIn("100%", items)
+
+    def test_the_mods_menu_is_grouped(self) -> None:
+        self.assertEqual(
+            self._sections("Mods"),
+            ["The mod list", "Load order", "Make and change mods"],
+        )
+
+    def test_the_load_order_actions_are_all_together(self) -> None:
+        items = self._items("Mods")
+        order = [i for i in items if "load order" in i]
+        self.assertEqual(len(order), 4)
+        first = items.index(order[0])
+        self.assertEqual(items[first:first + 4], order, "they are not adjacent")
+
+    def test_making_mods_moved_off_the_tools_menu(self) -> None:
+        tools = self._items("Tools")
+        for gone in ("Build a mod...", "Add a mod from a file...", "Delete mod..."):
+            self.assertNotIn(gone, tools)
+            self.assertIn(gone, self._items("Mods"))
+
+    def test_tools_keeps_what_acts_on_the_database_and_the_game(self) -> None:
+        tools = self._items("Tools")
+        for kept in (
+            "Validate enabled mods",
+            "Save Mod List (apply)",
+            "Hash Patcher...",
+            "Restore a backup...",
+        ):
+            self.assertIn(kept, tools)
+
+    def test_no_panel_paints_words_with_qts_own_greys(self) -> None:
+        """palette(mid) and friends are not in the theme, so Qt picks them -
+        and on the light window that came out grey on grey."""
+        import re
+
+        ui = PROJECT_ROOT / "lid_db_manager" / "ui"
+        offenders = [
+            path.name
+            for path in ui.glob("*.py")
+            if re.search(r"palette\((mid|dark|light|shadow|midlight)\)", path.read_text(encoding="utf-8"))
+        ]
+        self.assertEqual(offenders, [], "use setObjectName('dim') instead")
+
+    def test_the_hash_patcher_is_called_that(self) -> None:
+        """It was 'The game's file check...', which said what it read rather
+        than what it does."""
+        self.assertIn("Hash Patcher...", self._items("Tools"))
+
+    def test_every_shortcut_survived_the_move(self) -> None:
+        shortcuts = {}
+        for title in ("File", "Mods", "Tools", "Help"):
+            for action in self._menu(title).actions():
+                key = action.shortcut().toString()
+                if key:
+                    self.assertNotIn(key, shortcuts, f"{key} is bound twice")
+                    shortcuts[key] = action.text()
+        for key in ("Ctrl+S", "Ctrl+T", "Ctrl+R", "Ctrl+B", "F2", "Ctrl+Up", "Ctrl+Down"):
+            self.assertIn(key, shortcuts)
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 is not installed")
+class LoadOrderControlTests(unittest.TestCase):
+    """Sending a mod to an end of the load order, and typing its place."""
+
+    app = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        from lid_db_manager.manager import Manager
+        from lid_db_manager.paths import AppPaths
+        from lid_db_manager.ui.main_window import MainWindow
+
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        self.paths = AppPaths(root).ensure()
+        self.db = build_db(root / "game" / "masters.db")
+        for mod_id in ("a", "b", "c", "d"):
+            write_mod(
+                self.paths.mods_dir,
+                mod_id,
+                {
+                    "patches": [
+                        {
+                            "type": "update_set",
+                            "table": "master_skill",
+                            "set": {"buy_money": 1},
+                            "where": "buy_money > 1",
+                        }
+                    ]
+                },
+            )
+        self.manager = Manager(self.paths)
+        self.manager.set_db_path(self.db)
+        for mod_id in ("a", "b", "c", "d"):
+            self.manager.set_enabled(mod_id, True)
+        self.window = MainWindow(self.manager)
+        self.window.show()
+        self._settle()
+
+    def tearDown(self) -> None:
+        destroy(self.window)
+        self._settle()
+        self._tmp.cleanup()
+
+    def _settle(self) -> None:
+        for _ in range(5):
+            QCoreApplication.processEvents()
+
+    def _order(self) -> list[str]:
+        return list(self.manager.state.enabled_mods)
+
+    def _row(self, mod_id: str):
+        for index in range(self.window.mod_list.topLevelItemCount()):
+            item = self.window.mod_list.topLevelItem(index)
+            if item.data(0, Qt.ItemDataRole.UserRole) == mod_id:
+                return item
+        raise AssertionError(f"no row for {mod_id}")
+
+    def test_send_to_the_top_and_to_the_bottom(self) -> None:
+        self.window.mod_list.select_mods(["d"])
+        self.window.send_selected_to("top")
+        self.assertEqual(self._order(), ["d", "a", "b", "c"])
+
+        self.window.mod_list.select_mods(["d"])
+        self.window.send_selected_to("bottom")
+        self.assertEqual(self._order(), ["a", "b", "c", "d"])
+
+    def test_several_mods_sent_at_once_keep_their_own_order(self) -> None:
+        self.window.mod_list.select_mods(["a", "b"])
+        self.window.send_selected_to("bottom")
+        self.assertEqual(self._order(), ["c", "d", "a", "b"])
+
+        self.window.mod_list.select_mods(["a", "b"])
+        self.window.send_selected_to("top")
+        self.assertEqual(self._order(), ["a", "b", "c", "d"])
+
+    def test_moving_several_mods_one_step_moves_all_of_them(self) -> None:
+        """any() used to stop at the first mod that moved, leaving the rest."""
+        self.window.mod_list.select_mods(["a", "b"])
+        self.window.move_selected(+1)
+        self.assertEqual(self._order(), ["c", "a", "b", "d"])
+
+    def test_a_disabled_mod_is_told_it_has_no_place(self) -> None:
+        self.manager.set_enabled("a", False)
+        self.window.mod_list.refresh()
+        self.window.mod_list.select_mods(["a"])
+        self.window.send_selected_to("top")
+        self.assertEqual(self._order(), ["b", "c", "d"])
+        self.assertIn("enabled mod", self.window.statusBar().currentMessage())
+
+    def test_typing_a_number_into_the_column_moves_the_mod(self) -> None:
+        item = self._row("d")
+        self.assertTrue(item.flags() & Qt.ItemFlag.ItemIsEditable)
+        item.setText(0, "1")
+        self._settle()
+        self.assertEqual(self._order(), ["d", "a", "b", "c"])
+
+    def test_a_number_past_the_end_lands_at_the_end(self) -> None:
+        self._row("a").setText(0, "99")
+        self._settle()
+        self.assertEqual(self._order(), ["b", "c", "d", "a"])
+
+    def test_a_tick_is_still_read_as_a_tick(self) -> None:
+        """Column 0 carries the checkbox and the number, and one signal covers
+        both - so a tick must not be mistaken for a typed place, or the other
+        way round."""
+        self._row("c").setCheckState(0, Qt.CheckState.Unchecked)
+        self._settle()
+        self.assertFalse(self.manager.state.is_enabled("c"))
+        self.assertEqual(self._order(), ["a", "b", "d"])
+
+    def test_a_disabled_mod_has_no_number_to_type_into(self) -> None:
+        self.manager.set_enabled("a", False)
+        self.window.mod_list.refresh()
+        item = self._row("a")
+        self.assertEqual(item.text(0), "")
+        self.assertFalse(item.flags() & Qt.ItemFlag.ItemIsEditable)
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 is not installed")
 class WindowSmokeTests(unittest.TestCase):
     """The window builds against the real mods folder and survives a refresh."""
 
@@ -1117,7 +1370,7 @@ class WindowSmokeTests(unittest.TestCase):
             QCoreApplication.processEvents()
 
     def tearDown(self) -> None:
-        self.window.close()
+        destroy(self.window)
         QCoreApplication.processEvents()
         self._tmp.cleanup()
 
@@ -1175,3 +1428,51 @@ class TheExecutableMarker(unittest.TestCase):
                          "revive-cost-1kc  -  Revive Cost")
         self.assertEqual(_label("Buttons v1.2", "Buttons v1.2"), "Buttons v1.2")
         self.assertEqual(_label("buttons-v1.2", "Buttons V1.2"), "Buttons V1.2")
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 is not installed")
+class TheFirstRunCheckDiesWithTheWindow(unittest.TestCase):
+    """A queued first-run check must not outlive the window it belongs to.
+
+    ``QTimer.singleShot(0, self._first_run_checks)`` keeps no receiver, so the
+    callback still ran after the window was gone and built a QMessageBox on a
+    deleted C++ object. That printed a RuntimeError traceback during teardown
+    and intermittently turned a passing suite into a failing one - the worst kind
+    of bug, because it makes every other result untrustworthy.
+    """
+
+    app = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        from lid_db_manager.manager import Manager
+        from lid_db_manager.paths import AppPaths
+        from lid_db_manager.ui.main_window import MainWindow
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.paths = AppPaths(self.root).ensure()
+        # No database on purpose: that is the branch that opens the message box.
+        self.manager = Manager(self.paths)
+        self.window = MainWindow(self.manager)
+
+    def tearDown(self) -> None:
+        destroy(self.window)
+        self._tmp.cleanup()
+
+    def test_the_check_is_queued_on_a_timer_the_window_owns(self) -> None:
+        self.assertTrue(self.window._first_run.isActive())
+        self.assertIs(self.window._first_run.parent(), self.window)
+        self.assertTrue(self.window._first_run.isSingleShot())
+
+    def test_destroying_the_window_takes_the_pending_check_with_it(self) -> None:
+        timer = self.window._first_run
+        destroy(self.window)
+        self.window = None
+        # The timer was parented to the window, so Qt deleted it too. Touching
+        # it now raises rather than firing _first_run_checks on a dead window.
+        with self.assertRaises(RuntimeError):
+            timer.isActive()

@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPixmap
-from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTreeWidget, QTreeWidgetItem
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QHeaderView,
+    QSpinBox,
+    QStyledItemDelegate,
+    QTreeWidget,
+    QTreeWidgetItem,
+)
 
+from ..browse import SORT_ORDER, Filter, arrange, select
 from ..conflict import SERIOUS
 from ..manager import Manager
 from ..vetted import GAME_EXE
@@ -13,6 +21,22 @@ from .theme import STATUS_GLYPH, STATUS_KEY, STATUS_TEXT, status_color
 
 MOD_ID_ROLE = Qt.ItemDataRole.UserRole
 PATCH_KEY_ROLE = Qt.ItemDataRole.UserRole + 1
+# The load-order number as the list drew it. Column 0 shows the number and
+# carries the checkbox, so a change there could be either - this is what tells
+# a typed number apart from a tick.
+ORDER_ROLE = Qt.ItemDataRole.UserRole + 2
+
+SORTED_TOOLTIP = (
+    "Load order. This is still where the mod applies, but the list is not in "
+    "that order right now, so the number cannot be edited here.\n\n"
+    "Set Sort back to “Load order” to move mods again."
+)
+
+ORDER_TOOLTIP = (
+    "Load order. Type a number here to move this mod, or use the Move buttons.\n\n"
+    "1 applies first; the last one applies last, so where two mods change the "
+    "same value the higher number wins."
+)
 
 EXE_TOOLTIP = (
     "This mod changes the game executable.\n\n"
@@ -23,6 +47,53 @@ EXE_TOOLTIP = (
     "The executable is backed up, and unticking this mod puts it back byte for "
     "byte. Only changes recorded in the manager's own recipes folder can do this."
 )
+
+
+def _typed_order(item: QTreeWidgetItem) -> int | None:
+    """The number somebody typed into column 0, or None if nothing was typed.
+
+    A change to column 0 is either a tick or a new load-order number, and the
+    signal does not say which. The number the list drew is kept on the item, so
+    a difference from it is the one thing a tick cannot cause.
+    """
+    drawn = item.data(0, ORDER_ROLE)
+    if not drawn:
+        return None  # a disabled mod has no place to change
+    try:
+        typed = int((item.text(0) or "").strip())
+    except ValueError:
+        return None
+    return typed if typed != drawn else None
+
+
+class OrderDelegate(QStyledItemDelegate):
+    """A spin box for the load-order number.
+
+    Typing straight into the cell would let any text through, and "" or "abc"
+    is not a place in the list. A spin box can only offer a real one, and its
+    arrows make the column usable without the keyboard at all.
+    """
+
+    def __init__(self, how_many, parent=None):
+        super().__init__(parent)
+        self._how_many = how_many  # called at edit time - the list changes size
+
+    def createEditor(self, parent, option, index):
+        editor = QSpinBox(parent)
+        editor.setFrame(False)
+        editor.setRange(1, max(1, self._how_many()))
+        editor.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        return editor
+
+    def setEditorData(self, editor, index) -> None:
+        try:
+            editor.setValue(int(index.data() or 1))
+        except (TypeError, ValueError):
+            editor.setValue(1)
+
+    def setModelData(self, editor, model, index) -> None:
+        editor.interpretText()
+        model.setData(index, str(editor.value()), Qt.ItemDataRole.EditRole)
 
 
 def _affects(tables: list[str], asset_targets: list[str]) -> str:
@@ -83,6 +154,7 @@ class ModListWidget(QTreeWidget):
     partToggled = Signal(str, str, bool)  # mod id, patch key, on/off
     togglesApplied = Signal()  # once after a batch of enabledChanged
     selectionChangedTo = Signal(str)
+    orderTyped = Signal(str, int)  # mod id, the 1-based place typed into column 0
 
     def __init__(self, manager: Manager, dark: bool = True, parent=None):
         super().__init__(parent)
@@ -91,12 +163,20 @@ class ModListWidget(QTreeWidget):
         self._loading = False
         self._pending_toggles: dict[str, bool] = {}
         self._pending_parts: dict[tuple[str, str], bool] = {}
+        self._pending_order: dict[str, int] = {}
         self._flush_scheduled = False
         # Which mods the user has opened. A mod's detail lines are worth having
         # but not worth showing twenty times over, so the list starts folded up
         # and remembers what was opened across the rebuilds a toggle triggers.
         self._expanded: set[str] = set()
         self._dots: dict[tuple[bool, str], QIcon] = {}  # (dark, level) -> dot
+        # What is on screen, and in what order. Set from the filter bar above
+        # the list; both are a way of looking at the list and neither changes
+        # anything about the mods or the load order - see browse.py.
+        self.filter: Filter = Filter()
+        self.sort: str = SORT_ORDER
+        self.shown_count = 0
+        self.total_count = 0
 
         # Column 0 carries the checkbox and the load-order number together.
         self.setColumnCount(4)
@@ -114,6 +194,17 @@ class ModListWidget(QTreeWidget):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+
+        # Clicking the number of an already-selected mod starts editing it, which
+        # is the shortest path from "this is in the wrong place" to fixing it.
+        # Only column 0 of an enabled mod is ever editable (see refresh).
+        self.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.SelectedClicked
+        )
+        self.setItemDelegateForColumn(
+            0, OrderDelegate(lambda: len(self.manager.state.enabled_mods), self)
+        )
 
         self.itemChanged.connect(self._on_item_changed)
         self.itemSelectionChanged.connect(self._on_selection_changed)
@@ -160,8 +251,17 @@ class ModListWidget(QTreeWidget):
         conflicts = self.manager.conflicts()
         validation = self.manager.last_validation
 
-        # Enabled mods first, in load order; then everything else.
-        for mod in self.manager.listed_mods():
+        # Enabled mods first, in load order; then everything else - narrowed to
+        # what the filter bar asks for, and in the order it asks for.
+        everything = self.manager.listed_mods()
+        self.total_count = len(everything)
+        showing = arrange(
+            select(everything, self.filter),
+            self.sort,
+            status_of=lambda mod: self.manager.mod_status(mod.id),
+        )
+        self.shown_count = len(showing)
+        for mod in showing:
             status = self.manager.mod_status(mod.id)
             order = self.manager.state.order_of(mod.id)
             item = QTreeWidgetItem(self)
@@ -174,7 +274,17 @@ class ModListWidget(QTreeWidget):
                 else Qt.CheckState.Unchecked,
             )
             item.setText(0, str(order) if order else "")
+            item.setData(0, ORDER_ROLE, order)
             item.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            if order and self.sort == SORT_ORDER:
+                # Only a mod that has a place can be moved to another one, and
+                # only while the list is actually in load order - a number typed
+                # into a list sorted by name would move a mod somewhere the rows
+                # around it do not describe.
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+                item.setToolTip(0, ORDER_TOOLTIP)
+            elif order:
+                item.setToolTip(0, SORTED_TOOLTIP)
             # A mod that changes the game executable says so wherever it is
             # seen, not only in the box that appeared once when it was added.
             # The check is on what the mod actually targets, so it cannot be
@@ -206,7 +316,10 @@ class ModListWidget(QTreeWidget):
 
             color = status_color(self.dark, STATUS_KEY[status])
             item.setForeground(2, QBrush(color))
-            font = QFont()
+            # From the item's own font, not a fresh QFont(): a default-built
+            # one carries the application's point size and would undo whatever
+            # text size the person chose for this one column.
+            font = item.font(2)
             font.setBold(status == "failed")
             item.setFont(2, font)
 
@@ -249,6 +362,20 @@ class ModListWidget(QTreeWidget):
             child.setForeground(0, QBrush(status_color(self.dark, "failed")))
             item.setExpanded(True)
 
+        if self.total_count and not self.shown_count:
+            # An empty list looks exactly like "my mods are gone", so it has to
+            # say that they are only hidden, and by what.
+            hint = QTreeWidgetItem(self)
+            hint.setFirstColumnSpanned(True)
+            hint.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            hint.setText(
+                0,
+                f"None of your {self.total_count} mods match {self.filter.describe()}."
+                "\n\nNothing has been removed - press Clear above the list to see "
+                "them all again.",
+            )
+            hint.setForeground(0, QBrush(status_color(self.dark, "dim")))
+
         if not self.manager.mods and not self.manager.scan.failures:
             # The list itself answers "where do mod files go?".
             hint = QTreeWidgetItem(self)
@@ -280,7 +407,7 @@ class ModListWidget(QTreeWidget):
         if len(mod.patches) < 2:
             return
         for patch in mod.patches:
-            on = self.manager.state.is_part_enabled(mod.id, patch.key)
+            on = self.manager.state.is_part_on(mod.id, patch.key, patch.ships_on)
             child = QTreeWidgetItem(parent)
             child.setData(0, MOD_ID_ROLE, mod.id)
             child.setData(0, PATCH_KEY_ROLE, patch.key)
@@ -313,8 +440,9 @@ class ModListWidget(QTreeWidget):
         (yellow), or "" for no dot.
 
         Red when the mod failed, or another mod provably overwrites the same
-        cells or file. Yellow for anything else worth a look - a shared table,
-        a warning, a missing requirement.
+        cells or file. Yellow for anything else worth a look - shared rows whose
+        columns cannot be read, a warning, a missing requirement. Sharing a
+        table is not one of them; see conflict.py.
         """
         messages = self._problem_messages(mod_id, conflicts, validation)
         if not messages:
@@ -331,6 +459,17 @@ class ModListWidget(QTreeWidget):
 
     def _detail_text(self, mod, status: str, conflicts, validation) -> str:
         lines = [mod.description or "(no description)"]
+        # Where the mod is filed, so a list sorted or filtered by category can
+        # be read without going back to the boxes above it to remember what is
+        # on. Only when there is something to say - an untagged mod in no
+        # category gets a line saying so in neither.
+        filing = []
+        if mod.category:
+            filing.append(mod.category)
+        if mod.tags:
+            filing.append(" ".join(f"#{tag}" for tag in mod.tags))
+        if filing:
+            lines.append("  -  ".join(filing))
         problems = self._problem_messages(mod.id, conflicts, validation)
         lines.extend(problems[:4])
         if len(problems) > 4:
@@ -394,7 +533,11 @@ class ModListWidget(QTreeWidget):
                 return  # the detail line, which carries no switch
             self._pending_parts[(mod_id, patch_key)] = checked
         else:
-            self._pending_toggles[mod_id] = checked
+            typed = _typed_order(item)
+            if typed is not None:
+                self._pending_order[mod_id] = typed
+            else:
+                self._pending_toggles[mod_id] = checked
         if not self._flush_scheduled:
             self._flush_scheduled = True
             QTimer.singleShot(0, self._flush_toggles)
@@ -407,13 +550,17 @@ class ModListWidget(QTreeWidget):
         self._flush_scheduled = False
         pending, self._pending_toggles = self._pending_toggles, {}
         parts, self._pending_parts = self._pending_parts, {}
-        if not pending and not parts:
+        order, self._pending_order = self._pending_order, {}
+        if not pending and not parts and not order:
             return
+        for mod_id, position in order.items():
+            self.orderTyped.emit(mod_id, position)
         for mod_id, checked in pending.items():
             self.enabledChanged.emit(mod_id, checked)
         for (mod_id, patch_key), checked in parts.items():
             self.partToggled.emit(mod_id, patch_key, checked)
-        self.togglesApplied.emit()
+        if pending or parts:
+            self.togglesApplied.emit()
 
     def _on_selection_changed(self) -> None:
         selected = self.selected_mod_ids()

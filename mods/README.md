@@ -90,6 +90,9 @@ The full form. Everything the mod list shows comes from here:
   "author": "your-name",
   "homepage": "https://github.com/you/your-repo",
 
+  "category": "Economy",
+  "tags": ["coins", "prices"],
+
   "requires": [],
   "conflicts_with": [],
   "raw_sql_files_do_not_touch": [],
@@ -108,6 +111,8 @@ The full form. Everything the mod list shows comes from here:
 | `description`                | yes      | One line under it. Long is fine; it wraps                                                          |
 | `version`                    | yes      | SemVer suggested, not enforced                                                                     |
 | `author`                     | yes      |                                                                                                    |
+| `category`                   | no       | One kind of mod, for the Category box. Free text; see [Category and tags](#category-and-tags)      |
+| `tags`                       | no       | Any number of words, for the search box and the Tags filter                                        |
 | `homepage`                   | no       | Clickable in the Details panel                                                                     |
 | `requires`                   | no       | Mod ids that must also be enabled. Applied before yours                                            |
 | `conflicts_with`             | no       | Mod ids that must not be enabled with yours                                                        |
@@ -134,6 +139,37 @@ The `.sql` file can be called anything — the `path` in the patch decides. It
 must be inside the mod folder; `../` is rejected.
 
 ---
+
+## Category and tags
+
+Two optional fields that decide how somebody finds your mod once they have
+twenty of them:
+
+```json
+"category": "Economy",
+"tags": ["coins", "storage", "limits"]
+```
+
+A **category** answers "what kind of mod is this", so a mod has exactly one. A
+mod with none is listed under **Uncategorised** — a place in the list, not a
+problem. The Category box in the manager is built from the mods actually
+installed, so anything you write here is offered as soon as your mod is in.
+These are the ones the shipped mods use, and the ones the editor suggests:
+
+`Economy` · `Gear` · `Quality of life` · `Game content` · `Visuals` · `Audio` ·
+`Examples`
+
+You are not limited to them. Agreeing with them just keeps the box from filling
+up with near-duplicates.
+
+**Tags** cut across categories, so use as many as fit. Write them the way
+somebody would search: what the mod is about, not what it technically does.
+`coins`, `weapons`, `ui`, `game-files`. They are tidied to one spelling as they
+are read — lower case, words joined by hyphens, duplicates dropped — so
+`Coin Locker` and `coin locker` are the same tag either way. Up to 20 per mod.
+
+Both are also searchable, along with the name, description, author and folder
+name, and both can be set from inside the manager with **Edit details** (F2).
 
 ## Patches as switchable parts
 
@@ -254,6 +290,12 @@ Four write the database — `update_set`, `text_replace`, `raw_sql`,
 `raw_sql_file` — and `asset_file` copies game files. A single mod can mix them:
 a content pack that ships `.upk` files *and* the `master_*` rows that make the
 game use them is one folder with both kinds of patch.
+
+Three more reach the game without going through the database at all:
+`package_bytes` changes a few bytes inside a `.upk`, `config_ini` sets keys in
+one of the game's config files, and `tfc_installer` reads a `.PackagePatch`. They
+are documented in the root [README](../README.md), because each one comes with
+the game's own file check attached.
 
 ### `update_set` — set columns on matching rows
 

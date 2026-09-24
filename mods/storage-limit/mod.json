@@ -1,10 +1,22 @@
 {
   "id": "storage-limit",
   "name": "Storage Limit",
-  "description": "The Coin Locker expands to {{slots:comma}} instead of 2,000.",
-  "version": "2.0.1",
+  "description": "The Coin Locker expands to {{slots:comma}} instead of 2,000. Two optional parts change how many slots each purchase adds and what it costs.",
+  "version": "2.1.0",
   "author": "KSFA",
-  "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
+  "category": "Economy",
+  "tags": [
+    "coins",
+    "storage",
+    "limits",
+    "coin-locker",
+    "prices"
+  ],
+  "game_version": [
+    "5.0.3.0.0 - 1.87",
+    "5.0.4.0.0 - 1.88",
+    "5.0.4.1.0 - 1.89"
+  ],
   "requires": [],
   "conflicts_with": [],
   "settings": [
@@ -18,17 +30,65 @@
       "step": 1000,
       "unit": "slots",
       "help": "Stock is 2,000. It cannot go lower, so nothing already stored is stranded. Capped at 20,000 (10x stock) - no similar count/slot field anywhere in the stock game goes anywhere near as high as the old 99,999 ceiling did."
+    },
+    {
+      "id": "per_buy",
+      "label": "Slots per purchase",
+      "type": "integer",
+      "default": 100,
+      "min": 1,
+      "max": 1000,
+      "step": 10,
+      "unit": "slots",
+      "help": "Stock is 10, so filling a 10,000-slot locker means buying the expansion a thousand times. At 100 it is a hundred times; at 1,000 it is ten. Only used while the 'Slots per purchase' part is ticked."
+    },
+    {
+      "id": "price",
+      "label": "Price per purchase",
+      "type": "integer",
+      "default": 1000,
+      "min": 1,
+      "max": 200000,
+      "step": 100,
+      "unit": "KC",
+      "help": "The game lists two prices for this one expansion - 10,000 KC and 1,000 KC - and this sets both, since which one you are charged is decided in code rather than in the database. Roughly cost-neutral is 100 KC per slot, so 100 slots a purchase balances at 10,000. Capped at 200,000 - the highest this same price field is ever set to anywhere in the stock game. Only used while the 'Price per purchase' part is ticked."
     }
   ],
   "patches": [
     {
       "type": "update_set",
+      "id": "limit",
       "description": "Coin Locker expands to {{slots:comma}}",
       "table": "master_const_int",
       "set": {
         "value": "{{slots}}"
       },
-      "where": "id = 'COINLOCKER_EXPAND_LIMIT_COUNT'"
+      "where": "id = 'COINLOCKER_EXPAND_LIMIT_COUNT'",
+      "expected_rows": 1
+    },
+    {
+      "type": "update_set",
+      "id": "per-buy",
+      "description": "Each purchase adds {{per_buy:comma}} slots instead of 10",
+      "ships_on": false,
+      "table": "master_const_int",
+      "set": {
+        "value": "{{per_buy}}"
+      },
+      "where": "id = 'COINLOCKER_EXPAND_COUNT'",
+      "expected_rows": 1
+    },
+    {
+      "type": "update_set",
+      "id": "price",
+      "description": "Each purchase costs {{price:comma}} KC",
+      "ships_on": false,
+      "table": "master_shop_product_price",
+      "set": {
+        "price": "{{price}}"
+      },
+      "where": "id LIKE 'PRD_EXPAND_COINLOCKER%'",
+      "expected_rows": 2
     }
   ]
 }

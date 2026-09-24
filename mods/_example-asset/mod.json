@@ -4,7 +4,10 @@
   "description": "Copies everything in assets/ into BrgGame/CookedPCConsole. Copy this folder, rename it (not starting with _), drop your .upk files in assets/.",
   "version": "1.0.0",
   "author": "example",
-
+  "category": "Examples",
+  "tags": [
+    "template"
+  ],
   "patches": [
     {
       "type": "asset_file",

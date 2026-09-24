@@ -4,6 +4,10 @@
   "description": "Every weapon lasts {{multiplier}} times as long before it breaks.",
   "version": "1.0.0",
   "author": "you",
+  "category": "Examples",
+  "tags": [
+    "template"
+  ],
   "apply": "diff",
   "requires": [],
   "conflicts_with": [],

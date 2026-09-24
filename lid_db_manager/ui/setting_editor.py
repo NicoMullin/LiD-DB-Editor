@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QGridLayout,
@@ -31,7 +31,16 @@ class SettingEditor(QWidget):
         self.setting = setting
         self._committed_value = value
 
-        name = QLabel(f"<b>{setting.label}</b>")
+        # Bold through the stylesheet rather than <b>, and plain text
+        # everywhere else. A label built by interpolating a mod's own words into
+        # markup has two problems: Qt only treats a string as rich text when it
+        # spots something that looks like a tag, so "&nbsp;" with no tag beside
+        # it was printed literally; and a mod could otherwise put markup of its
+        # own - including an <img> Qt would go and fetch - into the panel.
+        name = QLabel(setting.label)
+        name.setObjectName("settingName")
+        name.setTextFormat(Qt.TextFormat.PlainText)
+        name.setWordWrap(True)
         if setting.kind == KIND_INTEGER:
             spin = QSpinBox()
             spin.setRange(int(setting.minimum), int(setting.maximum))
@@ -57,8 +66,9 @@ class SettingEditor(QWidget):
         dim = f"color: {dim_color};" if dim_color else ""
         limits = QLabel(
             f"{setting.display(setting.minimum)} to {setting.display(setting.maximum)}"
-            f" &nbsp;·&nbsp; default {setting.display(setting.default)}"
+            f"  ·  default {setting.display(setting.default)}"
         )
+        limits.setTextFormat(Qt.TextFormat.PlainText)
         limits.setStyleSheet(dim)
 
         self.reset_button = QPushButton("Default")
@@ -75,6 +85,7 @@ class SettingEditor(QWidget):
         layout.addWidget(limits, 2, 0, 1, 3)
         if setting.help:
             help_text = QLabel(setting.help)
+            help_text.setTextFormat(Qt.TextFormat.PlainText)
             help_text.setWordWrap(True)
             help_text.setStyleSheet(dim)
             layout.addWidget(help_text, 3, 0, 1, 3)

@@ -30,6 +30,9 @@ from PySide6.QtWidgets import (
 )
 
 from .. import APP_NAME, DB_FILENAME, DEFAULT_DB_HINT, __version__, steam_locate
+from .. import browse
+from ..browse import SORT_LABELS, SORT_ORDER
+from ..textsize import DEFAULT_SCALE, SCALE_PRESETS, clamp_scale, stepped
 from .. import backup as backup_module
 from ..backup import BACKUP_SUFFIX, ORIGINAL_SUFFIX
 from ..install import (
@@ -50,9 +53,12 @@ from .diff_view import DiffView
 from .edit_dialog import EditModDialog
 from .install_dialog import InstallDialog
 from .log_panel import LogPanel
+from .mod_filter_bar import ModFilterBar
 from .mod_list import MOD_ID_ROLE, ModListWidget
 from .theme import apply_theme, colors
 from .workers import TaskThread, WatchThread
+
+ORDER_HINT = "Load order: top applies first, bottom wins"
 
 
 class MainWindow(QMainWindow):
@@ -81,7 +87,14 @@ class MainWindow(QMainWindow):
             self.watch.start()
 
         self.refresh(rescan=False)
-        QTimer.singleShot(0, self._first_run_checks)
+        # Parented to the window on purpose. QTimer.singleShot with a bound
+        # method keeps no receiver, so it still fires after the window has been
+        # destroyed and then builds a QMessageBox on a dead C++ object. Qt owns
+        # this one and takes it down with the window.
+        self._first_run = QTimer(self)
+        self._first_run.setSingleShot(True)
+        self._first_run.timeout.connect(self._first_run_checks)
+        self._first_run.start(0)
 
     # -- construction ------------------------------------------------------
 
@@ -118,6 +131,23 @@ class MainWindow(QMainWindow):
         self.auto_box.setChecked(self.manager.state.settings.auto_reapply)
         self.auto_box.toggled.connect(self._on_auto_toggled)
 
+        self.auto_check_off_box = QCheckBox("Auto hash patch")
+        self.auto_check_off_box.setToolTip(
+            "When a mod is blocked because the game still checks a file it "
+            "replaces, take that file off the game's list without asking, then "
+            "carry on saving.\n\n"
+            "On by default. It is the only setting here that changes the "
+            "game's executable, but the change is one byte per file and no "
+            "program code, your executable is copied before it is touched, and "
+            "Tools > Hash Patcher puts it back whenever you want.\n\n"
+            "Untick it to be asked each time instead. Either way it is written "
+            "to the log and said in the status bar - it never happens quietly."
+        )
+        self.auto_check_off_box.setChecked(
+            self.manager.state.settings.auto_switch_file_check_off
+        )
+        self.auto_check_off_box.toggled.connect(self._on_auto_check_off_toggled)
+
         self.reapply_button = QPushButton("Re-apply All")
         self.reapply_button.clicked.connect(self.reapply_all)
 
@@ -131,6 +161,7 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.last_save_label)
         bottom.addWidget(self.watchdog_box)
         bottom.addWidget(self.auto_box)
+        bottom.addWidget(self.auto_check_off_box)
         bottom.addWidget(self.reapply_button)
 
         self.header = QWidget()
@@ -145,11 +176,14 @@ class MainWindow(QMainWindow):
         self.mod_list.partToggled.connect(self._on_part_toggled)
         self.mod_list.togglesApplied.connect(self._after_mods_toggled)
         self.mod_list.selectionChangedTo.connect(self._on_mod_selected)
+        self.mod_list.orderTyped.connect(self.set_mod_position)
         # Right-clicking a mod is where people look for what they can do to it.
         self.mod_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.mod_list.customContextMenuRequested.connect(self._mod_context_menu)
 
-        self.diff_view = DiffView(self.manager, self.dark)
+        self.diff_view = DiffView(
+            self.manager, self.dark, text_scale=self.manager.state.settings.text_scale
+        )
         self.diff_view.settingChanged.connect(self._on_setting_changed)
         self.log_panel = LogPanel(self.manager.log, self.dark)
 
@@ -161,18 +195,26 @@ class MainWindow(QMainWindow):
         self.move_down_button.setToolTip("Apply this mod later, so it overwrites the ones above")
         self.move_down_button.clicked.connect(lambda: self.move_selected(+1))
 
-        order_hint = QLabel("Load order: top applies first, bottom wins")
-        order_hint.setObjectName("dim")
+        self.order_hint = QLabel(ORDER_HINT)
+        self.order_hint.setObjectName("dim")
 
         order_row = QHBoxLayout()
         order_row.addWidget(self.move_up_button)
         order_row.addWidget(self.move_down_button)
-        order_row.addWidget(order_hint, 1)
+        order_row.addWidget(self.order_hint, 1)
+
+        # Search, category, tags and sort. Above the list because it decides
+        # what is in the list; the load-order controls stay below it because
+        # they act on what is selected.
+        self.filter_bar = ModFilterBar()
+        self.filter_bar.set_sort(self.manager.state.settings.mod_sort)
+        self.filter_bar.changed.connect(self._on_filter_changed)
 
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(4)
+        left_layout.addWidget(self.filter_bar)
         left_layout.addWidget(self.mod_list, 1)
         left_layout.addLayout(order_row)
 
@@ -265,40 +307,87 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         self._add_action(file_menu, "Quit", self.close, "Ctrl+Q")
 
+        # Two menus, split by what they act on: Mods is the list itself -
+        # which mods, in what order, and making new ones. Tools is everything
+        # that acts on the database or the game folder.
+        mods_menu = self.menuBar().addMenu("&Mods")
+        mods_menu.addSection("The mod list")
+        self._add_action(mods_menu, "Enable all mods", lambda: self.mod_list.set_all_checked(True))
+        self._add_action(mods_menu, "Disable all mods", lambda: self.mod_list.set_all_checked(False))
+        self._add_action(mods_menu, "Expand all mods", lambda: self.mod_list.set_all_expanded(True))
+        self._add_action(
+            mods_menu, "Collapse all mods", lambda: self.mod_list.set_all_expanded(False)
+        )
+
+        mods_menu.addSection("Load order")
+        self._add_action(
+            mods_menu, "Move up the load order", lambda: self.move_selected(-1), "Ctrl+Up"
+        )
+        self._add_action(
+            mods_menu, "Move down the load order", lambda: self.move_selected(+1), "Ctrl+Down"
+        )
+        self._add_action(
+            mods_menu, "Send to the top of the load order",
+            lambda: self.send_selected_to("top"), "Ctrl+Home",
+        )
+        self._add_action(
+            mods_menu, "Send to the bottom of the load order",
+            lambda: self.send_selected_to("bottom"), "Ctrl+End",
+        )
+
+        mods_menu.addSection("Make and change mods")
+        self._add_action(mods_menu, "Build a mod...", self.build_mod, "Ctrl+B")
+        self._add_action(
+            mods_menu, "Create a mod from a modded masters.db...", self.import_database
+        )
+        self._add_action(mods_menu, "Add a mod from a file...", self.add_mod_from_file)
+        self._add_action(mods_menu, "Add a mod from a folder...", self.add_mod_from_folder)
+        self._add_action(mods_menu, "Edit mod details...", self.edit_selected_mod, "F2")
+        self._add_action(mods_menu, "Delete mod...", self.delete_selected_mod)
+
         tools = self.menuBar().addMenu("&Tools")
+        tools.addSection("Your database")
         self._add_action(tools, "Validate enabled mods", self.validate, "Ctrl+T")
         self._add_action(tools, "Save Mod List (apply)", self.save_mod_list, "Ctrl+S")
         self._add_action(tools, "Re-apply All", self.reapply_all, "Ctrl+R")
-        tools.addSeparator()
-        self._add_action(tools, "Enable all mods", lambda: self.mod_list.set_all_checked(True))
-        self._add_action(tools, "Disable all mods", lambda: self.mod_list.set_all_checked(False))
-        tools.addSeparator()
-        self._add_action(tools, "Move up the load order", lambda: self.move_selected(-1), "Ctrl+Up")
-        self._add_action(tools, "Move down the load order", lambda: self.move_selected(+1), "Ctrl+Down")
-        tools.addSeparator()
-        self._add_action(tools, "Build a mod...", self.build_mod, "Ctrl+B")
-        self._add_action(
-            tools, "Create a mod from a modded masters.db...", self.import_database
-        )
-        self._add_action(tools, "Add a mod from a file...", self.add_mod_from_file)
-        self._add_action(tools, "Add a mod from a folder...", self.add_mod_from_folder)
-        self._add_action(tools, "Edit mod details...", self.edit_selected_mod, "F2")
-        self._add_action(tools, "Delete mod...", self.delete_selected_mod)
-        tools.addSeparator()
-        self._add_action(tools, "Expand all mods", lambda: self.mod_list.set_all_expanded(True))
-        self._add_action(
-            tools, "Collapse all mods", lambda: self.mod_list.set_all_expanded(False)
-        )
-        tools.addSeparator()
         self._add_action(
             tools, "Scan my database for mods already in it...", self.scan_for_existing_mods
         )
         self._add_action(tools, "Clean database to compare against...", self.choose_vanilla)
-        tools.addSeparator()
+
+        tools.addSection("Your game folder")
         self._add_action(tools, "Set item artwork folder...", self.set_icon_folder)
         self._add_action(tools, "Set game folder...", self.set_game_folder)
+        self._add_action(tools, "Hash Patcher...", self.open_file_check)
+
+        tools.addSection("Putting things back")
         self._add_action(tools, "Restore game files...", self.restore_game_files)
         self._add_action(tools, "Restore a backup...", self.restore_backup)
+
+        view = self.menuBar().addMenu("&View")
+        view.addSection("Text size")
+        # Ctrl+= as well as Ctrl++, because + is a shifted key on most layouts
+        # and Ctrl++ needs three fingers to reach.
+        self._add_action(view, "Bigger text", lambda: self.step_text_size(up=True), "Ctrl+=")
+        bigger_plus = QAction("Bigger text", self)
+        bigger_plus.triggered.connect(lambda: self.step_text_size(up=True))
+        bigger_plus.setShortcut("Ctrl++")
+        bigger_plus.setVisible(False)
+        self.addAction(bigger_plus)
+        self._add_action(view, "Smaller text", lambda: self.step_text_size(up=False), "Ctrl+-")
+        self._add_action(view, "Normal size", self.reset_text_size, "Ctrl+0")
+        view.addSeparator()
+        self.text_size_actions: list[QAction] = []
+        for percent in SCALE_PRESETS:
+            action = QAction(f"{percent}%", self)
+            action.setCheckable(True)
+            action.triggered.connect(
+                lambda _checked=False, percent=percent: self.set_text_size(percent)
+            )
+            view.addAction(action)
+            action.setData(percent)
+            self.text_size_actions.append(action)
+        self._refresh_text_size_menu()
 
         help_menu = self.menuBar().addMenu("&Help")
         self._add_action(help_menu, "About", self.about)
@@ -317,10 +406,56 @@ class MainWindow(QMainWindow):
         if rescan:
             self.manager.rescan()
         self._sync_watcher()
+        # The choices come from the mods themselves, so a mod that has just
+        # arrived brings its category and tags into the boxes with it.
+        self.filter_bar.set_choices(self.manager.categories(), self.manager.tags())
+        self.mod_list.filter = self.filter_bar.current_filter()
+        self.mod_list.sort = self.filter_bar.current_sort()
         self.mod_list.refresh()
+        self.filter_bar.set_counts(self.mod_list.shown_count, self.mod_list.total_count)
+        self._refresh_order_controls()
         self.diff_view.refresh()
         self._refresh_header()
         self._refresh_modpacks()
+
+    def _on_filter_changed(self) -> None:
+        """The search, a category, a tag or the sort moved."""
+        sort = self.filter_bar.current_sort()
+        if sort != self.manager.state.settings.mod_sort:
+            # Remembered, unlike the filters - see mod_filter_bar.py.
+            self.manager.state.settings.mod_sort = sort
+            self.manager.state.save()
+        self.mod_list.filter = self.filter_bar.current_filter()
+        self.mod_list.sort = sort
+        self.mod_list.refresh()
+        self.filter_bar.set_counts(self.mod_list.shown_count, self.mod_list.total_count)
+        self._refresh_order_controls()
+
+    def _refresh_order_controls(self) -> None:
+        """Turn the load-order controls off where they would mislead.
+
+        Move up and Move down are relative - "swap with the row next to this
+        one" - so they only mean what they look like when every row is on screen
+        in load order. Typing a number is absolute, so it survives a filter; it
+        is only sorting that takes it away, because the rows around the number
+        would no longer be the ones the number is measured against.
+        """
+        sorted_away = self.filter_bar.current_sort() != SORT_ORDER
+        filtered = self.mod_list.filter.on
+        self.move_up_button.setEnabled(not sorted_away and not filtered)
+        self.move_down_button.setEnabled(not sorted_away and not filtered)
+        if sorted_away:
+            label = SORT_LABELS.get(self.filter_bar.current_sort(), "something else")
+            self.order_hint.setText(
+                f"Sorted by {label} - switch Sort back to “Load order” to move mods"
+            )
+        elif filtered:
+            self.order_hint.setText(
+                "Some mods are hidden - you can still type a number, but Clear the "
+                "filter to move mods one at a time"
+            )
+        else:
+            self.order_hint.setText(ORDER_HINT)
 
     def _refresh_header(self) -> None:
         db_path = self.manager.db_path
@@ -498,7 +633,11 @@ class MainWindow(QMainWindow):
             menu.addSeparator()
             menu.addAction("Move up the load order", lambda: self.move_selected(-1))
             menu.addAction("Move down the load order", lambda: self.move_selected(+1))
+            menu.addAction("Send to the top", lambda: self.send_selected_to("top"))
+            menu.addAction("Send to the bottom", lambda: self.send_selected_to("bottom"))
             menu.addSeparator()
+            if mod is not None:
+                self._add_filing_menu(menu, mod)
             menu.addAction("Revert - put its rows back", self.revert_selected)
             menu.addAction("Delete mod...", self.delete_selected_mod)
             menu.addSeparator()
@@ -508,6 +647,72 @@ class MainWindow(QMainWindow):
         menu.addAction("Expand all", lambda: self.mod_list.set_all_expanded(True))
         menu.addAction("Collapse all", lambda: self.mod_list.set_all_expanded(False))
         return menu
+
+    def _add_filing_menu(self, menu: QMenu, mod) -> None:
+        """"Show only..." entries, so a mod is its own way into its category.
+
+        Finding the other coin mods starts from a coin mod far more often than
+        from the Category box, and this saves reading the box to work out what
+        this one is filed under.
+        """
+        category = browse.category_of(mod)
+        if category != browse.UNCATEGORISED:
+            menu.addAction(
+                f"Show only {category}",
+                lambda: self._filter_to(category=category),
+            )
+        if mod.tags:
+            tags = menu.addMenu("Show only mods tagged")
+            for tag in mod.tags:
+                tags.addAction(tag, lambda checked=False, tag=tag: self._filter_to(tags=[tag]))
+        menu.addSeparator()
+
+    def _filter_to(self, *, category: str | None = None, tags=None) -> None:
+        """Narrow the list to one category or tag, from wherever it was."""
+        self.filter_bar.clear()
+        if category is not None:
+            self.filter_bar.set_category(category)
+        if tags is not None:
+            self.filter_bar.set_tags(tags)
+
+    # -- text size ---------------------------------------------------------
+
+    def _refresh_text_size_menu(self) -> None:
+        """Tick the preset that matches, or none when the size is between two."""
+        current = self.manager.state.settings.text_scale
+        for action in self.text_size_actions:
+            action.setChecked(action.data() == current)
+
+    def set_text_size(self, percent) -> None:
+        """Make every bit of text in the window this size, and remember it."""
+        wanted = clamp_scale(percent)
+        if wanted == self.manager.state.settings.text_scale:
+            self._refresh_text_size_menu()
+            return
+        self.manager.state.settings.text_scale = wanted
+        self.manager.state.save()
+        self.apply_text_size()
+        self.statusBar().showMessage(
+            f"Text size {wanted}%"
+            + ("" if wanted != DEFAULT_SCALE else " (normal)"),
+            4000,
+        )
+
+    def apply_text_size(self) -> None:
+        """Re-theme at the current size and let everything lay out again."""
+        scale = self.manager.state.settings.text_scale
+        apply_theme(QApplication.instance(), self.dark, scale)
+        # The details panel builds its own HTML, so it has to be told; the rest
+        # picks the new size up from the stylesheet.
+        self.diff_view.set_text_scale(scale)
+        self._refresh_text_size_menu()
+        self.refresh()
+
+    def step_text_size(self, *, up: bool) -> None:
+        self.set_text_size(stepped(self.manager.state.settings.text_scale, up=up))
+
+    def reset_text_size(self) -> None:
+        self.set_text_size(DEFAULT_SCALE)
 
     def _set_enabled_from_menu(self, mod_id: str, enabled: bool) -> None:
         self.manager.set_enabled(mod_id, enabled)
@@ -580,24 +785,61 @@ class MainWindow(QMainWindow):
                 6000,
             )
 
+    def _to_move(self, what: str) -> list[str]:
+        """The selected mods that have a load order, or [] with a word said."""
+        selected = [
+            m for m in self.mod_list.selected_mod_ids() if self.manager.state.is_enabled(m)
+        ]
+        if not selected:
+            self.statusBar().showMessage(
+                f"Select an enabled mod to {what} - the load order only covers "
+                "enabled mods.", 6000
+            )
+        return selected
+
+    def _after_reorder(self, moved: list[bool], selected: list[str]) -> None:
+        if not any(moved):
+            return
+        self.unsaved = True
+        self.mod_list.refresh()
+        self.mod_list.select_mods(selected)
+        self._refresh_header()
+
     def move_selected(self, delta: int) -> None:
         """Shift the selected mods up or down the load order."""
-        selected = self.mod_list.selected_mod_ids()
-        enabled = [m for m in selected if self.manager.state.is_enabled(m)]
+        enabled = self._to_move("move")
         if not enabled:
-            self.statusBar().showMessage(
-                "Select an enabled mod to move - the load order only covers enabled mods.", 6000
-            )
             return
         # Moving down means starting from the bottom, or the mods trip over
         # each other on the way.
         order = self.manager.state.enabled_mods
         enabled.sort(key=order.index, reverse=delta > 0)
-        if not any(self.manager.move_mod(mod_id, delta) for mod_id in enabled):
+        # A list, not any(): any() stops at the first mod that moved, which
+        # with several selected left the rest of them where they were.
+        moved = [self.manager.move_mod(mod_id, delta) for mod_id in enabled]
+        self._after_reorder(moved, enabled)
+
+    def send_selected_to(self, edge: str) -> None:
+        """Send the selected mods to the top or the bottom of the load order."""
+        enabled = self._to_move("send")
+        if not enabled:
+            return
+        order = self.manager.state.enabled_mods
+        # Each mod is placed in turn, so the pass runs in whichever direction
+        # leaves the selection in the order it was already in.
+        enabled.sort(key=order.index, reverse=(edge == "top"))
+        place = 1 if edge == "top" else len(order)
+        moved = [self.manager.set_mod_position(mod_id, place) for mod_id in enabled]
+        self._after_reorder(moved, enabled)
+
+    def set_mod_position(self, mod_id: str, position: int) -> None:
+        """Put one mod at the place that was typed into its number."""
+        if not self.manager.set_mod_position(mod_id, position):
+            self.mod_list.refresh()  # put the number that was typed over back
             return
         self.unsaved = True
         self.mod_list.refresh()
-        self.mod_list.select_mods(selected)
+        self.mod_list.select_mods([mod_id])
         self._refresh_header()
 
     # -- long-running actions ----------------------------------------------
@@ -728,7 +970,65 @@ class MainWindow(QMainWindow):
                 for result in report.validation.failed
             )
             message = f"{message}\n\n{details}"
+        # The one failure with a fix the manager can carry out itself. Offering
+        # it here, where it went wrong, saves hunting through a menu for a panel
+        # whose name means nothing until you have read the error.
+        if self._offer_file_check(report):
+            return
         QMessageBox.warning(self, "Nothing was applied", message)
+
+    def _offer_file_check(self, report) -> bool:
+        """Offer to switch the game's file check off, if that is what blocked it.
+
+        Returns True when it has been dealt with - carried out and saved again,
+        the panel opened, or the offer declined. In each of those the person has
+        already been told what happened and does not need a second box about it.
+        """
+        blocked = self.manager.blocked_packages()
+        if not blocked or report.validation is None:
+            return False
+        if not any(
+            "still checks" in error
+            for result in report.validation.failed
+            for error in result.errors
+        ):
+            return False
+        one = len(blocked) == 1
+        it = "it" if one else "them"
+        files = ", ".join(blocked)
+        if not self.manager.state.settings.auto_switch_file_check_off:
+            answer = QMessageBox.question(
+                self,
+                "The game still checks these files",
+                f"Nothing was applied. The game keeps a checksum for {files}, "
+                f"and a mod you have enabled replaces {it} - so the game would "
+                "refuse the replacement at startup, before the intro.\n\n"
+                f"The Hash Patcher can take {it} off the game's list, which is "
+                "one byte per file and no program code. Your executable is "
+                "copied first, and it can be put back at any time.\n\n"
+                "Switch the check off and save again?",
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No
+                | QMessageBox.StandardButton.Open,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer == QMessageBox.StandardButton.Open:
+                self.open_file_check()  # let them look before deciding
+                return True
+            if answer != QMessageBox.StandardButton.Yes:
+                return True
+        try:
+            done = self.manager.switch_file_check_off(blocked)
+        except (RuntimeError, OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Hash Patcher", str(exc))
+            return True
+        if not done:
+            return False  # nothing changed, so what blocked it was something else
+        self.statusBar().showMessage(
+            f"The game no longer checks {len(done)} file(s) - saving again.", 8000
+        )
+        self.save_mod_list()
+        return True
 
     def validate(self) -> None:
         if not self._check_database():
@@ -870,6 +1170,13 @@ class MainWindow(QMainWindow):
         self.manager.set_game_root_override(path)
         self.refresh()
         QMessageBox.information(self, "Set game folder", f"Game folder set to:\n  {path}")
+
+    def open_file_check(self) -> None:
+        """Switch the game's own file check off for chosen packages."""
+        from .file_check_dialog import FileCheckDialog
+
+        FileCheckDialog(self.manager, self).exec()
+        self.refresh()
 
     def restore_game_files(self) -> None:
         entries = self.manager.asset_backups()
@@ -1026,7 +1333,9 @@ class MainWindow(QMainWindow):
         if mod is None:
             return
 
-        dialog = EditModDialog(mod, self.dark, self)
+        dialog = EditModDialog(
+            mod, self.dark, self, known_categories=self.manager.categories()
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         details = dialog.details()
@@ -1038,6 +1347,8 @@ class MainWindow(QMainWindow):
                 author=details.author,
                 version=details.version,
                 readme=details.readme,
+                category=details.category,
+                tags=details.tags,
             )
         except ModEditError as exc:
             QMessageBox.warning(self, "Could not save the changes", str(exc))
@@ -1231,7 +1542,7 @@ class MainWindow(QMainWindow):
         self.dark = dark
         self.manager.state.settings.dark_mode = dark
         self.manager.state.save()
-        apply_theme(QApplication.instance(), dark)
+        apply_theme(QApplication.instance(), dark, self.manager.state.settings.text_scale)
         self.mod_list.dark = dark
         self.diff_view.dark = dark
         self.log_panel.set_dark(dark)
@@ -1250,6 +1561,13 @@ class MainWindow(QMainWindow):
     def _on_auto_toggled(self, enabled: bool) -> None:
         self.manager.state.settings.auto_reapply = enabled
         self.manager.state.save()
+
+    def _on_auto_check_off_toggled(self, enabled: bool) -> None:
+        self.manager.state.settings.auto_switch_file_check_off = enabled
+        self.manager.state.save()
+        self.manager.log.info(
+            f"Auto hash patch {'on' if enabled else 'off'}"
+        )
 
     # -- watchdog ----------------------------------------------------------
 

@@ -4,7 +4,16 @@
   "description": "Every weapon lasts {{multiplier}} times as long before it breaks.",
   "version": "2.0.1",
   "author": "KSFA",
-  "game_version": ["5.0.3.0.0 - 1.87", "5.0.4.0.0 - 1.88"],
+  "category": "Gear",
+  "tags": [
+    "weapons",
+    "durability"
+  ],
+  "game_version": [
+    "5.0.3.0.0 - 1.87",
+    "5.0.4.0.0 - 1.88",
+    "5.0.4.1.0 - 1.89"
+  ],
   "apply": "diff",
   "requires": [],
   "conflicts_with": [],
