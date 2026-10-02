@@ -117,7 +117,8 @@ def rewrite(data: bytes, site: Site, raw: bytes) -> bytes:
     return bytes(out)
 
 
-def write_chunks(original: bytes, flat_before: bytes, flat_after: bytes) -> bytes | None:
+def write_chunks(original: bytes, flat_before: bytes, flat_after: bytes,
+                 decoded: set[int] | None = None) -> bytes | None:
     """The package rebuilt as chunks, reusing every chunk that did not change.
 
     A patched package can be written out flat - the game reads one happily -
@@ -133,6 +134,11 @@ def write_chunks(original: bytes, flat_before: bytes, flat_after: bytes) -> byte
     Returns None when this cannot be done and the caller should write the flat
     form instead: a package that was not compressed to begin with, or one whose
     header the patch changed, which would need the file header rewritten too.
+
+    ``decoded`` is for buffers from ``package.PartlyDecoded``: the chunks that
+    were actually decoded. Any other chunk is zeros in both buffers, so it must
+    come through untouched - a write into one would mean the flat buffer is not
+    the package, and that is a None too, never a guess.
     """
     summary = P.read_summary(original)
     if not summary.compressed:
@@ -144,6 +150,13 @@ def write_chunks(original: bytes, flat_before: bytes, flat_after: bytes) -> byte
     tail_size = len(flat_after) - summary.chunks[last].uncompressed_offset
     if tail_size < 0:
         return None                      # it shrank past the last chunk's start
+    if decoded is not None and last not in decoded:
+        return None                      # the tail is re-encoded, so it must be real
+    if decoded is not None:
+        for number, chunk in enumerate(summary.chunks):
+            at, size = chunk.uncompressed_offset, chunk.uncompressed_size
+            if number not in decoded and flat_after[at:at + size] != flat_before[at:at + size]:
+                return None              # written into a chunk nobody decoded
 
     body_at = summary.chunks[0].compressed_offset
     out = bytearray(original[:body_at])  # summary and chunk table, as they were

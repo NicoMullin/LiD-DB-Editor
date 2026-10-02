@@ -402,6 +402,10 @@ def infer_values(mod, delta_for, theirs: DbDelta, start: dict) -> dict | None:
     the answer cell by cell anyway, so a formula this cannot see through comes
     back as "could not be worked out" rather than as a wrong guess.
     """
+    if not all(setting.is_number for setting in mod.settings):
+        # A choice or an on/off has no in-between to measure from; the values
+        # the database's note or the player gave are all there is to go on.
+        return None
     their_cells = _their_cells(theirs)
     values = dict(start)
     for _ in range(1 if len(mod.settings) == 1 else 2):

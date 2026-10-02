@@ -107,7 +107,13 @@ def stylesheet(dark: bool, scale: int = DEFAULT_SCALE) -> str:
             font-weight: 600;
         }}
         QLabel#dim {{ color: {palette_colors['dim']}; }}
-        QLabel#settingName {{ font-weight: 600; }}
+        QLabel#settingName, QCheckBox#settingName {{ font-weight: 600; }}
+        QLabel#settingGroup {{
+            font-size: {font_px(scale) + scaled(PANEL_TITLE_EXTRA_PX, scale)}px;
+            font-weight: 600;
+            padding-top: {scaled(8, scale)}px;
+            border-bottom: 1px solid {palette_colors['border']};
+        }}
         QLabel#panelTitle {{
             font-size: {font_px(scale) + scaled(PANEL_TITLE_EXTRA_PX, scale)}px;
             font-weight: 600;

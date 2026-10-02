@@ -17,13 +17,13 @@ names against the actual cells before believing a word of it.
 from __future__ import annotations
 
 import json
-import math
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 from . import __version__
+from .settings import is_setting_value
 from .sqlutil import quote_ident
 
 TABLE = "_lid_mod_manager"
@@ -76,20 +76,16 @@ class Record:
 
 
 def _clean_values(text) -> dict:
-    """Only numbers survive. Anything else in there is somebody's hand edit."""
+    """Only numbers and choice values survive. Anything else in there is
+    somebody's hand edit - and every value is still checked against the mod's
+    own settings before it is used."""
     try:
         data = json.loads(text or "{}")
     except (TypeError, ValueError):
         return {}
     if not isinstance(data, dict):
         return {}
-    return {
-        str(key): value
-        for key, value in data.items()
-        if isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-    }
+    return {str(key): value for key, value in data.items() if is_setting_value(value)}
 
 
 def write(con: sqlite3.Connection, mods: list[RecordedMod]) -> None:

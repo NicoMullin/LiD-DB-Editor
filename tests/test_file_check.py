@@ -305,6 +305,22 @@ class DoingItWhenTheSaveIsBlocked(Base):
             sum(1 for a, b in zip(self.stock, self.exe.read_bytes()) if a != b), 1
         )
 
+    def test_with_the_setting_on_it_is_done_before_the_save(self) -> None:
+        """Saving first and fixing it afterwards put a red ERROR in the log
+        while the save was still going and about to succeed."""
+        self.window._switch_check_off_first()
+        self.assertEqual(self.manager.blocked_packages(), [])
+        self.assertIn("no longer checks", self.window.statusBar().currentMessage())
+        report = self.manager.save_mod_list()
+        self.assertTrue(report.ok, report.error)
+        self.assertFalse(
+            [line.message for line in self.manager.log.lines if line.level == "ERROR"])
+
+    def test_with_the_setting_off_nothing_is_done_before_the_save(self) -> None:
+        self.manager.state.settings.auto_switch_file_check_off = False
+        self.window._switch_check_off_first()
+        self.assertEqual(self.exe.read_bytes(), self.stock)
+
     def test_the_setting_is_on_to_begin_with(self) -> None:
         """The user's decision. Without it a mod that replaces a checked file
         just refuses to apply, and the only way on is a panel somebody has to

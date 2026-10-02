@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .browse import SORTS, SORT_ORDER
+from .settings import is_setting_value
 from .textsize import clamp_scale
 from .sqlutil import sha256_file
 
@@ -61,7 +62,7 @@ class AppliedRecord:
             values={
                 str(key): value
                 for key, value in (data.get("values") or {}).items()
-                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                if is_setting_value(value)
             }
             if isinstance(data.get("values"), dict)
             else {},
@@ -219,7 +220,7 @@ class State:
             str(mod_id): {
                 str(key): value
                 for key, value in chosen.items()
-                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                if is_setting_value(value)
             }
             for mod_id, chosen in (data.get("mod_settings") or {}).items()
             if isinstance(chosen, dict)

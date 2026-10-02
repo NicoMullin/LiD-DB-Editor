@@ -28,6 +28,9 @@ HAVE_GAME = GAME_PACKAGE.is_file()
 
 DROP_DELAY = b"\x2c\x06\x1f" + b"Item Drop Delay Time" + b"\x00\x28\x2c"
 DROP_DELAY_TAIL = b"\x25\x1e\xcd\xcc\xcc\x3d\x16"
+# The next entry in the same table: the corpse mushroom's own wait, which only
+# starts once the drop wait has run out.
+MUSHROOM_DELAY = b"\x2c\x07\x1f" + b"Start Mushroom Delay Time" + b"\x00\x28\x2c"
 
 # The three labels the coin's flight is compiled behind. Only the coin is
 # thrown; every other currency is simply placed where it dropped.
@@ -230,6 +233,44 @@ class WriteBackTests(unittest.TestCase):
         self.assertIsNone(bytepatch.write_chunks(data, flat, flat[:800]))
 
 
+class WritingBackAPartlyDecodedPackage(unittest.TestCase):
+    """Only some chunks decoded; the rest are zeros in the flat buffer.
+
+    Those must be copied across compressed, exactly as they were - and if
+    anything wrote into one, the buffer is not the package and nothing may be
+    written from it.
+    """
+
+    def setUp(self) -> None:
+        self.data, self.flat = a_package([b"a" * 1000, b"b" * 1000, b"c" * 1000])
+        summary = P.read_summary(self.data)
+        middle = summary.chunks[1]
+        partly = bytearray(self.flat)
+        partly[middle.uncompressed_offset:middle.uncompressed_offset + 1000] = bytes(1000)
+        self.partly = bytes(partly)
+        self.middle_at = middle.uncompressed_offset
+
+    def test_an_undecoded_chunk_comes_through_as_it_was(self) -> None:
+        after = bytearray(self.partly)
+        after[-1] = ord("X")                        # the last chunk, which was decoded
+        out = bytepatch.write_chunks(self.data, self.partly, bytes(after), decoded={0, 2})
+        self.assertIsNotNone(out)
+        expected = bytearray(self.flat)
+        expected[-1] = ord("X")
+        self.assertEqual(bytes(expected), decoded(out),
+                         "the chunk nobody decoded must keep the game's bytes, not zeros")
+
+    def test_a_write_into_an_undecoded_chunk_is_refused(self) -> None:
+        after = bytearray(self.partly)
+        after[self.middle_at + 10] = ord("X")
+        self.assertIsNone(
+            bytepatch.write_chunks(self.data, self.partly, bytes(after), decoded={0, 2}))
+
+    def test_the_last_chunk_has_to_be_decoded(self) -> None:
+        self.assertIsNone(
+            bytepatch.write_chunks(self.data, self.partly, self.partly, decoded={0, 1}))
+
+
 class ShippedModTests(unittest.TestCase):
     """The Instant Drops mod as it ships."""
 
@@ -243,6 +284,17 @@ class ShippedModTests(unittest.TestCase):
         self.assertEqual(0, self.mod.patches[0].edits[0]["value"])
         at_one_second = self.mod.with_settings({"tenths": 10})
         self.assertEqual(10, at_one_second.patches[0].edits[0]["value"])
+
+    def test_the_mushroom_wait_follows_the_same_setting(self) -> None:
+        """A mushroom reward starts a second two-second timer once the first
+        runs out. Leaving it alone is what made only some kills instant."""
+        edit = self.mod.patches[0].edits[1]
+        self.assertEqual("Start Mushroom Delay Time", edit["name"])
+        self.assertEqual(MUSHROOM_DELAY, edit["find"])
+        self.assertEqual(DROP_DELAY_TAIL, edit["follows"])
+        self.assertEqual(0, edit["value"])
+        at_one_second = self.mod.with_settings({"tenths": 10})
+        self.assertEqual(10, at_one_second.patches[0].edits[1]["value"])
 
     def test_the_stock_value_is_within_reach(self) -> None:
         setting = self.mod.settings[0]
@@ -307,6 +359,42 @@ class TheCoinPart(unittest.TestCase):
             )
 
 
+class TwoPartsOnOnePackage(unittest.TestCase):
+    """Both parts of Instant Drops rewrite BrgGame.upk. The runner used to keep
+    only the last patch per file, so ticking "Stop coins being thrown" rebuilt
+    the package from stock with the drop wait left at two seconds."""
+
+    TARGET = "BrgGame/CookedPCConsole/BrgGame.upk"
+
+    def test_every_byte_edit_to_one_package_lands(self) -> None:
+        from lid_db_manager.asset_runner import _wanted_transforms
+
+        # As loaded, with every part in it - both ticked.
+        mod = load_mod_folder(PROJECT_ROOT / "mods" / "instant-drops")
+        speed_z = b"\x2c\x09\x1f" + b"Speed Z" + b"\x00\x27\x2c"
+        speed_xy = b"\x2c\x0a\x1f" + b"Speed XY" + b"\x00\x27\x1d"
+        body = (b"pad" * 50
+                + DROP_DELAY + b"\x14" + DROP_DELAY_TAIL
+                + MUSHROOM_DELAY + b"\x14" + DROP_DELAY_TAIL
+                + speed_z + b"\x28\x2c\x5a"
+                + speed_xy + struct.pack("<i", -15) + b"\x2c\x0f"
+                + MAX_MOVE + b"\x28" + DROP_DELAY_TAIL
+                + b"pad" * 50)
+        data, _flat = a_package([body])
+
+        transforms = _wanted_transforms([mod])
+        patch, mod_id = transforms[self.TARGET]
+        self.assertEqual("instant-drops", mod_id)
+        out = decoded(patch.transform_target(self.TARGET, data))
+
+        site = out.find(DROP_DELAY) + len(DROP_DELAY)
+        self.assertEqual(0, out[site], "the drop wait was lost")
+        site = out.find(MUSHROOM_DELAY) + len(MUSHROOM_DELAY)
+        self.assertEqual(0, out[site], "the mushroom wait was lost")
+        site = out.find(speed_z) + len(speed_z)
+        self.assertEqual((0, 0), (out[site], out[site + 2]), "the coin part was lost")
+
+
 @unittest.skipUnless(HAVE_GAME, "needs LET IT DIE installed (set LID_GAME_UPK)")
 class AgainstTheRealPackageTests(unittest.TestCase):
     """The one that matters: the game's own 179 MB package."""
@@ -319,15 +407,19 @@ class AgainstTheRealPackageTests(unittest.TestCase):
         site = bytepatch.find(self.data, DROP_DELAY, follows=DROP_DELAY_TAIL)
         self.assertEqual(20, site.raw[site.at], "the stock wait is 20 x 0.1s")
 
-    def test_changing_it_changes_exactly_one_byte_of_the_package(self) -> None:
+    def test_the_mushroom_delay_is_where_the_mod_says_it_is(self) -> None:
+        site = bytepatch.find(self.data, MUSHROOM_DELAY, follows=DROP_DELAY_TAIL)
+        self.assertEqual(20, site.raw[site.at], "the stock wait is 20 x 0.1s")
+
+    def test_changing_it_changes_exactly_two_bytes_of_the_package(self) -> None:
         mod = load_mod_folder(PROJECT_ROOT / "mods" / "instant-drops")
         out = mod.patches[0].transform_target(
             "BrgGame/CookedPCConsole/BrgGame.upk", self.data)
         before, after = P.read(self.data).data, P.read(out).data
         self.assertEqual(len(before), len(after), "the decoded package must not move")
         differing = [i for i in range(len(before)) if before[i] != after[i]]
-        self.assertEqual(1, len(differing))
-        self.assertEqual(0, after[differing[0]])
+        self.assertEqual(2, len(differing), "the drop wait and the mushroom wait")
+        self.assertEqual([0, 0], [after[i] for i in differing])
 
     def test_the_coin_sites_hold_what_the_mod_expects(self) -> None:
         for signature, expected in (
@@ -369,6 +461,8 @@ class AgainstTheRealPackageTests(unittest.TestCase):
         out = part.transform_target(
             "BrgGame/CookedPCConsole/BrgGame.upk", self.data)
         site = bytepatch.find(out, DROP_DELAY, follows=DROP_DELAY_TAIL)
+        self.assertEqual(20, site.raw[site.at])
+        site = bytepatch.find(out, MUSHROOM_DELAY, follows=DROP_DELAY_TAIL)
         self.assertEqual(20, site.raw[site.at])
 
     def test_bytes_that_are_not_in_the_package_are_refused(self) -> None:

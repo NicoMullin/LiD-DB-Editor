@@ -643,6 +643,13 @@ class Manager:
             if record.version and mod.version and record.version != mod.version:
                 stranded.append(mod_id)
                 continue
+            # Its values changed since. Writing the new ones over the old is
+            # enough when both write the same cells, but a value can decide
+            # WHICH rows a mod writes - a decal chosen for a class adds a row
+            # that "None" does not - so the old ones have to come off first.
+            if record.values and mod.settings and self.configured(mod).values != record.values:
+                stranded.append(mod_id)
+                continue
             if not record.parts:
                 continue
             if [p.key for p in self.active_mod(mod).patches] != list(record.parts):
@@ -1305,6 +1312,7 @@ class Manager:
         selection: dict | None = None,
         split_by_table: bool = False,
         requires: list[str] | None = None,
+        strip_carriage_returns: bool = False,
     ) -> list[Mod]:
         """Install a modded database as one mod per table. All arrive disabled."""
         folders = install_module.install_database(
@@ -1319,6 +1327,7 @@ class Manager:
             selection=selection,
             split_by_table=split_by_table,
             requires=requires,
+            strip_carriage_returns=strip_carriage_returns,
         )
         self.log.info(
             f"Installed {len(folders)} mod(s) from {candidate.source.name}: "

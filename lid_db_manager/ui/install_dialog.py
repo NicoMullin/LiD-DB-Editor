@@ -35,6 +35,7 @@ class InstallDetails:
     selection: dict | None = None
     split_by_table: bool = False
     companion_of: str | None = None
+    strip_carriage_returns: bool = False
 
 
 class InstallDialog(QDialog):
@@ -116,7 +117,7 @@ class InstallDialog(QDialog):
             self.setMinimumWidth(720)
             chooser_label = QLabel("<b>What to take from it</b>")
             layout.addWidget(chooser_label)
-            self.picker = ChangePicker(candidate.delta, self)
+            self.picker = ChangePicker(candidate.delta, self, offer_strip=True)
             layout.addWidget(self.picker, 1)
 
             self.split_box = QCheckBox("Install each table as a separate mod")
@@ -156,5 +157,6 @@ class InstallDialog(QDialog):
             version=self.version_edit.text().strip() or "1.0.0",
             selection=self.picker.selection() if self.picker else None,
             split_by_table=bool(self.split_box.isChecked()) if self.split_box else True,
+            strip_carriage_returns=bool(self.picker and self.picker.strip_carriage_returns()),
             companion_of=self.companion_box.currentData() if self.companion_box else None,
         )

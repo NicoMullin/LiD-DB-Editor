@@ -1,0 +1,41 @@
+{
+  "id": "fall-damage",
+  "name": "Fall Damage",
+  "description": "Falls hurt {{percent}}% as much as normal. 0 turns fall damage off, the same as everyone wearing Super Shock Absorber.",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "category": "Game content",
+  "tags": [
+    "falling",
+    "damage",
+    "shock-absorber",
+    "constants"
+  ],
+  "game_version": [
+    "5.0.4.1.0 - 1.89"
+  ],
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "percent",
+      "label": "Fall damage",
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "unit": "%",
+      "help": "0 = no fall damage at all. 100 leaves it at stock. Haters take the same fall damage as your fighter, so this applies to them too."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "fall-damage",
+      "description": "Fall damage {{percent}}% of stock (FALL_DMG_BASE and FALL_DMG_INC)",
+      "sql": "UPDATE master_const_int SET value = value * {{percent}} / 100 WHERE id IN ('FALL_DMG_BASE', 'FALL_DMG_INC');"
+    }
+  ]
+}

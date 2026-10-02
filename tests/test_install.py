@@ -11,7 +11,8 @@ from pathlib import Path
 from fixtures import build_db, query, write_mod
 
 from lid_db_manager import dbdiff
-from lid_db_manager.install import InstallError, inspect, install, safe_folder_name
+from lid_db_manager.install import (InstallError, inspect, install,
+                                    safe_folder_name, write_sql)
 from lid_db_manager.manager import Manager
 from lid_db_manager.mod_loader import scan_mods
 from lid_db_manager.paths import AppPaths
@@ -334,3 +335,91 @@ class ImportModdedDatabaseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GeneratedSqlKeepsTextExactly(unittest.TestCase):
+    """A .sql file must hold the characters the database holds, and no others.
+
+    `write_text` in text mode rewrites every \n in the string to the platform's
+    line ending, and a generated statement carries game text inside its string
+    literals - `master_text` has 30,175 rows with a line break in them. On
+    Windows that put a carriage return in the file, so a tool that runs it byte
+    for byte wrote a carriage return into the database. The game's own data has
+    none anywhere, so the next diff saw 30,000 rows as modified, and each round
+    trip added another carriage return.
+
+    Found from a real community mod: 30,175 reported changes, of which 29,967
+    were line endings and only 208 were the author's actual edits.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _table(self, path: Path, value: str) -> Path:
+        con = sqlite3.connect(path)
+        con.execute(
+            'CREATE TABLE master_text ("sct" TEXT, "id" TEXT, "snd" TEXT, '
+            '"lang" TEXT, "txt" TEXT, "type" INTEGER, '
+            'PRIMARY KEY ("sct","id","snd","lang"))'
+        )
+        con.execute("INSERT INTO master_text VALUES ('S','TXT_A','','int',?,0)", (value,))
+        con.commit()
+        con.close()
+        return path
+
+    def _generated(self, vanilla_value: str, modded_value: str) -> bytes:
+        # A fresh pair of files each call - CREATE TABLE on one already made
+        # would raise, and on Windows the open handle then blocks the cleanup.
+        self._n = getattr(self, "_n", 0) + 1
+        van = self._table(self.root / f"van{self._n}.db", vanilla_value)
+        mod = self._table(self.root / f"mod{self._n}.db", modded_value)
+        out = self.root / f"changes{self._n}.sql"
+        write_sql(out, dbdiff.to_sql(dbdiff.compare(van, mod), "test"))
+        return out.read_bytes()
+
+    def test_a_line_break_in_the_text_is_not_turned_into_a_carriage_return(self):
+        raw = self._generated("one\ntwo", "three\nfour")
+        self.assertNotIn(b"\r", raw, "the data had no carriage return, so the file must not")
+
+    def test_a_carriage_return_in_the_data_is_written_once_not_doubled(self):
+        raw = self._generated("one\ntwo", "three\r\nfour")
+        self.assertEqual(raw.count(b"\r"), 1)
+        self.assertNotIn(b"\r\r", raw)
+
+    def test_running_the_file_byte_for_byte_stores_what_the_database_held(self):
+        for value in ("three\nfour", "three\r\nfour", "a\nb\nc"):
+            with self.subTest(value=value):
+                raw = self._generated("one\ntwo", value)
+                target = self._table(self.root / f"t{abs(hash(value))}.db", "one\ntwo")
+                con = sqlite3.connect(target)
+                con.executescript(raw.decode("utf-8"))
+                con.commit()
+                got = con.execute("SELECT txt FROM master_text").fetchone()[0]
+                con.close()
+                self.assertEqual(got, value)
+
+    def test_a_second_round_trip_adds_nothing(self):
+        # What made this compound: diff, apply, diff again.
+        value = "three\nfour"
+        raw = self._generated("one\ntwo", value)
+        target = self._table(self.root / "again.db", "one\ntwo")
+        con = sqlite3.connect(target)
+        con.executescript(raw.decode("utf-8"))
+        con.commit()
+        con.close()
+        van = self._table(self.root / "van2.db", "one\ntwo")
+        second = dbdiff.compare(van, target)
+        applied = self.root / "second.sql"
+        write_sql(applied, dbdiff.to_sql(second, "test"))
+        self.assertEqual(applied.read_bytes().count(b"\r"), 0)
+
+    def test_the_file_still_ends_its_own_lines(self):
+        # newline="" must not mean "no line breaks at all" - the statements are
+        # still one per line, just with \n rather than \r\n.
+        raw = self._generated("one\ntwo", "three\nfour")
+        self.assertIn(b"\n", raw)
+        self.assertIn(b"UPDATE", raw)

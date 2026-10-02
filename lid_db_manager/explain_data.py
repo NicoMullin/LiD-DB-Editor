@@ -79,6 +79,11 @@ TABLES: dict[str, dict] = {
     "master_quest": {
         "word": "quest",
         "title": "Quests",
+        "about": "Every quest. What a quest tests and what it says are stored "
+                 "apart, so raising a target in \"The number a quest enforces\" "
+                 "does not change its wording. Every dated quest in the stock game "
+                 "has run out; the weekly ones (SEASON_..., QUESTEVENT_WEEK) come "
+                 "back only if a mod moves their dates and sets old_flg to 0.",
         # Quest names are written "Element Limit #0", with the number kept in a
         # separate table - so several quests share a name until it is filled in.
         "row": {"kind": "text", "column": "name",
@@ -95,6 +100,8 @@ TABLES: dict[str, dict] = {
             "type": ("what kind of objective it is", ""),
             "start_date": ("when it becomes available", ""),
             "end_date": ("when it stops being available", ""),
+            "old_flg": ("whether it is retired", ""),
+            "event_type": ("which event it belongs to", ""),
         },
     },
     "master_reward": {
@@ -190,7 +197,8 @@ TABLES: dict[str, dict] = {
         "title": "Weapons and armour",
         "about": "One row per weapon or armour piece, including each upgrade "
                  "step. It has around ninety columns; only the plain ones are "
-                 "described here.",
+                 "described here. Haters carry the same gear, so changes "
+                 "reach them too.",
         "row": {"kind": "text", "column": "name"},
         "columns": {
             "atk": ("its attack power", ""),
@@ -200,6 +208,7 @@ TABLES: dict[str, dict] = {
             "exp": ("the EXP it gives", ""),
             "nextptid": ("what it upgrades into", ""),
             "lvllmt": ("the level cap it needs", ""),
+            "platform": ("which platform it is for", ""),
             # Only guns and the fuel-burning weapons carry these: 160 rows have
             # a magazine, 117 of those also have a reserve. A weapon with a
             # magazine but no reserve - a rocket launcher, a flame wand - holds
@@ -244,7 +253,8 @@ TABLES: dict[str, dict] = {
         "about": "Everything that is not a weapon or armour piece - materials, "
                  "blueprints, mushrooms, tools and reward-box contents. The "
                  "1,899 blueprints have no names of their own, so each is shown "
-                 "as the thing it makes.",
+                 "as the thing it makes. Drop groups (grp) 172 to 222 are the "
+                 "metals and Death 'Roids. platform 0 shows an item on Steam.",
         "row": {"kind": "item", "column": "name"},
         "columns": {
             "buy_money": ("the Kill Coin price", "KC"),
@@ -259,6 +269,8 @@ TABLES: dict[str, dict] = {
             "is_hub_sale": ("whether it is sold in the Waiting Room", ""),
             "itemtype": ("what kind of item it is", ""),
             "grp": ("which drop group it belongs to", ""),
+            "name": ("where its name is kept in the game's text", ""),
+            "platform": ("which platform it is for", ""),
             "buy_rank_money": ("the rank points buying it gives", "pts"),
             "buy_rank_spirit": ("the rank points buying it with SPLithium gives", "pts"),
             "sell_rank_rate": ("the rank points selling it gives", "pts"),
@@ -407,7 +419,9 @@ TABLES: dict[str, dict] = {
         "row": {"kind": "key"},
         "columns": {
             "odds_id": ("which set of odds it uses", ""),
-            "product_id": ("what it costs to draw", ""),
+            "product_id": ("the shop row holding its price", ""),
+            "inspires": ("when it opens", ""),
+            "expires": ("when it closes", ""),
         },
     },
     # -- Screamers, the NPCs you fight ------------------------------------
@@ -584,6 +598,10 @@ TABLES: dict[str, dict] = {
     "master_floor": {
         "word": "floor",
         "title": "Floors of the Tower",
+        "about": "Every floor layout (a floor number can have several). The same "
+                 "values are stored again, split up, in the five "
+                 "master_tmpfloor_ tables, and which copy the game reads is not "
+                 "known - so a mod should change both.",
         "row": {"kind": "text", "column": "name"},
         "columns": {
             "no": ("its floor number", ""),
@@ -600,6 +618,7 @@ TABLES: dict[str, dict] = {
             "bstgen": ("which set of beasts can appear", ""),
             "itemmin": ("the fewest items lying around", ""),
             "itemmax": ("the most items lying around", ""),
+            "itemgenid": ("which set of items can be picked up", ""),
             "mbsmin": ("the fewest mini-bosses (not confirmed)", ""),
             "mbsmax": ("the most mini-bosses (not confirmed)", ""),
             "vmmax": ("how many vending machines (not confirmed)", ""),
@@ -1080,6 +1099,9 @@ TABLES: dict[str, dict] = {
     "master_tmpfloor_item": {
         "word": "floor",
         "title": "Items per floor (the split-up copy)",
+        "about": "Floor pickups: how many items a layout gets and which set they "
+                 "come from. The same values are in Floors of the Tower; change "
+                 "both, since which one the game reads is not known.",
         "row": {"kind": "columns", "columns": ["id", "areaid"]},
         "columns": {
             "itemmin": ("the fewest items on the floor", ""),
@@ -1233,15 +1255,20 @@ TABLES: dict[str, dict] = {
         "about": "135 numbers that apply everywhere - the chance of being "
                  "abducted is 0.03, and the ransom to get a fighter back is "
                  "worked out from their grade and level.",
-        "row": {"kind": "key"},
+        "row": {"kind": "key", "names": {
+            "ABDUCT_POSSIBILITY_RATE": "Chance of a fighter being abducted",
+            "ABDUCT_RANSOM_GRADE_RATE": "Ransom: how much grade counts",
+            "ABDUCT_RANSOM_LVL_RATE": "Ransom: how much level counts",
+        }},
         "columns": {"value": ("its value", "")},
     },
     "master_game_flg": {
         "word": "flag",
         "title": "Story and progress flags",
         "about": "708 switches the game sets as you play - which cutscenes you "
-                 "have seen, what you have unlocked. The remarks are the "
-                 "developers' own notes, in Japanese.",
+                 "have seen, what you have unlocked. KGF_GAME_CLEAR marks a "
+                 "finished game. The remarks are the developers' own notes, in "
+                 "Japanese.",
         "row": {"kind": "columns", "columns": ["name"]},
         "columns": {"type": ("whether the game or the server owns it", ""),
                     "remarks": ("the developers' note about it", "")},
@@ -1546,19 +1573,26 @@ TABLES: dict[str, dict] = {
         "columns": {"freq": ("how likely that level is", "")},
     },
     # -- shops and the vending machine ------------------------------------
-    # The lineup is split by day of the week - MON to SUN with 40 items each,
-    # plus COMMON (always there) and RE. That is why an item added here does
-    # not show up until the in-game day rolls over.
+    # MON to SUN are NOT days of the week. They are seven Bloodnium exchange
+    # lists (40 items each) and master_automaticshop_schedule moves to the next
+    # one each month. COMMON is the Kill Coin shop (7) and RE the recycle-point
+    # exchange (28). Which tab a row shows on is its currency_type - the game's
+    # own script sorts them by it.
     "master_automaticshop_lineup": {
         "word": "item",
         "title": "Vending machine stock",
-        "about": "What the vending machine offers. Each day of the week has its "
-                 "own list, so a new item appears when that day comes round.",
+        "about": "What the vending machine offers. COMMON is the Kill Coin shop, "
+                 "RE the recycle-point exchange, and MON to SUN are seven "
+                 "Bloodnium exchange lists that take turns month by month - not "
+                 "days of the week. What is on offer is stored in your save when "
+                 "the machine restocks, so a change shows at the next restock. "
+                 "currency_type is what a row charges in: 0 Kill Coins, 3 recycle "
+                 "points, 4 Bloodnium - the item's own price in that currency.",
         "row": {"kind": "via", "column": "type_id", "table": "master_item",
                 "other_key": "itemid", "with": ["lineup_id"]},
         "columns": {
             "type_id": ("the item it sells", ""),
-            "lineup_id": ("which day's list it is on", ""),
+            "lineup_id": ("which list it is on", ""),
             "display_priority": ("where it sits in the list", ""),
             "currency_type": ("what you pay with", ""),
             "stock": ("whether it is in stock", ""),
@@ -1604,13 +1638,37 @@ TABLES: dict[str, dict] = {
     "master_const_int": {
         "word": "setting",
         "title": "Game-wide settings",
-        "about": "Single numbers the game reads by name.",
-        "row": {"kind": "key"},
+        "about": "Single numbers the game reads by name - 733 of them. The ones "
+                 "whose job is known are named; the rest show their id.",
+        # Only ids whose effect is known: from the game's scripts, or from a
+        # mod proven in game. The shop ones are read by native code only, so
+        # they are described by what the community mod does with them.
+        "row": {"kind": "key", "names": {
+            "FALL_DMG_BASE": "Fall damage, base (150 = 15% of max HP)",
+            "FALL_DMG_INC": "Fall damage, extra per 100 units fallen (50 = 5% of max HP)",
+            "SHOP_APPEARANCE_TIME": "Floor shops: time setting (0 in Shop Always Appears)",
+            "SHOP_INCIDANCE_INCREMENT": "Floor shops: chance increase (100 in Shop Always Appears)",
+            "SHOP_MAX_INCIDANCE": "Floor shops: highest chance",
+            "HEAVEN_NEO_ROUTE_OPEN_NUM": "Tengoku routes offered on 51F",
+            "HEAVEN_NEO_ROUTE_OPEN_FLOOR": "Tengoku routes: floor setting",
+            "HAZAMA_DEATHBAG_MAX": "Tengoku route item limit shown (5)",
+            "HAZAMA_DEATHBAG_MAX_VIP": "Tengoku route item limit shown, VIP (7)",
+            "FIGHTER_MAX_LIMIT_BREAK_COUNT": "Most limit breaks a fighter can have",
+            "BLOODNIUM_POINT_MAX": "Most Bloodnium you can hold",
+            # These three are what the shipped storage-limit and
+            # reward-box-limit mods change, and they do what they say in game.
+            "COINLOCKER_EXPAND_LIMIT_COUNT": "Coin Locker: most slots it expands to",
+            "COINLOCKER_EXPAND_COUNT": "Coin Locker: slots each expansion adds",
+            "REWARD_BOX_LIMIT": "Reward box: how many rewards it holds",
+        }},
         "columns": {"value": ("its value", "")},
     },
     "master_shop_appearance": {
         "word": "entry",
         "title": "Where and when shops appear",
+        "about": "Which floors can get a floor shop, and how likely it is. The "
+                 "community Shop Always Appears mod sets every rate to 100, "
+                 "along with two of the Floor shops settings in Game-wide settings.",
         "row": {"kind": "key"},
         "columns": {"rate": ("how likely it is to appear", "")},
     },
@@ -1630,7 +1688,10 @@ TABLES: dict[str, dict] = {
         "title": "Fighter tiers",
         "about": "What each fighter type and grade gives you. Note that "
                  "skill_slots is a LIST of the slots that are open (\"1,2,3\"), "
-                 "not a count - putting 9 there opens one slot, not nine.",
+                 "not a count - putting 9 there opens one slot, not nine. "
+                 "shop_open_floor 999 means quest only. Grades past 6 and levels "
+                 "past 45 do work in game, as long as all four fighter tables "
+                 "have rows for them.",
         "row": {"kind": "fighter_tier"},
         "columns": {
             "price": ("the cost to unlock it", "KC"),
@@ -1650,6 +1711,12 @@ TABLES: dict[str, dict] = {
     "master_skill": {
         "word": "skill",
         "title": "Skills and decals",
+        "about": "Every decal and skill. buy_money is the price of that one "
+                 "decal - the Mushroom Club draw's price is a separate row "
+                 "(PRD_SKILL_GACHA in Shop prices). 39 decals are PS4-only "
+                 "(platform 1, no_steam 0) and the Steam game never loads them. "
+                 "Haters use decals too. A copy of a PS4-only decal needs platform "
+                 "0 and a non-zero no_steam to load.",
         "row": {"kind": "text", "column": "name"},
         # val0-val5 are deliberately absent: what they mean changes from one
         # skill to the next, so the skill's own description is shown instead.
@@ -1660,6 +1727,12 @@ TABLES: dict[str, dict] = {
             "sell_money": ("what you get for selling it", "KC"),
             "rarity": ("its star rating", ""),
             "premium": ("whether it is a premium decal", ""),
+            "platform": ("which platform it is for", ""),
+            "no_steam": ("its Steam number", ""),
+            "is_nosale": ("whether it cannot be sold", ""),
+            "is_display": ("whether it is shown in the game", ""),
+            "start": ("when it became available", ""),
+            "end": ("when it stopped being available", ""),
         },
     },
 
@@ -2252,7 +2325,10 @@ TABLES: dict[str, dict] = {
         "word": "event",
         "title": "When events ran",
         "about": "Dated events from when the game was online, as unix "
-                 "timestamps.",
+                 "timestamps. Every one in the stock game has ended - the last "
+                 "in early 2026. FORT_SEASON is a run of 33 back-to-back seasons; "
+                 "the EVENT_SEASON_ rows are the mushroom seasons, which go with "
+                 "the seasonal mushroom odds.",
         "row": {"kind": "key"},
         "columns": {
             "type": ("what kind of event it is", ""),
@@ -2264,7 +2340,9 @@ TABLES: dict[str, dict] = {
     "master_automaticshop_schedule": {
         "word": "schedule",
         "title": "When the vending machine restocks",
-        "about": "Which lineups the machine uses and how many goods it offers.",
+        "about": "One row per month: which lists the machine draws from until "
+                 "the date in expire, and how many goods from each it offers. "
+                 "The stock schedule's last month ended on 1 August 2026.",
         "row": {"kind": "columns", "columns": ["expire"]},
         "columns": {
             "expire": ("when this schedule runs out", ""),
@@ -2276,6 +2354,8 @@ TABLES: dict[str, dict] = {
             "exchange_goods_min": ("the fewest trades it offers", ""),
             "exchange_goods_max": ("the most trades it offers", ""),
             "bloodnium_exchange_lineup_id": ("the lineup it trades Bloodnium from", ""),
+            "bloodnium_exchange_goods_min": ("the fewest Bloodnium trades it offers", ""),
+            "bloodnium_exchange_goods_max": ("the most Bloodnium trades it offers", ""),
         },
     },
     "master_waiting_reduce": {
@@ -2341,7 +2421,11 @@ TABLES: dict[str, dict] = {
     "master_mushroom_odds": {
         "word": "set",
         "title": "Which seasonal mushroom odds are in force",
-        "about": "Names each seasonal odds set and the window it applies in.",
+        "about": "Names each seasonal odds set and the window it applies in. "
+                 "A season's mushrooms only grow between inspires and expires, "
+                 "and every stock window has passed. Turning a season on means "
+                 "moving the newest row of its set and its EVENT_SEASON_ row in "
+                 "When events ran together.",
         "row": {"kind": "columns", "columns": ["odds_id"]},
         "columns": {
             "name": ("its name", ""), "platform": ("which platform it is for", ""),
@@ -2393,7 +2477,9 @@ TABLES: dict[str, dict] = {
         "word": "run",
         "title": "Runs of floors that connect the same way",
         "about": "A shorthand for floors that all join up identically, written "
-                 "once instead of one row per floor.",
+                 "once instead of one row per floor. Each Tengoku route from 51F "
+                 "(HVN_FLR_R00_ to R03_, the DIY, MIL, FAN and SPO factions) is "
+                 "built from one row here.",
         "row": {"kind": "key"},
         "columns": {
             "flrid_prefix": ("the start of the floor ids it covers", ""),
@@ -2432,6 +2518,18 @@ TABLES: dict[str, dict] = {
 # ("Product 00"), so the useful ones are written out here.
 NAMES: dict[str, str] = {
     "PRD_CONTINUE": "Revive",
+    # The draw's price lives on this product row, NOT on the decals - pointed
+    # at by master_skillgacha.product_id. Mods that priced decals instead got
+    # it wrong once already.
+    "PRD_SKILL_GACHA": "Mushroom Club decal draw",
+    "PRD_SKILL_GACHA_MEDAL": "Mushroom Club decal draw (Death Metals)",
+    "PRD_BODY_INSURANCE": "Fighter insurance",
+    "PRD_EXPAND_DEATHBAG": "Bigger Death Bag",
+    "PRD_EXPAND_DEATHBAG_MONEY": "Bigger Death Bag (Kill Coins)",
+    "PRD_VIP_PASS": "VIP pass",
+    "PRD_ONEDAY_PASS": "One-day pass",
+    "PRD_EXPAND_COINLOCKER": "Bigger Coin Locker",
+    "PRD_EXPAND_COINLOCKER_MONEY": "Bigger Coin Locker (Kill Coins)",
 }
 
 # Coded values the game stores in ordinary columns. Swapped for plain words
@@ -2447,10 +2545,10 @@ VALUES: dict[str, str] = {
     "PTGENTP_TRBOX_SPXL_RARE": "a rare treasure box",
     "PTGENTP_TRZAKO": "a small enemy",
     "PTGENTP_ZOMBIE": "a Screamer",
-    "PTGENTP_MBOSS1": "mini-boss 1",
-    "PTGENTP_MBOSS2": "mini-boss 2",
-    "PTGENTP_MBOSS3": "mini-boss 3",
-    "PTGENTP_MBOSS4": "mini-boss 4",
+    "PTGENTP_MBOSS1": "COEN (mid-boss 1)",
+    "PTGENTP_MBOSS2": "JIN-DIE (mid-boss 2)",
+    "PTGENTP_MBOSS3": "GOTO-9 (mid-boss 3)",
+    "PTGENTP_MBOSS4": "U-10 (mid-boss 4)",
     # damage types
     "ATKATTR_SLASH": "slashing", "ATKATTR_HIT": "blunt hits",
     "ATKATTR_SHOOT": "gunfire", "ATKATTR_FIRE": "fire",
@@ -2476,8 +2574,11 @@ VALUES: dict[str, str] = {
     "TBAP_FACE_DOWN": "face down", "TBAP_LEAN": "leaning",
     # breakable objects
     "BOX": "a box", "MINE": "a mine", "SHOOT": "a shooting target",
-    # days the vending machine uses
-    "MON": "Monday", "TUE": "Tuesday", "WED": "Wednesday", "THU": "Thursday",
-    "FRI": "Friday", "SAT": "Saturday", "SUN": "Sunday",
-    "COMMON": "every day",
+    # the vending machine's monthly Bloodnium lists - named after weekdays, but
+    # the schedule moves to the next one each MONTH. COMMON is not listed: it
+    # is also a word the game's announcements use, and means something else there.
+    "MON": "Bloodnium list MON", "TUE": "Bloodnium list TUE",
+    "WED": "Bloodnium list WED", "THU": "Bloodnium list THU",
+    "FRI": "Bloodnium list FRI", "SAT": "Bloodnium list SAT",
+    "SUN": "Bloodnium list SUN",
 }

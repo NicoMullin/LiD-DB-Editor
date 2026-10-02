@@ -390,9 +390,16 @@ class ModListWidget(QTreeWidget):
             )
             hint.setForeground(0, QBrush(status_color(self.dark, "dim")))
 
-        self._loading = False
         if selected:
             self.select_mods(selected)
+        self._loading = False
+        # Clearing the list reports "nothing selected" and putting the rows back
+        # reports the mod again; both are kept quiet above. Passing them on made
+        # the panel beside the list show no mod, hide its Configuration tab and
+        # build everything twice - after every value typed into that tab. Only
+        # a selection that really changed (the mod was filtered away) is news.
+        if self.selected_mod_ids()[:1] != selected[:1]:
+            self._on_selection_changed()
         # After the rows exist, or the bar has nothing to scroll through yet.
         self.verticalScrollBar().setValue(scroll)
 
@@ -563,5 +570,7 @@ class ModListWidget(QTreeWidget):
             self.togglesApplied.emit()
 
     def _on_selection_changed(self) -> None:
+        if self._loading:
+            return  # refresh() says what it needs to once the rows are back
         selected = self.selected_mod_ids()
         self.selectionChangedTo.emit(selected[0] if selected else "")

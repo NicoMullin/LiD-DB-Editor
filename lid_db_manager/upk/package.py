@@ -411,6 +411,56 @@ def decompressed(raw: bytes) -> tuple[Summary, bytes]:
     return summary, bytes(flat)
 
 
+class PartlyDecoded:
+    """A compressed package with only the chunks asked for decoded.
+
+    Decoding is nearly all the cost of a rebuild - Cafe_KIS is 65 chunks and
+    about four seconds of pure-Python LZO - and a mod usually touches three of
+    them. So this decodes the tables up front, then only what ``need`` names.
+    Every other chunk is left as zeros in the flat buffer, which is safe only
+    because whoever writes the result back checks those chunks came through
+    unchanged (see bytepatch.write_chunks). Offsets and sizes are exactly those
+    of a full decode, so everything placed in it lands where it would there.
+    """
+
+    def __init__(self, raw: bytes):
+        self.raw = raw
+        self.summary = read_summary(raw)
+        if not self.summary.chunks:
+            raise PackageError("this package is not compressed")
+        chunks = self.summary.chunks
+        if min(c.uncompressed_offset for c in chunks) != self.summary.name_offset:
+            raise PackageError("the body does not start where the name table does")
+        self.method = self.summary.compression_flags or COMPRESS_LZO
+        size = max(c.uncompressed_offset + c.uncompressed_size for c in chunks)
+        self.flat = bytearray(size)
+        self.flat[:self.summary.name_offset] = uncompressed_header(raw, self.summary)
+        self.decoded: set[int] = set()
+        self.need(self.summary.name_offset,
+                  self.summary.depends_offset - self.summary.name_offset)
+
+    def need(self, start: int, size: int) -> None:
+        """Decode every chunk holding any of ``size`` bytes from ``start``."""
+        end = start + max(size, 1)
+        for number, chunk in enumerate(self.summary.chunks):
+            chunk_end = chunk.uncompressed_offset + chunk.uncompressed_size
+            if number in self.decoded or chunk_end <= start or chunk.uncompressed_offset >= end:
+                continue
+            self.flat[chunk.uncompressed_offset:chunk_end] = \
+                decompress_chunk(self.raw, chunk, self.method)
+            self.decoded.add(number)
+
+    def need_last(self) -> None:
+        """The last chunk: anything a patch adds is written on after it."""
+        last = self.summary.chunks[-1]
+        self.need(last.uncompressed_offset, last.uncompressed_size)
+
+    def package(self) -> Package:
+        flat = bytes(self.flat)
+        return Package(self.summary, flat, read_names(flat, self.summary),
+                       read_imports(flat, self.summary), read_exports(flat, self.summary))
+
+
 def read_tables(path) -> Package:
     """Just the name, import and export tables, reading as little as possible.
 

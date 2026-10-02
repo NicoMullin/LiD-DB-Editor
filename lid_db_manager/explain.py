@@ -26,8 +26,11 @@ import json
 import re
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
+from . import builder_data
+from .dbdiff import line_endings_only
 from .explain_data import NAMES, TABLES, VALUES
 from .sqlutil import quote_ident
 
@@ -164,6 +167,41 @@ class Namer:
     def row_values(self, table: str, key_columns: list[str], key: tuple, columns: list[str]):
         return [self.column(table, key_columns, key, c) for c in columns]
 
+    def keys_where(self, table: str, key_columns: list[str], condition: str) -> set[tuple]:
+        """The keys of every row matching a fixed condition from builder_data."""
+        if not self._con or not key_columns:
+            return set()
+        select = ", ".join(quote_ident(c) for c in key_columns)
+        try:
+            rows = self._con.execute(
+                f"SELECT {select} FROM {quote_ident(table)} WHERE {condition}"
+            ).fetchall()
+        except sqlite3.Error:
+            return set()
+        return {tuple(r) for r in rows}
+
+    def has_column(self, table: str, column: str) -> bool:
+        if not self._con:
+            return False
+        cache_key = ("has", table, column)
+        if cache_key not in self._cache:
+            try:
+                names = {r[1] for r in self._con.execute(
+                    f"PRAGMA table_info({quote_ident(table)})")}
+            except sqlite3.Error:
+                names = set()
+            self._cache[cache_key] = column in names
+        return bool(self._cache[cache_key])
+
+    def scalar(self, sql: str):
+        if not self._con:
+            return None
+        try:
+            row = self._con.execute(sql).fetchone()
+        except sqlite3.Error:
+            return None
+        return row[0] if row else None
+
     def parameters(self, table: str, key_column: str, key, order: str, value: str) -> dict:
         """A row's numbered parameters, as {number: value}.
 
@@ -210,6 +248,21 @@ def _number(value) -> str:
 
 def _with_unit(value, unit: str) -> str:
     return f"{_number(value)} {unit}".strip() if unit else _number(value)
+
+
+def show_epoch(value) -> str:
+    """1759140000 -> '2025-09-29 10:00' (UTC). 0 and -1 mean "none" and stay."""
+    if isinstance(value, str):
+        try:
+            value = int(value)
+        except ValueError:
+            return value
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
+        return str(value)
+    try:
+        return datetime.fromtimestamp(int(value), timezone.utc).strftime("%Y-%m-%d %H:%M")
+    except (OverflowError, OSError, ValueError):
+        return str(value)
 
 
 def ranges(numbers) -> str:
@@ -276,6 +329,10 @@ def plural(word: str, count: int) -> str:
     """'entry' -> 'entries', 'bonus' -> 'bonuses'. Enough for our nouns."""
     if count == 1:
         return word
+    if " of " in word:
+        # "piece of equipment" -> "pieces of equipment", not "...equipments".
+        head, tail = word.split(" of ", 1)
+        return f"{plural(head, count)} of {tail}"
     if word.endswith("y") and not word.endswith(("ay", "ey", "oy", "uy")):
         return word[:-1] + "ies"
     if word.endswith(("s", "x", "z", "ch", "sh")):
@@ -370,9 +427,15 @@ def row_label(namer: Namer, table: str, key_columns: list[str], key: tuple, rule
         there = there if isinstance(there, list) else [there]
         reference = tuple(value_of(c) for c in here)
         other = rule.get("table", "")
-        pointer = namer.column(other, there, reference, rule.get("text_column", "name"))
-        label = (_label_from_text(namer, namer.text(pointer) or "", rule, reference[0], there[0])
-                 or _number(reference[0]))
+        if other == "master_item" and len(reference) == 1 and reference[0]:
+            # Items have a rule of their own - blueprints are all called RMAP,
+            # so they are named by the gear they make.
+            label = row_label(namer, "master_item", ["itemid"], reference, {"kind": "item"})
+        else:
+            pointer = namer.column(other, there, reference, rule.get("text_column", "name"))
+            label = (_label_from_text(namer, namer.text(pointer) or "", rule, reference[0],
+                                      there[0])
+                     or _number(reference[0]))
         # Tables keyed on (thing, attribute) need the attribute too, or every
         # row of a part's six damage types reads as the same part name.
         extras = [value_of(c) for c in rule.get("with", [])]
@@ -397,6 +460,11 @@ def row_label(namer: Namer, table: str, key_columns: list[str], key: tuple, rule
         pointer = namer.column(table, key_columns, key, rule.get("column", "name"))
         wording = namer.text(pointer) or ""
         return _label_from_text(namer, wording, rule, key[0], key_columns[0]) or str(key[0])
+    # Rows the game reads by name - master_const_int's FALL_DMG_BASE - can be
+    # given plain words, keeping the id so a modder can still find the row.
+    names = (rule or {}).get("names") or {}
+    if len(key) == 1 and key[0] in names:
+        return f"{names[key[0]]} ({key[0]})"
     # Skip empty key parts - a blank condition column should not read as the
     # word "nothing" in the middle of a row's name.
     parts = [_number(k) for k in key if k not in (None, "")]
@@ -512,13 +580,108 @@ def td_rule(td) -> dict:
     return getattr(td, "_row_rule", {}) or {}
 
 
-def explain_delta(delta, db_path=None, home=None) -> Explanation:
-    """Turn a mod's delta into sentences. Never raises - this is a display."""
+def _listed(things: list[str], limit: int = NAME_LIMIT) -> str:
+    shown = "; ".join(things[:limit])
+    return shown + (f"; and {len(things) - limit} more" if len(things) > limit else "")
+
+
+def explain_files(mod) -> list[Change]:
+    """What a mod does OUTSIDE the database - game packages, config files.
+
+    The database half is explained from the mod's delta. These parts never
+    show up in a delta at all, which is how a mod that edits BrgGame.upk used
+    to be described as changing nothing. Read straight from the patches, so it
+    needs no database and never raises.
+    """
+    out: list[Change] = []
+
+    def said(lead: str, text: str) -> str:
+        # The patch's own description first, as its own sentence, when it has one.
+        return f"{lead.rstrip('.')}. {text}" if lead else text
+
+    for patch in getattr(mod, "patches", []) or []:
+        kind = getattr(patch, "type", "")
+        lead = patch.description.strip() if getattr(patch, "description", "") else ""
+        try:
+            if kind == "package_bytes":
+                name = Path(patch.target).name
+                edits = [f"{e['name']} set to {_number(e['value'])}" for e in patch.edits]
+                out.append(Change(
+                    sentence=said(lead, f"Edits numbers inside {name}, one of the game's "
+                                        "packages. The rest of the file is left as it was, "
+                                        "and the stock copy is kept to put back."),
+                    quotes=edits,
+                ))
+            elif kind == "config_ini":
+                name = Path(patch.target).name
+                values = [f"{key} = {value}" for key, value in patch.values.items()]
+                out.append(Change(
+                    sentence=said(lead, f"Sets {len(values)} {plural('setting', len(values))} "
+                                        f"in {name}, a config file the game reads when it "
+                                        "starts. Only these keys are written."),
+                    quotes=values,
+                ))
+            elif kind == "asset_file":
+                pairs = patch.pairs()
+                files = [Path(target).name for _, target in pairs]
+                folders = {str(Path(target).parent).replace("\\", "/") for _, target in pairs}
+                where = folders.pop() if len(folders) == 1 else patch.target
+                out.append(Change(
+                    sentence=said(lead, f"Copies {len(files):,} game "
+                                        f"{plural('file', len(files))} into {where}, in place "
+                                        "of the game's own where the names match. The "
+                                        "originals are kept and put back when the mod is "
+                                        "switched off."),
+                    example=_listed(files) if files else "",
+                ))
+            elif kind == "exe_checksum_entry":
+                out.append(Change(sentence=(
+                    f"Updates the checksum the game expects for {patch.recipe.package}, "
+                    "inside the game's exe, so the game accepts the replaced file."
+                )))
+            elif kind == "tfc_installer":
+                out.append(Change(sentence=f"Installs a TFC Installer mod: {patch.summary()}."))
+        except Exception:  # a display must never take the panel down
+            out.append(Change(sentence=f"Changes game files: {lead or kind}."))
+    needs = list(getattr(mod, "requires_check_off", []) or [])
+    if needs:
+        out.append(Change(sentence=(
+            f"Needs the game's file check switched off for {', '.join(needs)} - "
+            "Tools > Hash Patcher does it - or the game refuses the changed file."
+        )))
+    return out
+
+
+def _dates(items: list[tuple]) -> tuple[str, str]:
+    """The verb and tail for a column holding dates as seconds."""
+    after = {a for _, _, a in items}
+    if len(after) == 1:
+        return "Sets", f" to {show_epoch(next(iter(after)))} (UTC)"
+    moves = [(b, a) for _, b, a in items
+             if isinstance(b, (int, float)) and isinstance(a, (int, float))]
+    if moves and len(moves) == len(items):
+        if all(a > b for b, a in moves):
+            return "Moves", " later"
+        if all(a < b for b, a in moves):
+            return "Moves", " earlier"
+    return "Changes", ""
+
+
+def explain_delta(delta, db_path=None, home=None, vanilla=None) -> Explanation:
+    """Turn a mod's delta into sentences. Never raises - this is a display.
+
+    ``db_path`` is where names are read from. ``vanilla``, when given, is the
+    clean database, used for what only it can say: which rows the Steam game
+    never loads, before any mod touched them.
+    """
     explanation = Explanation()
     if delta is None:
         return explanation
     notes = load_notes(home)
     namer = Namer(db_path)
+    stock_namer = Namer(vanilla) if vanilla else namer
+    # (table, column) pairs this mod writes, to spot a floor edited in one copy.
+    written = {(td.table, c) for td in delta.tables for u in td.updates for c in u.changes}
     try:
         for td in delta.tables:
             entry = notes.get(td.table, {})
@@ -535,11 +698,14 @@ def explain_delta(delta, db_path=None, home=None) -> Explanation:
             examples = not entry.get("no_examples")
 
             by_column: dict[str, list[tuple]] = {}
+            line_endings = 0
             for update in td.updates:
                 for column, new in update.changes.items():
-                    by_column.setdefault(column, []).append(
-                        (update.key, update.before.get(column), new)
-                    )
+                    before = update.before.get(column)
+                    if line_endings_only(before, new):
+                        line_endings += 1
+                        continue
+                    by_column.setdefault(column, []).append((update.key, before, new))
 
             for column, items in by_column.items():
                 if rule.get("kind") == "game_text" and rule.get("lang") in td.key_columns:
@@ -561,20 +727,72 @@ def explain_delta(delta, db_path=None, home=None) -> Explanation:
                 else:
                     which = "for " + _label_list(
                         labels, plural(entry.get("word", "row"), len(labels)), examples)
-                verb, tail = _how_changed(items, unit)
+                dated = builder_data.DATE_COLUMNS.get((td.table, column)) == "epoch"
+                verb, tail = _dates(items) if dated else _how_changed(items, unit)
                 sentence = f"{verb} {meaning}{tail}, {which}."
                 key, before, after = items[0]
-                example = (
-                    f"{labels[0]}: {_with_unit(before, unit)} → {_with_unit(after, unit)}"
-                    if examples else ""
+                if dated:
+                    example = f"{labels[0]}: {show_epoch(before)} → {show_epoch(after)}"
+                else:
+                    example = (
+                        f"{labels[0]}: {_with_unit(before, unit)} → {_with_unit(after, unit)}"
+                    )
+                out.changes.append(Change(sentence=sentence,
+                                          example=example if examples else ""))
+
+            if line_endings:
+                out.changes.append(Change(sentence=(
+                    f"{line_endings:,} of its changes only add carriage returns to "
+                    "text that already had line breaks. That is what DB Browser for "
+                    "SQLite's Export to SQL file and back does - not a real edit. "
+                    "The game's own data has none, so they are left out above."
+                )))
+
+            skipped = builder_data.SKIPPED_ROWS.get(td.table)
+            if skipped and td.updates:
+                hidden = stock_namer.keys_where(td.table, td.key_columns, skipped[0])
+                # A mod that fixes platform/no_steam itself is making the row
+                # load, so it is not wasted.
+                wasted = [u for u in td.updates if u.key in hidden
+                          and not {"platform", "no_steam"} & set(u.changes)]
+                if wasted:
+                    out.changes.append(Change(sentence=(
+                        f"{len(wasted)} of the {plural(entry.get('word', 'row'), 2)} "
+                        "it changes are PS4-only (platform 1, no_steam 0). The Steam "
+                        "game never loads them, so those changes do nothing."
+                    )))
+
+            copies = builder_data.mirrors_of(td.table)
+            if copies and td.updates:
+                lonely = sorted(
+                    c for (t, c) in written if t == td.table
+                    and any(namer.has_column(o, c) for o in copies)
+                    and not any((o, c) in written for o in copies)
                 )
-                out.changes.append(Change(sentence=sentence, example=example))
+                if lonely:
+                    out.changes.append(Change(sentence=(
+                        "The floors are stored twice - in Floors of the Tower and in "
+                        "the split-up master_tmpfloor_ tables - and this mod changes "
+                        f"{', '.join(lonely)} in only one copy. Which copy the game "
+                        "reads is not known, so this part may do nothing."
+                    )))
 
             if td.inserts:
                 word = entry.get("word", "row")
                 out.changes.append(Change(
                     sentence=f"Adds {len(td.inserts):,} new {plural(word, len(td.inserts))}."
                 ))
+                if td.table == "master_automaticshop_lineup" and not any(
+                        t.table == "master_automaticshop_schedule" and t.inserts
+                        for t in delta.tables):
+                    end = namer.scalar(
+                        "SELECT max(expire) FROM master_automaticshop_schedule")
+                    if isinstance(end, str) and end[:10] < datetime.now().strftime("%Y-%m-%d"):
+                        out.changes.append(Change(sentence=(
+                            f"The machine's schedule in this database ends on "
+                            f"{end[:10]}, and this mod adds no new months - so the "
+                            "machine may never restock with what it adds."
+                        )))
             if td.deletes:
                 labels = [row_label(namer, td.table, td.key_columns, k, rule) for k in td.deletes]
                 out.changes.append(
@@ -602,6 +820,8 @@ def explain_delta(delta, db_path=None, home=None) -> Explanation:
                 explanation.tables.append(out)
     finally:
         namer.close()
+        if stock_namer is not namer:
+            stock_namer.close()
 
     undescribed = [t.table for t in explanation.tables if not t.described]
     if undescribed:

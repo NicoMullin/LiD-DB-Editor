@@ -208,6 +208,53 @@ class AStockCopyFromTfcInstaller(unittest.TestCase):
         )
 
 
+class TheExecutableIsReadOncePerSave(unittest.TestCase):
+    """Every package rebuilt for the first time asks the executable for its
+    stock hash. That used to read and parse all 45 MB of it once per package."""
+
+    def _parses_for(self, count: int) -> int:
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            game = build_game_tree(root)
+            backups = root / "backups"
+            backups.mkdir()
+            exe = game / "Binaries" / "Win64" / "BrgGame-Steam.exe"
+            exe.parent.mkdir(parents=True)
+            exe.write_bytes(b"MZ")
+            targets = [f"{COOKED}/Package{n}.upk" for n in range(count)]
+            for target in targets:
+                (game / target).write_bytes(b"STOCK")
+
+            class _Rebuilds:
+                def asset_targets(self_inner):
+                    return set(targets)
+
+                def transform_targets(self_inner):
+                    return list(targets)
+
+                def to_pristine(self_inner, raw):
+                    return raw
+
+                def transform_target(self_inner, target, raw):
+                    return b"REBUILT"
+
+            with mock.patch.object(asset_runner.exe_checksums, "read_entries",
+                                   return_value={}) as read_entries:
+                report = asset_runner.apply_asset_patches(
+                    [_StubMod("packages", [_Rebuilds()])], game, backups)
+            self.assertTrue(report.ok, report.error)
+            for target in targets:
+                self.assertEqual((game / target).read_bytes(), b"REBUILT")
+            return read_entries.call_count
+
+    def test_more_packages_do_not_mean_more_reads(self) -> None:
+        one, three = self._parses_for(1), self._parses_for(3)
+        self.assertEqual(one, three,
+                         f"one package parsed the executable {one} times, three did {three}")
+
+
 class ReusingATextureCacheAlreadyThere(unittest.TestCase):
     """Each reinstall used to add another copy of the same Texture2D_N.tfc."""
 

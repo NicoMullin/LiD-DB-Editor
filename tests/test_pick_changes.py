@@ -228,6 +228,240 @@ class InstallingARework(unittest.TestCase):
         )
 
 
+def make_db_browser_round_trip(vanilla: Path, target: Path) -> Path:
+    """What DB Browser's Export to SQL file and back does, plus one real edit.
+
+    Every multi-line text row gains a carriage return before each line break,
+    whether anyone meant to change it or not.
+    """
+    import shutil
+
+    shutil.copy2(vanilla, target)
+    con = sqlite3.connect(str(target))
+    con.execute("UPDATE master_text SET txt = replace(txt, char(10), char(13) || char(10))")
+    con.execute("UPDATE master_text SET txt = 'A real edit' WHERE id = 'TXT_OTHER'")
+    con.execute("UPDATE master_skill SET buy_money = 7")
+    con.commit()
+    con.close()
+    return target
+
+
+class FindingLineEndingOnlyRows(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.vanilla = build_db(self.root / "vanilla.db")
+        modded = make_db_browser_round_trip(self.vanilla, self.root / "modded.db")
+        self.delta = dbdiff.compare(self.vanilla, modded)
+        self.text = next(t for t in self.delta.tables if t.table == "master_text")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_rows_that_only_gained_a_carriage_return_are_found(self) -> None:
+        multi_line = query(self.vanilla,
+                           "SELECT count(*) FROM master_text WHERE txt LIKE '%' || char(10) || '%'")
+        keys = dbdiff.line_ending_keys(self.text)
+        self.assertEqual(multi_line[0][0], len(keys))
+        self.assertTrue(multi_line[0][0] > 0, "the fixture needs multi-line text")
+
+    def test_a_real_edit_is_never_one_of_them(self) -> None:
+        keys = dbdiff.line_ending_keys(self.text)
+        self.assertFalse(any("TXT_OTHER" in key for key in keys))
+
+    def test_a_table_without_them_has_none(self) -> None:
+        skill = next(t for t in self.delta.tables if t.table == "master_skill")
+        self.assertEqual(set(), dbdiff.line_ending_keys(skill))
+
+
+class StrippingTheKeptEdits(unittest.TestCase):
+    """A row someone really edited went through the round trip too."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.paths = AppPaths(self.root / "app").ensure()
+        self.db = build_db(self.root / "game" / "masters.db")
+        self.manager = Manager(self.paths)
+        self.manager.set_db_path(self.db)
+        self.vanilla = self.manager.vanilla_path
+        modded = make_db_browser_round_trip(self.vanilla, self.root / "modded.db")
+        con = sqlite3.connect(str(modded))
+        con.execute("UPDATE master_text SET txt = txt || ' (edited)' "
+                    "WHERE id = 'TXT_BIBLE_19_NOTE_G' AND lang = 'int'")
+        con.commit()
+        con.close()
+        self.candidate = self.manager.inspect_install(modded)
+        self.delta = self.candidate.delta
+        self.text = next(t for t in self.delta.tables if t.table == "master_text")
+        self.bible_before = query(
+            self.vanilla, "SELECT txt FROM master_text WHERE id = 'TXT_BIBLE_19_NOTE_G' "
+            "AND lang = 'int'")[0][0]
+        self.real_only = {
+            "master_text": {u.key for u in self.text.updates}
+            - dbdiff.line_ending_keys(self.text),
+            "master_skill": dbdiff.ALL_ROWS,
+        }
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _bible(self, delta) -> str:
+        text = next(t for t in delta.tables if t.table == "master_text")
+        update = next(u for u in text.updates
+                      if "TXT_BIBLE_19_NOTE_G" in u.key and "int" in u.key)
+        return update.changes["txt"]
+
+    def test_the_fixture_edit_carries_carriage_returns(self) -> None:
+        self.assertIn("\r", self._bible(self.delta))
+        self.assertIn("\n", self.bible_before, "the fixture needs a multi-line row")
+
+    def test_a_real_edit_loses_them_and_keeps_its_words(self) -> None:
+        stripped = self.delta.filtered(self.real_only).without_carriage_returns()
+        self.assertEqual(self.bible_before + " (edited)", self._bible(stripped))
+
+    def test_a_row_that_is_only_carriage_returns_is_left_as_ticked(self) -> None:
+        stripped = self.delta.without_carriage_returns()
+        text = next(t for t in stripped.tables if t.table == "master_text")
+        self.assertEqual(len(self.text.updates), len(text.updates))
+        only = dbdiff.line_ending_keys(self.text)
+        self.assertTrue(all("\r" in u.changes["txt"] for u in text.updates if u.key in only))
+
+    def test_the_original_is_not_changed(self) -> None:
+        self.delta.without_carriage_returns()
+        self.assertIn("\r", self._bible(self.delta))
+
+    def _written(self, strip: bool) -> str:
+        mods = self.manager.install_database(
+            self.candidate, f"Round trip {strip}", selection=self.real_only,
+            strip_carriage_returns=strip)
+        return "".join(p.read_text(encoding="utf-8", newline="")
+                       for mod in mods for p in mod.folder.rglob("*.sql"))
+
+    def test_installing_with_the_box_ticked_writes_none(self) -> None:
+        written = self._written(True)
+        self.assertIn("(edited)", written)
+        self.assertNotIn("\r", written)
+
+    def test_installing_with_it_unticked_keeps_the_text_as_it_was(self) -> None:
+        self.assertIn("\r", self._written(False))
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 is not installed")
+class TheStripBox(unittest.TestCase):
+    app = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.vanilla = build_db(self.root / "vanilla.db")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _picker(self, modded: Path, offer: bool) -> "ChangePicker":
+        picker = ChangePicker(dbdiff.compare(self.vanilla, modded), offer_strip=offer)
+        self.addCleanup(picker.deleteLater)
+        return picker
+
+    def test_it_is_shown_ticked_on_an_import_that_needs_it(self) -> None:
+        modded = make_db_browser_round_trip(self.vanilla, self.root / "modded.db")
+        con = sqlite3.connect(str(modded))
+        con.execute("UPDATE master_text SET txt = txt || ' (edited)' "
+                    "WHERE id = 'TXT_BIBLE_19_NOTE_G' AND lang = 'int'")
+        con.commit()
+        con.close()
+        picker = self._picker(modded, True)
+        self.assertIsNotNone(picker.strip_box)
+        self.assertTrue(picker.strip_carriage_returns())
+        picker.strip_box.setChecked(False)
+        self.assertFalse(picker.strip_carriage_returns())
+
+    def test_it_is_not_offered_where_the_caller_did_not_ask(self) -> None:
+        picker = self._picker(
+            make_db_browser_round_trip(self.vanilla, self.root / "modded.db"), False)
+        self.assertIsNone(picker.strip_box)
+        self.assertFalse(picker.strip_carriage_returns())
+
+    def test_it_is_not_shown_when_there_is_nothing_to_strip(self) -> None:
+        picker = self._picker(make_rework(self.vanilla, self.root / "modded.db"), True)
+        self.assertIsNone(picker.strip_box)
+
+    def test_line_ending_only_rows_alone_do_not_call_for_it(self) -> None:
+        """Those have their own unticked row; the box is for the real edits."""
+        picker = self._picker(
+            make_db_browser_round_trip(self.vanilla, self.root / "modded.db"), True)
+        self.assertIsNone(picker.strip_box)
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 is not installed")
+class LineEndingsInThePicker(unittest.TestCase):
+    app = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.vanilla = build_db(self.root / "vanilla.db")
+        modded = make_db_browser_round_trip(self.vanilla, self.root / "modded.db")
+        self.delta = dbdiff.compare(self.vanilla, modded)
+        self.line_endings = dbdiff.line_ending_keys(
+            next(t for t in self.delta.tables if t.table == "master_text"))
+        self.picker = ChangePicker(self.delta)
+
+    def tearDown(self) -> None:
+        self.picker.deleteLater()
+        self._tmp.cleanup()
+
+    def _item(self, text: str):
+        tree = self.picker.tree
+        for index in range(tree.topLevelItemCount()):
+            if tree.topLevelItem(index).text(0) == text:
+                return tree.topLevelItem(index)
+        raise AssertionError(f"no row for {text}")
+
+    def test_they_get_their_own_row_left_unticked(self) -> None:
+        group = self._item("master_text - line endings only")
+        self.assertEqual(Qt.CheckState.Unchecked, group.checkState(0))
+        self.assertIn(f"{len(self.line_endings):,}", group.text(1))
+
+    def test_the_table_row_lists_only_the_real_edit(self) -> None:
+        table = self._item("master_text")
+        self.assertEqual(1, table.childCount())
+        self.assertIn("TXT_OTHER", table.child(0).text(0))
+
+    def test_by_default_only_the_real_edit_is_taken(self) -> None:
+        chosen = self.picker.selection()
+        self.assertIs(dbdiff.ALL_ROWS, chosen["master_skill"])
+        kept = self.delta.filtered(chosen)
+        text = next(t for t in kept.tables if t.table == "master_text")
+        self.assertEqual(["TXT_OTHER"], [u.key[1] for u in text.updates])
+
+    def test_ticking_them_takes_the_whole_table(self) -> None:
+        self._item("master_text - line endings only").setCheckState(0, Qt.CheckState.Checked)
+        self.assertIs(dbdiff.ALL_ROWS, self.picker.selection()["master_text"])
+        kept, offered, _ = self.picker.kept_counts()
+        self.assertEqual(kept, offered)
+
+    def test_they_can_be_taken_without_the_real_edit(self) -> None:
+        self._item("master_text").setCheckState(0, Qt.CheckState.Unchecked)
+        self._item("master_text - line endings only").setCheckState(0, Qt.CheckState.Checked)
+        self.assertEqual(self.line_endings, self.picker.selection()["master_text"])
+
+    def test_the_counts_and_summary_say_what_was_left_out(self) -> None:
+        kept, offered, _ = self.picker.kept_counts()
+        self.assertEqual(offered - len(self.line_endings), kept)
+        self.assertIn("line endings", self.picker.summary.text())
+        self.assertIn(f"{len(self.line_endings):,}", self.picker.summary.text())
+
+
 @unittest.skipUnless(HAVE_QT, "PySide6 is not installed")
 class ThePickerWidget(unittest.TestCase):
     app = None

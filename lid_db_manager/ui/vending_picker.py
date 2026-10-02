@@ -1,11 +1,12 @@
 """Stocking the vending machine by picking things off a list.
 
 Adding an item to the machine by hand means knowing that `ITMP_ARM_WP001_002`
-is the Battle Machete blueprint, that the day of the week lives in `lineup_id`,
+is the Battle Machete blueprint, which list in `lineup_id` shows on which tab,
 and that the price is not in the vending table at all. This asks for none of
-that: pick a day, tick the things you want, set a price if you want one.
+that: pick a list, tick the things you want, set a price if you want one.
 
-Two facts about the game are baked in here, both checked against the database:
+Facts about the game baked in here, each checked against the database or the
+game's own script:
 
 * **Blueprints have no names.** All 1,899 are called "RMAP" or "UNKNOWN_RMAP",
   so each is shown as the weapon or armour it makes, which is what a player
@@ -13,6 +14,9 @@ Two facts about the game are baked in here, both checked against the database:
 * **The machine carries no price of its own.** Every `pack_` and discount
   column is zero on all 315 vanilla rows, so what it charges is the item's own
   price - which is what setting a price here changes.
+* **MON to SUN are not days.** They are seven Bloodnium lists the schedule
+  moves through month by month. The list's currency_type decides the tab and
+  the currency: 0 Kill Coins, 3 recycle points, 4 Bloodnium.
 """
 
 from __future__ import annotations
@@ -28,13 +32,16 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
 )
 
-from ..builder import SELLABLE_CATEGORIES, ModBuilder
+from datetime import datetime
+
+from ..builder import SELLABLE_CATEGORIES, SCHEDULE_DATE, BuildError, ModBuilder
 from ..icons import IconSource
 from .icon_cache import ThumbnailCache
 
@@ -50,6 +57,7 @@ class VendingPicker(QDialog):
         super().__init__(parent)
         self.builder = builder
         self.added = 0
+        self.room = 0
         self.icons = icons
         self.thumbnails = thumbnails
         self.setWindowTitle("Add things to the vending machine")
@@ -71,9 +79,10 @@ class VendingPicker(QDialog):
         self.search.textChanged.connect(lambda: self._timer.start())
 
         self.list = QTableWidget()
-        self.list.setColumnCount(6)
+        self.list.setColumnCount(7)
         self.list.setHorizontalHeaderLabels(
-            ["What it is", "Kind", "Stars", "Kill Coins", "Recycle points", "Already sold on"]
+            ["What it is", "Kind", "Stars", "Kill Coins", "Recycle points",
+             "Bloodnium", "Already sold on"]
         )
         self.list.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -91,6 +100,7 @@ class VendingPicker(QDialog):
 
         self.set_price = QCheckBox("Set the price to")
         self.set_price.toggled.connect(lambda on: self.price.setEnabled(on))
+        self.set_price.toggled.connect(self._refresh_footer)
         self.price = QSpinBox()
         self.price.setRange(0, 99_999_999)
         self.price.setValue(1)
@@ -98,6 +108,17 @@ class VendingPicker(QDialog):
         self.price_note = QLabel()
         self.price_note.setObjectName("dim")
         self.price_note.setWordWrap(True)
+
+        # Stock sets how many goods a month offers to exactly the list's size,
+        # so without this a new item pushes another one out at random.
+        self.make_room = QCheckBox(
+            "Offer everything on the list, not a random part of it "
+            "(raises how many goods the schedule offers at once)"
+        )
+        self.make_room.setChecked(True)
+        self.schedule_note = QLabel(self._schedule_warning())
+        self.schedule_note.setWordWrap(True)
+        self.schedule_note.setVisible(bool(self.schedule_note.text()))
 
         self.chosen = QLabel("Nothing picked yet")
         buttons = QDialogButtonBox(
@@ -126,6 +147,8 @@ class VendingPicker(QDialog):
         layout.addWidget(self.list, 1)
         layout.addLayout(where)
         layout.addWidget(self.price_note)
+        layout.addWidget(self.make_room)
+        layout.addWidget(self.schedule_note)
         layout.addWidget(self.chosen)
         layout.addWidget(buttons)
 
@@ -133,18 +156,24 @@ class VendingPicker(QDialog):
         self._reload()
         self._refresh_footer()
 
-    @staticmethod
-    def _tab_label(name: str) -> str:
-        days = {"MON": "Monday", "TUE": "Tuesday", "WED": "Wednesday",
-                "THU": "Thursday", "FRI": "Friday", "SAT": "Saturday",
-                "SUN": "Sunday"}
-        if name in days:
-            return f"{days[name]} ({name})"
-        if name == "COMMON":
-            return "Always in stock (COMMON)"
-        if name == "RE":
-            return "Recycle tab (RE)"
-        return name
+    def _tab_label(self, name: str) -> str:
+        words = self.builder.lineup_name(name)
+        return f"{words} ({name})" if words != name else name
+
+    def _schedule_warning(self) -> str:
+        """Say so when the machine has no months left to restock from."""
+        end = self.builder.schedule_end()
+        if not end:
+            return ""
+        try:
+            last = datetime.strptime(str(end), SCHEDULE_DATE)
+        except ValueError:
+            return ""
+        if last > datetime.now():
+            return ""
+        return (f"The machine's schedule ran out on {last:%d %B %Y}, so it may "
+                "never restock with what you add. Use \"Keep the machine "
+                "rotating...\" in the builder to give it more months.")
 
     # -- the list ----------------------------------------------------------
 
@@ -170,6 +199,7 @@ class VendingPicker(QDialog):
                 QTableWidgetItem("*" * item.rarity if item.rarity else ""),
                 QTableWidgetItem(f"{item.money:,}" if item.money else ""),
                 QTableWidgetItem(f"{item.recycle:,}" if item.recycle else ""),
+                QTableWidgetItem(f"{item.bloodnium:,}" if item.bloodnium else ""),
                 QTableWidgetItem(item.already.replace(",", ", ") if item.already else ""),
             ]
             for column, cell in enumerate(cells):
@@ -198,23 +228,21 @@ class VendingPicker(QDialog):
             f"{len(picked)} picked" if picked else "Nothing picked yet"
         )
         self.ok_button.setEnabled(bool(picked))
-        # Which price column a tab charges from is not written down anywhere,
-        # only which one vanilla fills in, so say what will happen rather than
-        # implying more certainty than there is.
-        currency = self.builder.tab_defaults(tab).get("currency_type")
-        column = {0: "Kill Coin", 3: "recycle-point"}.get(currency)
-        if self.set_price.isChecked():
-            if column:
-                self.price_note.setText(
-                    f"The machine has no price of its own, so this changes the "
-                    f"item's {column} price - everywhere it is sold, not only here."
-                )
-            else:
-                self.price_note.setText(
-                    "This tab's currency setting is not one we have pinned down, "
-                    "so the price is written to the item's Kill Coin price. "
-                    "Check it in game before relying on it."
-                )
+        # The list's currency_type decides what it charges in; the price
+        # itself is the item's own, in that currency.
+        currency = self.builder.tab_currency(tab) if tab else None
+        self.set_price.setEnabled(currency is not None)
+        if currency is None:
+            self.price_note.setText(
+                "What this list charges in is not known, so a price cannot be set "
+                "here. The item keeps whatever it already costs."
+            )
+        elif self.set_price.isChecked():
+            self.price_note.setText(
+                f"This list charges in {currency[0]}. The machine has no price of "
+                f"its own, so this changes the item's {currency[0]} price - "
+                "everywhere it is sold, not only here."
+            )
         else:
             self.price_note.setText(
                 "Leaving the price alone keeps whatever the item already costs."
@@ -226,9 +254,15 @@ class VendingPicker(QDialog):
         picked = self._picked()
         if not picked:
             return
-        self.added = self.builder.stock_machine(
-            picked,
-            self.tab.currentData(),
-            price=self.price.value() if self.set_price.isChecked() else None,
-        )
+        tab = self.tab.currentData()
+        pricing = self.set_price.isChecked() and self.set_price.isEnabled()
+        try:
+            self.added = self.builder.stock_machine(
+                picked, tab, price=self.price.value() if pricing else None,
+            )
+            if self.added and self.make_room.isChecked():
+                self.room = self.builder.make_room(tab)
+        except BuildError as exc:
+            QMessageBox.warning(self, "Could not add that", str(exc))
+            return
         self.accept()

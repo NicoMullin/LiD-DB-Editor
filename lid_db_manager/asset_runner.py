@@ -352,8 +352,37 @@ def _wanted_transforms(mods_in_load_order) -> dict[str, tuple[object, str]]:
             else:
                 continue
             for target in targets:
-                wanted[_normalise(target)] = (patch, mod.id)
+                key = _normalise(target)
+                earlier = wanted.get(key)
+                if earlier is not None and _stacks(earlier[0]) and _stacks(patch):
+                    # Byte edits each change a few bytes and leave the rest, so
+                    # they are laid one after another rather than the last one
+                    # rebuilding the file from stock and losing the others.
+                    # Instant Drops' two parts both live in BrgGame.upk.
+                    patch = _Stacked(earlier[0], patch)
+                wanted[key] = (patch, mod.id)
     return wanted
+
+
+def _stacks(patch) -> bool:
+    # By type name: patch.py imports this module, so it cannot be imported here.
+    return isinstance(patch, _Stacked) or getattr(patch, "type", None) == "package_bytes"
+
+
+class _Stacked:
+    """Two or more byte edits to one package, applied in load order."""
+
+    def __init__(self, first, then) -> None:
+        self.parts = [*getattr(first, "parts", [first]), then]
+
+    def to_pristine(self, raw: bytes) -> bytes:
+        return raw
+
+    def transform_target(self, target: str, stock: bytes) -> bytes:
+        data = stock
+        for part in self.parts:
+            data = part.transform_target(target, data)
+        return data
 
 
 def _wanted_ini(mods_in_load_order) -> dict[str, list[tuple[str, str, str, str]]]:
@@ -580,6 +609,10 @@ def _stage_transforms(
     progress = ensure_progress(progress)
     staging.mkdir(parents=True, exist_ok=True)
     ordered = sorted(transforms.items())
+    # The executable's hash list, read the first time a package needs it and
+    # then reused - it is 45 MB, and every package rebuilt for the first time
+    # asks it the same question.
+    exe_entries = _NOT_READ
     for number, (target, (patch, mod_id)) in enumerate(ordered):
         progress.step(number, len(ordered), f"Rebuilding {Path(target).name}...")
         dest = _resolve_target(game_root, target)
@@ -603,7 +636,9 @@ def _stage_transforms(
             # tool already changed (TFC Installer, most likely) is refused rather
             # than kept, or switching the mod off would put that tool's version
             # back instead of the game's.
-            stock_sha1 = stock_hash_for(game_root, dest.name)
+            if exe_entries is _NOT_READ:
+                exe_entries = _exe_entries(game_root)
+            stock_sha1 = stock_hash_for(game_root, dest.name, entries=exe_entries)
             if stock_sha1 is not None and hashlib.sha1(found).hexdigest() != stock_sha1:
                 # Changed already - by TFC Installer, or by an earlier install of
                 # the manager whose backups are gone. Either way, an untouched
@@ -751,20 +786,34 @@ def _identical_cache(pack_file: Path, cooked: Path, candidates: list[int]) -> in
     return None
 
 
-def stock_hash_for(game_root: Path, file_name: str) -> str | None:
+def _exe_entries(game_root: Path) -> dict | None:
+    """The executable's hash list, or None when there is none to read."""
+    exe = Path(game_root) / vetted.GAME_EXE
+    if not exe.is_file():
+        return None
+    try:
+        return exe_checksums.read_entries(exe.read_bytes())
+    except Exception:
+        return None
+
+
+_NOT_READ = object()
+
+
+def stock_hash_for(game_root: Path, file_name: str, *, entries=_NOT_READ) -> str | None:
     """The SHA-1 the game shipped this file with, from its executable's list.
 
     Found even when the file check has been switched off: that only changes the
     last letter of each name - ``Cafe_KIS.upk`` becomes ``cafe_kis.upx`` - and
     leaves the hash beside it exactly as it was. None when the game does not
     list the file, or the executable cannot be read.
+
+    ``entries`` is the list already read by ``_exe_entries``, for a caller
+    asking about several files; without it the executable is read here.
     """
-    exe = Path(game_root) / vetted.GAME_EXE
-    if not exe.is_file():
-        return None
-    try:
-        entries = exe_checksums.read_entries(exe.read_bytes())
-    except Exception:
+    if entries is _NOT_READ:
+        entries = _exe_entries(game_root)
+    if entries is None:
         return None
     wanted = file_name.lower()
     entry = entries.get(wanted)

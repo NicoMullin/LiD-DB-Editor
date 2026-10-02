@@ -270,7 +270,12 @@ def build_db(path: Path) -> Path:
         )
         con.executemany(
             "INSERT INTO master_const_int (id, value) VALUES (?, ?)",
-            [("SHOP_APPEARANCE_TIME", 300), ("SHOP_INCIDANCE_INCREMENT", 5)],
+            [
+                ("SHOP_APPEARANCE_TIME", 300),
+                ("SHOP_INCIDANCE_INCREMENT", 5),
+                ("FALL_DMG_BASE", 150),
+                ("FALL_DMG_INC", 50),
+            ],
         )
         con.executemany(
             "INSERT INTO master_shop_appearance "

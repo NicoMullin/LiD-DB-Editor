@@ -523,6 +523,235 @@ class TablesThatAreNeverQuotedFrom(unittest.TestCase):
         self.assertIn(":", sentence)
 
 
+def sentences(explanation) -> str:
+    return "\n".join(c.sentence for t in explanation.tables for c in t.changes)
+
+
+def one_table(table: str, keys: list[str], rows: list[tuple]) -> DbDelta:
+    """A delta for one table: (key tuple, column, before, after)..."""
+    td = TableDelta(table, keys, keys + sorted({r[1] for r in rows}))
+    for key, column, before, after in rows:
+        td.updates.append(RowUpdate(key, {column: after}, {column: before}))
+    return DbDelta(tables=[td])
+
+
+class WhatWeLearnedSince(unittest.TestCase):
+    """The tab was written on 2026-09-12. These are the things learned after -
+    each one a mod that read fine in the tab and did nothing, or worse."""
+
+    def setUp(self) -> None:
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.vanilla = Path(self.dir.name) / "vanilla.db"
+        con = sqlite3.connect(self.vanilla)
+        con.executescript("""
+            CREATE TABLE master_safe_level (level INTEGER PRIMARY KEY, "limit" INT);
+            INSERT INTO master_safe_level VALUES (1, 50000), (99, 2560000);
+            CREATE TABLE master_skill (id TEXT PRIMARY KEY, name TEXT, platform INT,
+                                       no_steam INT, buy_money INT);
+            INSERT INTO master_skill VALUES ('SKL_PATROL', '', 1, 0, 100);
+            INSERT INTO master_skill VALUES ('SKL_SPY', '', 0, 253, 100);
+            CREATE TABLE master_floor (id TEXT, areaid TEXT, refareaid TEXT, itemmax INT,
+                                       PRIMARY KEY (id, areaid, refareaid));
+            CREATE TABLE master_tmpfloor_item (id TEXT, areaid TEXT, refareaid TEXT,
+                                               itemmax INT,
+                                               PRIMARY KEY (id, areaid, refareaid));
+            CREATE TABLE master_automaticshop_schedule (expire DATETIME);
+            INSERT INTO master_automaticshop_schedule VALUES ('2026-08-01 00:00:00');
+            CREATE TABLE master_text (sct TEXT, id TEXT, lang TEXT, txt TEXT);
+        """)
+        con.commit()
+        con.close()
+
+    def explain(self, delta, **kw):
+        return explain.explain_delta(delta, db_path=self.vanilla, vanilla=self.vanilla, **kw)
+
+    # -- dates -------------------------------------------------------------
+
+    def test_a_date_reads_as_a_date(self) -> None:
+        delta = one_table("master_event_schedule", ["id"],
+                          [(("EVENT_SEASON_WINTER",), "start", 1759140000, 1801353600)])
+        text = sentences(self.explain(delta))
+        self.assertIn("2027-01-31 00:00 (UTC)", text)
+        self.assertNotIn("1,801,353,600", text)
+
+    def test_dates_moved_along_are_not_called_multiplied(self) -> None:
+        delta = one_table("master_event_schedule", ["id"], [
+            (("A",), "end", 1_600_000_000, 1_900_000_000),
+            (("B",), "end", 1_600_100_000, 1_900_100_000),
+        ])
+        text = sentences(self.explain(delta))
+        self.assertIn("Moves", text)
+        self.assertIn("later", text)
+        self.assertNotIn("Multiplies", text)
+
+    # -- line endings --------------------------------------------------------
+
+    def test_carriage_returns_alone_are_not_counted_as_edits(self) -> None:
+        """What DB Browser's Export to SQL and back does to every multi-line row."""
+        td = TableDelta("master_text", ["sct", "id", "lang"], ["sct", "id", "lang", "txt"])
+        td.updates.append(RowUpdate(("S", "A", "int"), {"txt": "one\r\ntwo"},
+                                    {"txt": "one\ntwo"}))
+        td.updates.append(RowUpdate(("S", "B", "int"), {"txt": "new words"},
+                                    {"txt": "old words"}))
+        text = sentences(self.explain(DbDelta(tables=[td])))
+        self.assertIn("1 line of text", text)
+        self.assertIn("only add carriage returns", text)
+        self.assertIn("Export to SQL", text)
+
+    def test_a_real_edit_that_also_adds_a_carriage_return_still_counts(self) -> None:
+        self.assertFalse(explain.line_endings_only("one\ntwo", "ONE\r\ntwo"))
+        self.assertTrue(explain.line_endings_only("one\ntwo", "one\r\ntwo"))
+
+    # -- no stock-range note -------------------------------------------------
+
+    def test_going_past_the_stock_numbers_adds_no_note(self) -> None:
+        """Tried and taken out at the user's request: it sat under nearly every
+        multiplier mod and said nothing useful. The builder still warns."""
+        delta = one_table("master_safe_level", ["level"], [
+            ((99,), "limit", 2560000, 25600000),
+        ])
+        text = sentences(self.explain(delta))
+        self.assertNotIn("Note", text)
+        self.assertNotIn("stock game", text)
+
+    # -- rows the Steam game skips ---------------------------------------------
+
+    def test_changing_a_ps4_only_decal_is_called_out(self) -> None:
+        delta = one_table("master_skill", ["id"], [
+            (("SKL_PATROL",), "buy_money", 100, 1),
+            (("SKL_SPY",), "buy_money", 100, 1),
+        ])
+        text = sentences(self.explain(delta))
+        self.assertIn("1 of the skills it changes are PS4-only", text)
+
+    def test_a_mod_that_unhides_the_decal_is_not_wasted(self) -> None:
+        """The Crossover pack sets platform 0 on PS4 decals to load them."""
+        td = TableDelta("master_skill", ["id"], ["id", "platform", "buy_money"])
+        td.updates.append(RowUpdate(("SKL_PATROL",), {"platform": 0, "buy_money": 1},
+                                    {"platform": 1, "buy_money": 100}))
+        self.assertNotIn("PS4-only", sentences(self.explain(DbDelta(tables=[td]))))
+
+    # -- floors stored twice ---------------------------------------------------
+
+    def test_a_floor_changed_in_one_copy_only_says_so(self) -> None:
+        delta = one_table("master_floor", ["id", "areaid", "refareaid"],
+                          [(("F1", "A1", ""), "itemmax", 2, 9)])
+        self.assertIn("in only one copy", sentences(self.explain(delta)))
+
+    def test_a_floor_changed_in_both_copies_is_fine(self) -> None:
+        one = one_table("master_floor", ["id", "areaid", "refareaid"],
+                        [(("F1", "A1", ""), "itemmax", 2, 9)])
+        two = one_table("master_tmpfloor_item", ["id", "areaid", "refareaid"],
+                        [(("F1", "A1", ""), "itemmax", 2, 9)])
+        delta = DbDelta(tables=one.tables + two.tables)
+        self.assertNotIn("only one copy", sentences(self.explain(delta)))
+
+    # -- the vending machine ---------------------------------------------------
+
+    def test_stock_with_no_months_to_restock_from_is_called_out(self) -> None:
+        td = TableDelta("master_automaticshop_lineup", ["goods_id"],
+                        ["goods_id", "lineup_id", "type_id"])
+        td.inserts.append((9001, "COMMON", "ITMT_A"))
+        text = sentences(self.explain(DbDelta(tables=[td])))
+        self.assertIn("ends on 2026-08-01", text)
+        self.assertIn("adds no new months", text)
+
+    def test_stock_that_brings_its_own_months_is_fine(self) -> None:
+        lineup = TableDelta("master_automaticshop_lineup", ["goods_id"],
+                            ["goods_id", "lineup_id", "type_id"])
+        lineup.inserts.append((9001, "COMMON", "ITMT_A"))
+        months = TableDelta("master_automaticshop_schedule", ["rowid"], ["expire"])
+        months.inserts.append(("2026-09-01 00:00:00",))
+        text = sentences(self.explain(DbDelta(tables=[lineup, months])))
+        self.assertNotIn("adds no new months", text)
+
+    # -- names ---------------------------------------------------------------
+
+    def test_a_setting_the_game_reads_by_name_says_what_it_is(self) -> None:
+        delta = one_table("master_const_int", ["id"], [
+            (("FALL_DMG_BASE",), "value", 150, 0),
+            (("FALL_DMG_INC",), "value", 50, 0),
+        ])
+        text = sentences(self.explain(delta))
+        self.assertIn("Fall damage, base", text)
+        self.assertIn("(FALL_DMG_BASE)", text, "the id stays, so a modder can find it")
+
+    def test_an_unknown_setting_keeps_its_id(self) -> None:
+        delta = one_table("master_const_int", ["id"], [(("SOMETHING_NEW",), "value", 1, 2)])
+        self.assertIn("SOMETHING_NEW", sentences(self.explain(delta)))
+
+    def test_the_decal_draw_has_its_own_name(self) -> None:
+        delta = one_table("master_shop_product_price", ["id"],
+                          [(("PRD_SKILL_GACHA",), "price", 50000, 10000)])
+        self.assertIn("Mushroom Club decal draw", sentences(self.explain(delta)))
+
+    def test_mid_bosses_are_named(self) -> None:
+        self.assertIn("COEN", explain_data.VALUES["PTGENTP_MBOSS1"])
+
+    def test_the_vending_lists_are_not_called_days(self) -> None:
+        self.assertNotIn("Monday", explain_data.VALUES.values())
+        self.assertNotIn("day", explain_data.TABLES["master_automaticshop_lineup"]
+                         ["columns"]["lineup_id"][0])
+
+
+class GameFilesAreExplainedToo(unittest.TestCase):
+    """A mod that edits BrgGame.upk or a config file has no database delta, so
+    the tab used to say it changed nothing at all."""
+
+    ROOT = Path(__file__).resolve().parent.parent / "mods"
+
+    def load(self, folder: str):
+        from lid_db_manager.mod_loader import load_mod_folder
+
+        path = self.ROOT / folder
+        if not path.is_dir():
+            self.skipTest(f"needs the shipped mod {folder}")
+        return load_mod_folder(path)
+
+    def test_a_package_edit_is_described_with_its_values(self) -> None:
+        mod = self.load("instant-drops")
+        mod = mod.with_settings({"tenths": 5}) if mod.settings else mod
+        files = explain.explain_files(mod)
+        text = "\n".join(c.sentence for c in files)
+        self.assertIn("BrgGame.upk", text)
+        self.assertIn("Item Drop Delay Time set to 5", "\n".join(files[0].quotes))
+
+    def test_a_config_file_is_described_with_its_keys(self) -> None:
+        files = explain.explain_files(self.load("reward-pickup"))
+        self.assertIn("BrgUIDebugEditParams.ini", files[0].sentence)
+        self.assertTrue(any("mCoin_" in q for q in files[0].quotes))
+
+    def test_copied_files_name_the_folder_they_go_into(self) -> None:
+        files = explain.explain_files(self.load("Colored PlayStation Buttons v1.4"))
+        self.assertIn("BrgGame/CookedPCConsole", files[0].sentence)
+
+    def test_the_file_check_it_needs_is_named(self) -> None:
+        text = "\n".join(c.sentence for c in explain.explain_files(self.load("instant-drops")))
+        self.assertIn("Hash Patcher", text)
+
+    def test_a_database_only_mod_has_no_game_files(self) -> None:
+        self.assertEqual(explain.explain_files(self.load("bank-limit")), [])
+
+    def test_a_broken_patch_never_raises(self) -> None:
+        class Odd:
+            type = "package_bytes"
+            description = "odd"
+            target = None
+            edits = None
+
+        class Mod:
+            patches = [Odd()]
+
+        self.assertEqual(len(explain.explain_files(Mod())), 1)
+
+
+class PluralsOfPhrases(unittest.TestCase):
+    def test_the_noun_is_pluralised_not_the_end_of_the_phrase(self) -> None:
+        self.assertEqual(explain.plural("piece of equipment", 2), "pieces of equipment")
+        self.assertEqual(explain.plural("piece of equipment", 1), "piece of equipment")
+
+
 class TableEntriesAreWellFormed(unittest.TestCase):
     """A misspelt rule key does not fail - it silently falls back to a default.
 
@@ -535,7 +764,7 @@ class TableEntriesAreWellFormed(unittest.TestCase):
     ROW_KINDS = {"level", "number", "labelled", "via", "text", "key", "columns",
                  "item", "fighter_tier", "shop_product", "game_text"}
     ROW_KEYS = {"kind", "word", "words", "column", "columns", "table", "other_key",
-                "text_column", "with", "params", "skip", "lang", "label"}
+                "text_column", "with", "params", "skip", "lang", "label", "names"}
     DESCRIBES_KEYS = {"column", "values"}
     ENTRY_KEYS = {"word", "title", "about", "row", "columns", "describes",
                   "unused", "empty", "no_examples"}
@@ -640,6 +869,41 @@ class ThePlainEnglishTab(unittest.TestCase):
         self.view.show_mod("cheap-skills")
         self.view._load_plain(self.manager.scan.get("cheap-skills"))
         self.assertIn("draws as pictures", self.view.plain.toPlainText())
+
+    def test_a_mod_waiting_on_its_settings_does_not_say_it_does_nothing(self) -> None:
+        """Fighter Passives writes nothing until a class is given a passive."""
+        from fixtures import write_mod
+
+        write_mod(self.paths.mods_dir, "pick-one", {
+            "settings": [{"id": "pick", "type": "choice", "default": "",
+                          "options": [{"value": "", "label": "None"},
+                                      {"value": "SKL_X", "label": "X"}]}],
+            "patches": [{"type": "raw_sql",
+                         "sql": "UPDATE master_skill SET buy_money = 1 WHERE id = '{{pick}}'"}]})
+        self.manager.rescan()
+        mod = self.manager.configured_mod("pick-one")
+        self.assertIsNotNone(mod)
+        self.view._load_plain(mod)
+        text = self.view.plain.toPlainText()
+        self.assertNotIn("changes nothing at all", text)
+        self.assertIn("Configuration tab", text)
+
+    def test_a_mod_that_only_edits_game_files_is_described(self) -> None:
+        """Reward Pickup, Instant Drops: no database rows, real changes."""
+        from fixtures import write_mod
+
+        write_mod(self.paths.mods_dir, "ini-only", {
+            "requires_check_off": ["BrgUIDebugEditParams.ini"],
+            "patches": [{"type": "config_ini",
+                         "target": "BrgGame/Config/BrgUIDebugEditParams.ini",
+                         "section": "BrgGame.BrgUIDebugEditParams",
+                         "values": {"mCoin_FullAutoMode": 1}}]})
+        self.manager.rescan()
+        self.view._load_plain(self.manager.configured_mod("ini-only"))
+        text = self.view.plain.toPlainText()
+        self.assertNotIn("changes nothing", text)
+        self.assertIn("Game files", text)
+        self.assertIn("mCoin_FullAutoMode = 1", text)
 
     def test_a_broken_mod_does_not_take_the_panel_down(self) -> None:
         mod = self.manager.scan.get("cheap-skills")

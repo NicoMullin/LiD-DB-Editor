@@ -422,6 +422,7 @@ class ShippedModTests(unittest.TestCase):
         "Tower Static Radio",
         "instant-drops",
         "reward-pickup",
+        "fall-damage",
     }
 
     # By S3er0i9ng, shipped with their permission. Named exactly as a drop of
@@ -432,6 +433,9 @@ class ShippedModTests(unittest.TestCase):
         "Colored PlayStation Buttons v1.4",
         "Tower Static Radio",
     }
+    # Mods that write columns the small test schema does not have, so they are
+    # validated against a real vanilla database instead.
+    REAL_SCHEMA = BUNDLED | {"fighter-passives"}
     VANILLA_DB = PROJECT_ROOT / "LiD Vanilla DB" / "5.0.4.0" / "masters.db"
 
     # Pairs that are the same change at two strengths. They are meant to
@@ -456,6 +460,8 @@ class ShippedModTests(unittest.TestCase):
         "diff-demo-tweak",
         "Floor Material Names",
         "Shop Always Appears",
+        # Released on its own, not with the manager.
+        "fighter-passives",
     }
 
     def _real_mods(self):
@@ -475,7 +481,7 @@ class ShippedModTests(unittest.TestCase):
 
         # The bundled pack writes tables the test schema does not have; it is
         # checked against the real database below instead.
-        mods = [m for m in scan_mods(PROJECT_ROOT / "mods").mods if m.id not in self.BUNDLED]
+        mods = [m for m in scan_mods(PROJECT_ROOT / "mods").mods if m.id not in self.REAL_SCHEMA]
         report = validate(self.db, mods)
         errors = {r.mod_id: r.errors for r in report.results if r.errors}
         self.assertEqual(errors, {})
@@ -487,8 +493,10 @@ class ShippedModTests(unittest.TestCase):
             self.skipTest(f"no vanilla database at {self.VANILLA_DB}")
         copy = Path(self._tmp.name) / "vanilla.db"
         shutil.copy2(self.VANILLA_DB, copy)
-        mods = [m for m in scan_mods(PROJECT_ROOT / "mods").mods if m.id in self.BUNDLED]
-        self.assertEqual({m.id for m in mods}, self.BUNDLED)
+        mods = [m for m in scan_mods(PROJECT_ROOT / "mods").mods if m.id in self.REAL_SCHEMA]
+        # A local-only mod is checked when it is here, and not required.
+        found = {m.id for m in mods}
+        self.assertEqual(found, self.REAL_SCHEMA - (self.LOCAL_ONLY - found))
         report = validate(copy, mods)
         errors = {r.mod_id: r.errors for r in report.results if r.errors}
         self.assertEqual(errors, {})

@@ -1,8 +1,8 @@
 {
   "id": "instant-drops",
   "name": "Instant Drops",
-  "description": "Kills drop their reward after {{tenths}} tenths of a second instead of the usual 20 (two seconds).",
-  "version": "1.1.0",
+  "description": "Kills drop their reward, and grow their corpse mushroom, after {{tenths}} tenths of a second instead of the usual 20 (two seconds) each.",
+  "version": "1.2.0",
   "author": "KSFA",
   "category": "Quality of life",
   "tags": [
@@ -36,7 +36,7 @@
     {
       "type": "package_bytes",
       "id": "drop-delay",
-      "description": "Item Drop Delay Time: {{tenths}} tenths of a second",
+      "description": "Item Drop Delay Time and Start Mushroom Delay Time: {{tenths}} tenths of a second",
       "target": "BrgGame/CookedPCConsole/BrgGame.upk",
       "edits": [
         {
@@ -47,6 +47,29 @@
             },
             {
               "text": "Item Drop Delay Time"
+            },
+            {
+              "hex": "00282c"
+            }
+          ],
+          "follows": [
+            {
+              "hex": "251ecdcccc3d16"
+            }
+          ],
+          "write": {
+            "type": "u8",
+            "value": "{{tenths}}"
+          }
+        },
+        {
+          "name": "Start Mushroom Delay Time",
+          "find": [
+            {
+              "hex": "2c071f"
+            },
+            {
+              "text": "Start Mushroom Delay Time"
             },
             {
               "hex": "00282c"

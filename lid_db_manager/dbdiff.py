@@ -159,6 +159,51 @@ class DbDelta:
                 kept.tables.append(trimmed)
         return kept
 
+    def without_carriage_returns(self) -> "DbDelta":
+        """A copy with every carriage return taken out of the text it writes.
+
+        DB Browser for SQLite's Export to SQL file and back puts one in front of
+        every line break, including in the rows someone genuinely edited; the
+        game's own data has none. Key columns are never touched.
+
+        A row whose only change *is* the carriage returns is left as it is:
+        taking it out would leave nothing, and such a row is only here because
+        someone ticked it on purpose.
+        """
+        kept = DbDelta(warnings=list(self.warnings))
+        for table_delta in self.tables:
+            updates = []
+            for update in table_delta.updates:
+                changes = {column: _without_cr(value)
+                           for column, value in update.changes.items()}
+                real = {column: value for column, value in changes.items()
+                        if value != update.before.get(column)}
+                if not real:
+                    updates.append(update)
+                    continue
+                # A column that only gained carriage returns goes with them.
+                updates.append(RowUpdate(update.key, real, update.before))
+            keys = set(table_delta.key_columns)
+            inserts = [
+                tuple(value if column in keys else _without_cr(value)
+                      for column, value in zip(table_delta.columns, row))
+                for row in table_delta.inserts
+            ]
+            trimmed = TableDelta(
+                table_delta.table,
+                list(table_delta.key_columns),
+                list(table_delta.columns),
+                updates=updates,
+                inserts=inserts,
+                deletes=list(table_delta.deletes),
+                keyed_by_rowid=table_delta.keyed_by_rowid,
+                create_sql=table_delta.create_sql,
+                index_sql=list(table_delta.index_sql),
+            )
+            if not trimmed.empty:
+                kept.tables.append(trimmed)
+        return kept
+
     def split_by_table(self) -> list["DbDelta"]:
         """One single-table delta per table, so each can become its own mod.
 
@@ -185,6 +230,50 @@ def insert_key(table_delta: TableDelta, values: tuple) -> tuple | None:
         return tuple(values[table_delta.columns.index(c)] for c in table_delta.key_columns)
     except ValueError:  # a key column that is not a real column, i.e. rowid
         return None
+
+
+def line_endings_only(before, after) -> bool:
+    """True when a text change does nothing but add carriage returns.
+
+    The game's own data holds no carriage return in any column of any table,
+    so one appearing is always an artifact - DB Browser for SQLite's Export to
+    SQL file and back stamps one into every row that has a line break.
+    """
+    return (isinstance(before, str) and isinstance(after, str) and before != after
+            and "\r" in after and after.replace("\r", "") == before.replace("\r", ""))
+
+
+def _without_cr(value):
+    return value.replace("\r", "") if isinstance(value, str) else value
+
+
+def carries_carriage_returns(table_delta: TableDelta, skip: set = frozenset()) -> bool:
+    """Whether any text this table writes has a carriage return in it.
+
+    ``skip`` is rows to leave out of the question - the line-ending-only ones,
+    which are dealt with on their own.
+    """
+    for update in table_delta.updates:
+        if update.key not in skip and any(
+                isinstance(v, str) and "\r" in v for v in update.changes.values()):
+            return True
+    return any(isinstance(v, str) and "\r" in v
+               for row in table_delta.inserts for v in row)
+
+
+def line_ending_keys(table_delta: TableDelta) -> set[tuple]:
+    """The rows whose every change only adds carriage returns.
+
+    Empty when the table's rows cannot be picked one by one - a table addressed
+    by rowid whose inserts have no key - since then the rest of it could not be
+    taken without them.
+    """
+    keys = {u.key for u in table_delta.updates
+            if u.changes and all(line_endings_only(u.before.get(column), value)
+                                 for column, value in u.changes.items())}
+    if keys and any(insert_key(table_delta, v) is None for v in table_delta.inserts):
+        return set()
+    return keys
 
 
 def _open(path: Path) -> sqlite3.Connection:

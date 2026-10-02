@@ -44,6 +44,9 @@ class DiffView(QWidget):
         # The value boxes for the mod on show, keyed by setting id.
         self._editors: dict[str, SettingEditor] = {}
         self._config_mod_id = ""
+        # The colours and text size the boxes were built with; a change of
+        # either needs them built again.
+        self._config_look: tuple = ()
         self._pending_settings: list[tuple[str, str, object]] = []
 
         self.title = QLabel("Select a mod")
@@ -106,7 +109,7 @@ class DiffView(QWidget):
     # -- configuration -----------------------------------------------------
 
     def _editing(self) -> bool:
-        return any(editor.spin.hasFocus() for editor in self._editors.values())
+        return any(editor.has_focus() for editor in self._editors.values())
 
     def _build_configuration(self, mod: Mod | None) -> None:
         """A box for every value the mod on show lets the player choose."""
@@ -116,11 +119,25 @@ class DiffView(QWidget):
             # it under their cursor, and the window asks for a rebuild after
             # every toggle - so leave it until they are done.
             return
+        look = (self.dark, self.text_scale)
+        if (
+            mod is not None
+            and mod_id == self._config_mod_id
+            and look == self._config_look
+            and [editor.setting for editor in self._editors.values()] == mod.settings
+        ):
+            # The same mod, asked again - after every value chosen here, among
+            # other things. Building the panel afresh flashed it (a mod can
+            # have sixteen boxes, some holding lists of hundreds) and lost the
+            # scroll position; the boxes only need to show the values.
+            for setting in mod.settings:
+                self._editors[setting.id].show_value(mod.values.get(setting.id, setting.default))
+            return
+        self._config_look = look
         # Silence the old boxes: one losing focus as it is destroyed reports
         # "editing finished", and that must not count as a choice.
         for editor in self._editors.values():
-            editor.blockSignals(True)
-            editor.spin.blockSignals(True)
+            editor.block_signals()
         self._editors = {}
         self._config_mod_id = mod_id
 
@@ -146,7 +163,14 @@ class DiffView(QWidget):
                 "Changes take effect when you click <b>Save Mod List</b>. Switching the "
                 "mod off still puts the stock values back, whatever these are set to."
             )
+            group = ""
             for setting in mod.settings:
+                if setting.group and setting.group != group:
+                    heading = QLabel(setting.group)
+                    heading.setObjectName("settingGroup")
+                    heading.setTextFormat(Qt.TextFormat.PlainText)
+                    layout.addWidget(heading)
+                group = setting.group or group
                 editor = SettingEditor(
                     setting, mod.values.get(setting.id, setting.default), dim
                 )
@@ -176,8 +200,7 @@ class DiffView(QWidget):
 
     def _reset_all(self) -> None:
         for editor in list(self._editors.values()):
-            editor.spin.setValue(editor.setting.default)
-            editor._commit()
+            editor.reset_to_default()
 
     def _on_setting_committed(self, mod_id: str, setting_id: str, value) -> None:
         # Deferred, like the list's toggles: whoever handles this rebuilds the
@@ -207,8 +230,7 @@ class DiffView(QWidget):
         """Bring the Configuration tab forward, cursor in its first box."""
         self.tabs.setCurrentWidget(self.configuration)
         for editor in self._editors.values():
-            editor.spin.setFocus()
-            editor.spin.selectAll()
+            editor.focus()
             return True
         return False
 
@@ -311,8 +333,10 @@ class DiffView(QWidget):
         try:
             delta = self.manager.mod_delta(mod)
             explanation = explain.explain_delta(
-                delta, db_path=self.manager.db_path, home=self.manager.paths.root
+                delta, db_path=self.manager.db_path, home=self.manager.paths.root,
+                vanilla=self.manager.vanilla_path,
             )
+            files = explain.explain_files(mod)
         except Exception as exc:  # a display must never take the panel down
             self.plain.setHtml(
                 self._style() + f'<p class="fail">Could not work it out: {escape(str(exc))}</p>'
@@ -326,14 +350,25 @@ class DiffView(QWidget):
                 "against, and there is not one yet. Pick your database, or save your mod "
                 "list once.</p>"
             )
-        elif explanation.empty:
-            parts.append('<p class="dim">This mod changes nothing at all.</p>')
-        for table in explanation.tables:
-            parts.append(f"<h3>{escape(table.title)}</h3>")
-            if table.about:
-                parts.append(f'<p class="dim">{escape(table.about)}</p>')
+        elif explanation.empty and not files:
+            if mod.settings:
+                # A mod whose choices all start at "none" writes nothing until
+                # somebody picks something - that is not the same as doing nothing.
+                parts.append(
+                    '<p class="dim">At its current settings this mod changes nothing '
+                    "in the database. Pick its values in the Configuration tab.</p>"
+                )
+            else:
+                parts.append('<p class="dim">This mod changes nothing at all.</p>')
+        sections = [(t.title, t.about, t.changes) for t in explanation.tables]
+        if files:
+            sections.append(("Game files", "Changes made outside the database.", files))
+        for title, about, changes in sections:
+            parts.append(f"<h3>{escape(title)}</h3>")
+            if about:
+                parts.append(f'<p class="dim">{escape(about)}</p>')
             parts.append("<ul>")
-            for change in table.changes:
+            for change in changes:
                 parts.append(f"<li>{escape(change.sentence)}")
                 if change.example:
                     parts.append(f'<br><span class="dim">for example, {escape(change.example)}</span>')
@@ -346,9 +381,9 @@ class DiffView(QWidget):
         if explanation.note:
             parts.append(f'<p class="dim">{escape(explanation.note)}</p>')
         parts.append(
-            '<p class="dim">This describes what the mod does to the database. '
-            "Some things the game draws as pictures - a price on a sign, for instance - "
-            "do not follow the numbers.</p>"
+            '<p class="dim">This describes what the mod changes. Some things the game '
+            "draws as pictures - a price on a sign, for instance - do not follow the "
+            "numbers.</p>"
         )
         self.plain.setHtml("".join(parts))
 

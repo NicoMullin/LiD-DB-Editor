@@ -1,4 +1,4 @@
-## VirusTotal scan of the current code of BETA V0.9.0
+## VirusTotal scan of the current code of BETA V0.10.0
 https://www.virustotal.com/gui/url/63368c8eb96033d99a7a4bc4788535a4810c7ddc300b740e84036b356da2371e
 
 ## Interactive Readme Site
@@ -413,7 +413,7 @@ away.
 
 ## Mods included
 
-Seventeen, in `mods/`, each with its own `readme.md`: twelve database tweaks of
+Eighteen, in `mods/`, each with its own `readme.md`: thirteen database tweaks of
 mine, one that changes a number inside a game package, one that writes a game
 config file, and three larger mods by S3er0i9ng included with their permission
 ([below](#by-s3er0i9ng)).
@@ -485,6 +485,16 @@ strength — `weapon-durability-2x` and `-5x`, `tdm-rewards-2x`, `-5x` and `-10x
 with its replacement switched on at the same value, in the same place in the
 load order, and still able to be switched off. The old folders are moved into
 `mods/_retired/`, not deleted.
+
+### Game rules
+
+| Mod           | What it does                                  | Default | You can choose |
+|---------------|-----------------------------------------------|---------|----------------|
+| `fall-damage` | Falls hurt this much of what they normally do | 0%      | 0% to 100%     |
+
+At 0% nobody takes fall damage, the same as everyone wearing Super Shock
+Absorber. Haters land by the same rules as your fighter, so it applies to them
+too.
 
 ### Not in the database
 
@@ -1405,16 +1415,18 @@ The manager tells you what it wrote to `masters.db`, and the Diff preview shows
 you the rows. If the game still looks unchanged, the mod probably applied fine
 and the game simply has not re-read it yet.
 
-The clearest case is **shop and vending machine contents**. Those lineups are
-settled by the game's daily reset, so newly added items will not appear until
-the in-game day rolls over — no amount of re-applying will hurry it along.
+The clearest case is **the vending machine**. What it has on offer is stored
+in your *save* when it restocks, from whichever monthly list the schedule names,
+so newly added items appear at the next restock — no amount of re-applying will
+hurry it along. The stock schedule also ran out on 1 August 2026; see
+[Stocking the vending machine](#stocking-the-vending-machine).
 
 Before assuming a mod is broken:
 
 - Check the log and the Diff preview. If the rows are listed there, they are in
   the database.
 - Restart the game. Some tables are read once at launch.
-- For anything shop-related, wait for the daily reset.
+- For the vending machine, wait for it to restock.
 - If you want to be certain, open `masters.db` in a SQLite browser and look at
   the rows directly.
 
@@ -1424,18 +1436,44 @@ Before assuming a mod is broken:
 database. Pick a heading, pick a table, change the numbers, press **Save as
 mod**. No SQL, no table names to memorise, no text editor.
 
-The headings are the parts people actually ask about:
+The headings are sorted by what you want to change:
 
-| Heading                             | What you can change                                                      |
-|-------------------------------------|--------------------------------------------------------------------------|
-| Weapons & Armour                    | craft and upgrade costs, stats, rank requirements                        |
-| Fighters                            | tier prices, level caps, Death Bag size, decal slots                     |
-| Items · Mushrooms · Beasts · Decals | prices, effects, where they appear, draw odds                            |
-| Vending machine                     | what it sells, for how much, on which day                                |
-| Quests · Rewards                    | what quests ask, what they pay, login bonuses, Mystery Bags              |
-| Enemies                             | Screamers, small enemies, mid-bosses, the Four Forcemen, Haters, Jackals |
-| Tokyo Death Metro                   | ranks and payouts, the players you raid, team wars                       |
-| Everything else                     | the other 170-odd tables, for when you know what you want                |
+| Heading                 | What you can change                                                       |
+|-------------------------|---------------------------------------------------------------------------|
+| Prices & money          | revives, the decal draw, item prices, the bank and the SPLithium tank     |
+| Weapons & armour        | craft and upgrade costs, stats, stat bonuses, defence by damage type      |
+| Fighters                | tier prices, level EXP, stats by level, uncapping costs, decal slots      |
+| Decals                  | what each decal does and costs, the draw pool and its odds                |
+| Mushrooms · Beasts      | prices, effects, where they grow or appear                                |
+| Drops & pickups         | what floors, boxes and enemies drop, floor pickups, Death Boxes           |
+| Vending machine & shops | what the machine sells, its monthly schedule, where floor shops turn up   |
+| Quests · Rewards        | what quests ask and pay, login bonuses, Mystery Bags, stamps              |
+| Enemies                 | Screamers, small enemies, mid-bosses, the Four Forcemen, Haters, Jackals  |
+| Tokyo Death Metro       | ranks and payouts, the players you raid, team wars                        |
+| Game rules              | single settings: fall damage, how often floor shops appear, hazards       |
+| Events & seasons        | timed events and the mushroom seasons - every stock one has run out       |
+| Find a price            | every column measured in Kill Coins, SPLithium, Bloodnium or Death Metals |
+| Everything else         | the other 150-odd tables, for when you know what you want                 |
+
+Click a heading to see what is under it. **Find a price** lists every column in
+one currency across the whole database; click one and it opens that table with
+the column already picked for a bulk change.
+
+### Good to know, above each table
+
+Most tables that people edit carry a few lines of things worth knowing first.
+Each one was learned from a mod that did nothing, or crashed the game. A few:
+
+- **The decal draw is one row, `PRD_SKILL_GACHA`, under Prices & money** — not
+  the decals' own prices. `PRD_CONTINUE_6` also costs 50,000, so pick by name.
+- **Nothing in the shop price column passes 200,000 in the stock game.** A draw
+  priced at 1,000,000 crashed it.
+- **39 decals are PS4-only.** The Steam game never loads them, so they are
+  marked in the list and editing one does nothing.
+- **A new fighter grade needs rows in all four fighter tables.** Grades past 6
+  and levels past 45 do work in game.
+- **Changing fall damage is two numbers** under Game rules: `FALL_DMG_BASE` and
+  `FALL_DMG_INC`.
 
 ### Two ways to look at anything
 
@@ -1454,6 +1492,23 @@ Every column is labelled with what it *means* rather than its database name —
 "the cost to unlock it (KC)", not `price` — and the described ones are shown
 first, so the handful worth touching aren't buried behind ninety that aren't.
 Rows are named the same way: **All-rounder, grade 2**, not `BAL / 2 / 0`.
+Hover over a box to see the range the stock game uses in that column.
+
+### Dates are dates
+
+The game stores dates two ways: most as a count of seconds (`1759140000`), the
+vending schedule as text (`2026-08-01 00:00:00`). A value in the wrong shape is
+not refused, it is just ignored. So the builder shows both as dates and takes a
+date typed as `2027-01-31` (or `2027-01-31 10:00`), in UTC, writing whichever
+shape that column uses.
+
+### Adding rows
+
+**Copy this row...** adds a new row that starts as a copy of the one picked —
+a grade 10 fighter from a grade 6, a new decal from an old one, a new month on
+the schedule. You only say what identifies it; everything else is copied, and
+then you edit it like any other row. A copy counts as one change, and
+**Discard changes** takes it away again.
 
 ### Item artwork
 
@@ -1478,25 +1533,32 @@ deleted at any time.
 
 Open the vending machine and there's an **Add things to the machine...** button.
 It opens a catalogue of everything the machine can sell — search it, tick what
-you want, choose a day, and optionally set a price.
+you want, choose a list, and optionally set a price.
 
-Three things it knows that you'd otherwise have to work out yourself:
+What it knows that you'd otherwise have to work out yourself:
 
+- **`MON` to `SUN` are not days of the week.** They are seven Bloodnium
+  exchange lists, and the schedule moves to the next one **each month**.
+  `COMMON` is the Kill Coin shop and `RE` the recycle-point exchange.
+- **Each list charges in its own currency** — Kill Coins, recycle points or
+  Bloodnium. The game's own script sorts goods onto its tabs by that, so a new
+  item copies the list it joins.
+- **The machine carries no price of its own.** What it charges is the *item's*
+  price in that list's currency — which is what setting a price here changes,
+  everywhere that item is sold. The window says so before you do it.
 - **Blueprints have no names.** All 1,899 of them are called "RMAP" in the
   game's text, so each is shown as *the weapon or armour it makes* — "Battle
-  Machete — blueprint" — which is what you'd actually search for. The
-  unidentified variants are marked as such.
-- **The day of the week is the tab.** `MON` through `SUN`, plus an always-in-
-  stock tab and the recycle tab, spelled out in words.
-- **The machine carries no price of its own.** Every price and discount column
-  is zero on all 315 vanilla rows, so what it charges is the *item's* price —
-  which is what setting a price here changes, everywhere that item is sold. The
-  window says so before you do it.
+  Machete — blueprint". The unidentified variants are marked as such.
+- **A full list drops things.** Each month offers exactly as many goods as the
+  list had in the stock game, so by default adding an item raises that count
+  too, rather than pushing another item out at random.
 
-It also copies the settings of whatever tab you're adding to, rather than asking
-you to pick a "currency type" whose meaning isn't recorded anywhere.
+**The stock schedule ran out on 1 August 2026.** **Keep the machine rotating...**
+adds a month for every month up to a year you choose, carrying on the
+MON → SUN rotation. Whether a save that is already past the old last month picks
+the new months up by itself has not been tested in game yet.
 
-Two things make bulk edits painless. **Set every shown row to...** applies one
+Two things make bulk edits painless. **Set every one shown to...** applies one
 value to everything currently listed, and **Multiply by...** scales it — so
 "every revive costs 1 KC" or "double the bank at every level" is one action, not
 ninety-nine edits. Search first to narrow what "shown" means.
@@ -1510,6 +1572,16 @@ ninety-nine edits. Search first to narrow what "shown" means.
   a crash instead of a mod.
 - **Wreck a list column.** `skill_slots` holds `1,2,3` — three open decal slots,
   not the number three. Those columns are edited as text and say so.
+- **Edit one copy of a floor.** The floors are stored twice — `master_floor`
+  and five `master_tmpfloor_` tables — and which one the game reads isn't
+  recorded, so an edit to either is made to both.
+
+### What it warns about, but allows
+
+**A value outside anything the stock game uses in that column.** Sometimes
+that's the point — a grade 10 fighter works — but a 1,000,000 decal draw, where
+nothing in that column passed 200,000, crashed the game. The builder says so
+under the edit, counts them in the footer, and lists them again when you save.
 
 ### It cannot produce a broken mod
 

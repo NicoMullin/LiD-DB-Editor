@@ -111,7 +111,7 @@ class WhatItRefusesToDo(Base):
         with self.assertRaises(BuildError) as caught:
             self.builder.set_value("master_safe_level", (1,), "limit", "lots")
         said = str(caught.exception)
-        self.assertIn("holds a number", said)
+        self.assertIn("holds a whole number", said)
         self.assertIn("the most Kill Coins it can hold", said)
 
     def test_an_unknown_column_is_refused(self) -> None:
@@ -325,7 +325,7 @@ class StockingTheVendingMachine(Base):
         self.assertEqual(found.already, "MON")
 
     def test_a_new_row_copies_the_tab_it_joins(self) -> None:
-        """currency_type is not documented anywhere, so copy rather than guess."""
+        """currency_type decides which tab it shows on, so copy the list's."""
         self.builder.stock_machine(["ITMT_COPPER_1"], "MON")
         con = sqlite3.connect(self.builder.scratch)
         row = con.execute(
@@ -333,7 +333,7 @@ class StockingTheVendingMachine(Base):
             "WHERE type_id='ITMT_COPPER_1'"
         ).fetchone()
         con.close()
-        self.assertEqual(row[0], 4)       # the same as Monday's other rows
+        self.assertEqual(row[0], 4)       # the same as the MON list's other rows
         self.assertEqual(row[1], 2)       # after the one already there
 
     def test_adding_something_already_on_that_tab_does_nothing(self) -> None:
@@ -344,7 +344,7 @@ class StockingTheVendingMachine(Base):
         self.builder.stock_machine(["ITMT_COPPER_1"], "MON", price=1)
         con = sqlite3.connect(self.builder.scratch)
         price = con.execute(
-            "SELECT buy_money FROM master_item WHERE itemid='ITMT_COPPER_1'"
+            "SELECT buy_bloodnium FROM master_item WHERE itemid='ITMT_COPPER_1'"
         ).fetchone()[0]
         pack = con.execute(
             "SELECT pack_money FROM master_automaticshop_lineup WHERE type_id='ITMT_COPPER_1'"
@@ -367,6 +367,431 @@ class StockingTheVendingMachine(Base):
             {s.category for s in self.builder.catalogue(category="Materials")},
             {"Materials"},
         )
+
+
+class Richer(Base):
+    """The small database plus whatever extra tables a test class needs.
+
+    They go into the vanilla file before the builder takes its copy, because
+    names and the stock ranges are both read from vanilla.
+    """
+
+    EXTRA = ""
+
+    def setUp(self) -> None:
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.vanilla = a_database(Path(self.dir.name) / "vanilla.db")
+        con = sqlite3.connect(self.vanilla)
+        con.executescript(self.EXTRA)
+        con.commit()
+        con.close()
+        self.builder = ModBuilder(self.vanilla)
+        self.addCleanup(self.builder.close)
+
+    def cell(self, sql: str, *params):
+        con = sqlite3.connect(self.builder.scratch)
+        try:
+            return con.execute(sql, params).fetchone()[0]
+        finally:
+            con.close()
+
+
+class Dates(Richer):
+    """Dates are stored two ways, and a value in the wrong shape is ignored by
+    the game rather than refused - so the builder shows and takes real dates."""
+
+    EXTRA = """
+        CREATE TABLE master_event_schedule (
+            id TEXT PRIMARY KEY, type TEXT, start INTEGER, "end" INTEGER);
+        INSERT INTO master_event_schedule VALUES
+            ('EVENT_SEASON_WINTER', 'SEASON', 1759140000, 0);
+        CREATE TABLE master_automaticshop_schedule (
+            expire DATETIME, bloodnium_exchange_lineup_id TEXT);
+        INSERT INTO master_automaticshop_schedule VALUES ('2026-08-01 00:00:00', 'SUN');
+    """
+
+    def column(self, table: str, name: str):
+        return next(c for c in self.builder.columns(table) if c.name == name)
+
+    def test_seconds_are_shown_as_a_date(self) -> None:
+        start = self.column("master_event_schedule", "start")
+        self.assertEqual(start.show(1759140000), "2025-09-29 10:00")
+        self.assertIn("date, UTC", start.heading)
+
+    def test_none_stays_as_it_is(self) -> None:
+        """0 and -1 mean "no date"; turning them into 1970 would mislead."""
+        end = self.column("master_event_schedule", "end")
+        self.assertEqual(end.show(0), "0")
+        self.assertEqual(end.show(-1), "-1")
+
+    def test_a_typed_date_is_stored_as_seconds(self) -> None:
+        self.builder.set_value("master_event_schedule", ("EVENT_SEASON_WINTER",),
+                               "start", "2027-01-31")
+        stored = self.cell("SELECT start FROM master_event_schedule")
+        self.assertEqual(stored, 1801353600)
+        self.assertIsInstance(stored, int)
+
+    def test_a_date_with_a_time_is_taken_too(self) -> None:
+        self.builder.set_value("master_event_schedule", ("EVENT_SEASON_WINTER",),
+                               "start", "2027-01-31 10:00")
+        self.assertEqual(self.cell("SELECT start FROM master_event_schedule"),
+                         1801353600 + 36000)
+
+    def test_the_raw_number_still_works(self) -> None:
+        self.builder.set_value("master_event_schedule", ("EVENT_SEASON_WINTER",),
+                               "start", "12345")
+        self.assertEqual(self.cell("SELECT start FROM master_event_schedule"), 12345)
+
+    def test_something_that_is_not_a_date_is_refused(self) -> None:
+        with self.assertRaises(BuildError) as caught:
+            self.builder.set_value("master_event_schedule", ("EVENT_SEASON_WINTER",),
+                                   "start", "next tuesday")
+        self.assertIn("2027-01-31", str(caught.exception))
+
+    def test_a_text_date_keeps_the_shape_the_table_uses(self) -> None:
+        """The vending schedule stores '2026-08-01 00:00:00', not a number."""
+        rowid = self.builder.view("master_automaticshop_schedule").rows[0].key
+        self.builder.set_value("master_automaticshop_schedule", rowid, "expire", "2027-03-01")
+        self.assertEqual(self.cell("SELECT expire FROM master_automaticshop_schedule"),
+                         "2027-03-01 00:00:00")
+
+    def test_a_date_cannot_be_multiplied(self) -> None:
+        with self.assertRaises(BuildError):
+            self.builder.scale("master_event_schedule", [("EVENT_SEASON_WINTER",)],
+                               "start", 2)
+
+
+class TheStockRange(Base):
+    """A decal draw set to 1,000,000 crashed the game, where nothing in the
+    stock game's price column passed 200,000. The builder says so - and still
+    saves it, because going past the stock numbers is sometimes the point."""
+
+    def test_a_value_inside_the_range_says_nothing(self) -> None:
+        self.assertEqual(self.builder.range_note("master_safe_level", "limit", 60000), "")
+
+    def test_a_value_past_the_top_is_named_with_the_stock_highest(self) -> None:
+        note = self.builder.range_note("master_safe_level", "limit", 1_000_000)
+        self.assertIn("1,000,000", note)
+        self.assertIn("highest 70,000", note)
+
+    def test_a_value_under_the_bottom_is_named_too(self) -> None:
+        note = self.builder.range_note("master_safe_level", "limit", 5)
+        self.assertIn("lowest 50,000", note)
+
+    def test_it_warns_but_never_refuses(self) -> None:
+        self.builder.set_value("master_safe_level", (1,), "limit", 1_000_000)
+        self.assertEqual(self.builder.value("master_safe_level", (1,), "limit"), 1_000_000)
+        risks = self.builder.risks()
+        self.assertEqual(len(risks), 1)
+        self.assertIn("Buffalo Bank", str(risks[0]))
+
+    def test_the_range_is_the_stock_one_not_the_edited_one(self) -> None:
+        """Otherwise one big edit would widen the range and hide the next."""
+        self.builder.set_value("master_safe_level", (2,), "limit", 1_000_000)
+        self.assertEqual(self.builder.stock_range("master_safe_level", "limit"),
+                         (50000, 70000))
+
+    def test_text_and_lists_are_never_flagged(self) -> None:
+        self.assertEqual(self.builder.range_note("master_body_detail", "skill_slots", 99), "")
+
+    def test_a_value_put_back_is_no_longer_a_risk(self) -> None:
+        self.builder.set_value("master_safe_level", (1,), "limit", 1_000_000)
+        self.builder.set_value("master_safe_level", (1,), "limit", 50000)
+        self.assertEqual(self.builder.risks(), [])
+
+
+class FloorsStoredTwice(Richer):
+    """master_floor and the master_tmpfloor_ tables hold the same values, and
+    which one the game reads is not recorded - so both change together."""
+
+    EXTRA = """
+        CREATE TABLE master_floor (
+            id TEXT, areaid TEXT, refareaid TEXT, itemmax INT, clnum INT,
+            PRIMARY KEY (id, areaid, refareaid));
+        CREATE TABLE master_tmpfloor_item (
+            id TEXT, areaid TEXT, refareaid TEXT, itemmax INT, clnum INT,
+            PRIMARY KEY (id, areaid, refareaid));
+        INSERT INTO master_floor VALUES ('F1', 'A1', '', 2, 0);
+        INSERT INTO master_tmpfloor_item VALUES ('F1', 'A1', '', 2, 1);
+    """
+    KEY = ("F1", "A1", "")
+
+    def test_an_edit_to_one_copy_reaches_the_other(self) -> None:
+        self.builder.set_value("master_tmpfloor_item", self.KEY, "itemmax", 9)
+        self.assertEqual(self.builder.value("master_floor", self.KEY, "itemmax"), 9)
+        self.assertEqual(self.builder.change_count(), 2, "two cells really changed")
+
+    def test_copies_that_already_disagreed_are_left_alone(self) -> None:
+        """clnum differs between the copies in the stock game; one edit must
+        not flatten both into the same value."""
+        self.builder.set_value("master_floor", self.KEY, "clnum", 5)
+        self.assertEqual(self.builder.value("master_tmpfloor_item", self.KEY, "clnum"), 1)
+
+    def test_discarding_puts_both_back(self) -> None:
+        self.builder.set_value("master_floor", self.KEY, "itemmax", 9)
+        self.builder.revert_all()
+        self.assertEqual(self.builder.value("master_tmpfloor_item", self.KEY, "itemmax"), 2)
+        self.assertFalse(self.builder.dirty)
+
+
+class RowsTheSteamGameSkips(Richer):
+    """39 decals are PS4-only. The Steam game never loads them, so an edit to
+    one is written, applied, and does nothing at all."""
+
+    EXTRA = """
+        CREATE TABLE master_skill (id TEXT PRIMARY KEY, name TEXT, platform INT,
+                                   no_steam INT, val0 INT);
+        INSERT INTO master_skill VALUES ('SKL_PATROL', '', 1, 0, 10);
+        INSERT INTO master_skill VALUES ('SKL_SPY', '', 0, 253, 40);
+    """
+
+    def test_a_ps4_only_row_says_so(self) -> None:
+        rows = {r.key[0]: r for r in self.builder.view("master_skill").rows}
+        self.assertTrue(rows["SKL_PATROL"].skipped)
+        self.assertIn("PS4 only", rows["SKL_PATROL"].label)
+        self.assertFalse(rows["SKL_SPY"].skipped)
+
+    def test_fixing_the_platform_clears_the_flag(self) -> None:
+        self.builder.set_value("master_skill", ("SKL_PATROL",), "platform", 0)
+        rows = {r.key[0]: r for r in self.builder.view("master_skill").rows}
+        self.assertFalse(rows["SKL_PATROL"].skipped)
+
+
+class AddingRows(Base):
+    def test_a_copy_starts_identical_under_its_new_key(self) -> None:
+        made = self.builder.copy_row("master_body_detail", ("BAL", 2, 0),
+                                     {"type": "BAL", "grade": "10", "limit_break": "0"})
+        self.assertEqual(made, ("BAL", 10, 0))
+        self.assertEqual(self.builder.value("master_body_detail", made, "price"), 4000)
+        self.assertEqual(self.builder.value("master_body_detail", made, "skill_slots"), "1,2")
+        self.assertIn("grade 10", self.builder.label("master_body_detail", made))
+
+    def test_a_copy_counts_as_one_change_however_it_is_edited(self) -> None:
+        made = self.builder.copy_row("master_body_detail", ("BAL", 2, 0),
+                                     {"type": "BAL", "grade": 7, "limit_break": 0})
+        self.builder.set_value("master_body_detail", made, "price", 9000)
+        self.builder.set_value("master_body_detail", made, "skill_slots", "1,2,3,4")
+        self.assertEqual(self.builder.change_count(), 1)
+
+    def test_a_copy_needs_a_key_of_its_own(self) -> None:
+        with self.assertRaises(BuildError):
+            self.builder.copy_row("master_body_detail", ("BAL", 2, 0),
+                                  {"type": "BAL", "grade": 2, "limit_break": 0})
+
+    def test_a_copy_cannot_land_on_a_row_that_exists(self) -> None:
+        with self.assertRaises(BuildError) as caught:
+            self.builder.copy_row("master_body_detail", ("BAL", 2, 0),
+                                  {"type": "BAL", "grade": 1, "limit_break": 0})
+        self.assertIn("already has", str(caught.exception))
+
+    def test_a_copy_must_say_every_part_of_its_key(self) -> None:
+        with self.assertRaises(BuildError):
+            self.builder.copy_row("master_body_detail", ("BAL", 2, 0), {"grade": 7})
+
+    def test_a_table_keyed_on_a_row_number_needs_no_key(self) -> None:
+        text = self.builder.view("master_text").rows[0].key
+        made = self.builder.copy_row("master_text", text)
+        self.assertNotEqual(made, text)
+        self.assertEqual(self.builder.value("master_text", made, "txt"), "All-rounder")
+
+    def test_discarding_takes_added_rows_away(self) -> None:
+        """It used to put edited cells back and leave added rows behind."""
+        self.builder.copy_row("master_body_detail", ("BAL", 2, 0),
+                              {"type": "BAL", "grade": 7, "limit_break": 0})
+        self.builder.set_value("master_safe_level", (1,), "limit", 1)
+        self.builder.revert_all()
+        self.assertFalse(self.builder.dirty)
+        self.assertEqual(self.builder.view("master_body_detail").total, 2)
+
+
+class TheMachinesLists(Richer):
+    """MON to SUN are not days of the week: they are seven Bloodnium lists the
+    schedule moves through month by month. What a list charges in is its
+    currency_type, which the game's own script sorts the tabs by."""
+
+    EXTRA = """
+        CREATE TABLE master_item (
+            itemid TEXT PRIMARY KEY, itemtype TEXT, name TEXT, rarity INT,
+            buy_money INT, buy_recycle_point INT, buy_bloodnium INT);
+        INSERT INTO master_item VALUES ('ITMT_A', 'ITTP_MATERIAL', '', 1, 10, 20, 30);
+        INSERT INTO master_item VALUES ('ITMT_B', 'ITTP_MATERIAL', '', 1, 10, 20, 30);
+        CREATE TABLE master_automaticshop_lineup (
+            goods_id INT PRIMARY KEY, lineup_id TEXT, entity_type TEXT, type_id TEXT,
+            is_stable INT, freq INT, is_special INT, display_priority INT,
+            currency_type INT, stock INT, pack_count INT, pack_money INT,
+            pack_metal INT, pack_recycle_point INT, pack_bloodnium INT,
+            money_discount_rate INT, metal_discount_rate INT,
+            recycle_point_discount_rate INT, bloodnium_discount_rate INT);
+        INSERT INTO master_automaticshop_lineup VALUES
+            (1,'COMMON','ITEM','ITMT_A',1,0,1,1,0,1,1,0,0,0,0,0,0,0,0),
+            (2,'RE','ITEM','ITMT_A',1,0,0,1,3,1,1,0,0,0,0,0,0,0,0),
+            (3,'MON','ITEM','ITMT_A',1,0,0,1,4,1,1,0,0,0,0,0,0,0,0),
+            (4,'TUE','ITEM','ITMT_A',1,0,0,1,4,1,1,0,0,0,0,0,0,0,0),
+            (5,'ODD','ITEM','ITMT_A',1,0,0,1,1,1,1,0,0,0,0,0,0,0,0);
+        CREATE TABLE master_automaticshop_schedule (
+            expire DATETIME, purchase_lineup_id TEXT, common_lineup_id TEXT,
+            purchase_goods_min INT, purchase_goods_max INT, exchange_lineup_id TEXT,
+            exchange_goods_min INT, exchange_goods_max INT,
+            bloodnium_exchange_lineup_id TEXT, bloodnium_exchange_goods_min INT,
+            bloodnium_exchange_goods_max INT, discount_group_id INT);
+        INSERT INTO master_automaticshop_schedule VALUES
+            ('2026-07-01 00:00:00','AP','COMMON',1,1,'RE',1,1,'MON',44,44,0),
+            ('2026-08-01 00:00:00','AP','COMMON',1,1,'RE',1,1,'TUE',44,44,0);
+    """
+
+    def price(self, column: str) -> int:
+        return self.cell(f"SELECT {column} FROM master_item WHERE itemid='ITMT_B'")
+
+    def test_a_bloodnium_list_prices_in_bloodnium(self) -> None:
+        """This used to write the Kill Coin price, which that tab never charges."""
+        self.builder.stock_machine(["ITMT_B"], "MON", price=5)
+        self.assertEqual(self.price("buy_bloodnium"), 5)
+        self.assertEqual(self.price("buy_money"), 10)
+
+    def test_the_recycle_exchange_prices_in_recycle_points(self) -> None:
+        self.builder.stock_machine(["ITMT_B"], "RE", price=5)
+        self.assertEqual(self.price("buy_recycle_point"), 5)
+
+    def test_the_kill_coin_shop_prices_in_kill_coins(self) -> None:
+        self.builder.stock_machine(["ITMT_B"], "COMMON", price=5)
+        self.assertEqual(self.price("buy_money"), 5)
+
+    def test_a_list_whose_currency_is_unknown_takes_no_price(self) -> None:
+        with self.assertRaises(BuildError):
+            self.builder.stock_machine(["ITMT_B"], "ODD", price=5)
+        self.assertFalse(self.builder.dirty, "nothing half-done")
+
+    def test_lists_are_named_for_what_they_are(self) -> None:
+        self.assertEqual(self.builder.lineup_name("COMMON"), "Kill Coin shop")
+        self.assertIn("monthly", self.builder.lineup_name("MON"))
+        self.assertNotIn("Monday", self.builder.lineup_name("MON"))
+
+    def test_making_room_lets_every_item_be_offered(self) -> None:
+        """Stock offers exactly the list's size, so a new item would push
+        another out at random unless the count goes up with it."""
+        self.builder.stock_machine(["ITMT_B"], "RE")
+        self.assertEqual(self.builder.make_room("RE"), 4)   # min and max, two months
+        self.assertEqual(self.cell("SELECT min(exchange_goods_max) FROM "
+                                   "master_automaticshop_schedule"), 2)
+        self.assertEqual(self.cell("SELECT min(exchange_goods_min) FROM "
+                                   "master_automaticshop_schedule"), 2)
+
+    def test_room_is_only_made_where_it_is_short(self) -> None:
+        """MON already offers up to 44; one more item fits without a change."""
+        self.builder.stock_machine(["ITMT_B"], "MON")
+        self.assertEqual(self.builder.make_room("MON"), 0)
+
+    def test_the_schedule_carries_the_rotation_on(self) -> None:
+        added = self.builder.extend_schedule(2026)
+        self.assertEqual(added, 5)                    # September to January 1st
+        con = sqlite3.connect(self.builder.scratch)
+        months = con.execute(
+            "SELECT expire, bloodnium_exchange_lineup_id FROM "
+            "master_automaticshop_schedule ORDER BY expire"
+        ).fetchall()
+        con.close()
+        self.assertEqual(months[2], ("2026-09-01 00:00:00", "MON"))
+        self.assertEqual(months[3][1], "TUE")
+        self.assertEqual(months[-1][0], "2027-01-01 00:00:00")
+        self.assertEqual(self.builder.schedule_end(), "2027-01-01 00:00:00")
+
+    def test_extending_counts_and_discards_like_any_change(self) -> None:
+        self.builder.extend_schedule(2026)
+        self.assertEqual(self.builder.change_count(), 5)
+        self.builder.revert_all()
+        self.assertEqual(self.builder.schedule_end(), "2026-08-01 00:00:00")
+
+    def test_a_silly_year_is_refused(self) -> None:
+        with self.assertRaises(BuildError):
+            self.builder.extend_schedule(9999)
+
+
+class NamingItemsThroughAnotherTable(Richer):
+    """The machine's rows used to show a blueprint as its bare id."""
+
+    EXTRA = """
+        CREATE TABLE master_part (id TEXT PRIMARY KEY, name TEXT);
+        INSERT INTO master_part VALUES ('PT_ARM_WP001_001', 'PART_NAME.TXT_MACHETE');
+        INSERT INTO master_text VALUES ('PART_NAME', 'TXT_MACHETE', 'int', 'Battle Machete');
+        CREATE TABLE master_item (itemid TEXT PRIMARY KEY, name TEXT);
+        INSERT INTO master_item VALUES ('ITMP_ARM_WP001_001', 'ITEM.TXT_RMAP');
+        INSERT INTO master_text VALUES ('ITEM', 'TXT_RMAP', 'int', 'RMAP');
+        CREATE TABLE master_automaticshop_lineup (
+            goods_id INT PRIMARY KEY, lineup_id TEXT, type_id TEXT);
+        INSERT INTO master_automaticshop_lineup VALUES (1, 'SAT', 'ITMP_ARM_WP001_001');
+    """
+
+    def test_a_blueprint_on_the_machine_is_named_by_what_it_makes(self) -> None:
+        label = self.builder.view("master_automaticshop_lineup").rows[0].label
+        self.assertIn("Battle Machete", label)
+        self.assertIn("Bloodnium list SAT", label)
+
+
+class WhatTheBuilderKnows(unittest.TestCase):
+    """The lessons in builder_data must point at things that exist."""
+
+    VANILLA = Path(__file__).resolve().parent.parent / "LiD Vanilla DB" / "5.0.4.2" / "masters.db"
+
+    def test_every_tip_is_for_a_described_table(self) -> None:
+        from lid_db_manager.explain_data import TABLES
+        for table in builder_data.TIPS:
+            with self.subTest(table=table):
+                self.assertIn(table, TABLES)
+
+    def test_every_grouped_table_with_a_date_or_mirror_is_real(self) -> None:
+        if not self.VANILLA.is_file():
+            self.skipTest("needs the shipped 5.0.4.2 vanilla database")
+        con = sqlite3.connect(f"file:{self.VANILLA.as_posix()}?mode=ro", uri=True)
+        self.addCleanup(con.close)
+
+        def columns(table):
+            return {r[1] for r in con.execute(f'PRAGMA table_info("{table}")')}
+
+        for (table, column), kind in builder_data.DATE_COLUMNS.items():
+            with self.subTest(table=table, column=column):
+                self.assertIn(column, columns(table))
+                self.assertIn(kind, ("epoch", "text"))
+        for family in builder_data.MIRRORED:
+            for table in family:
+                with self.subTest(table=table):
+                    self.assertTrue(columns(table))
+        for table in builder_data.SKIPPED_ROWS:
+            condition = builder_data.SKIPPED_ROWS[table][0]
+            found = con.execute(f"SELECT count(*) FROM {table} WHERE {condition}").fetchone()[0]
+            self.assertEqual(found, 39, "the 39 PS4-only decals")
+
+    def test_the_stock_schedule_really_uses_the_lists_as_months(self) -> None:
+        """One Bloodnium list per month, cycling - not one per weekday."""
+        if not self.VANILLA.is_file():
+            self.skipTest("needs the shipped 5.0.4.2 vanilla database")
+        con = sqlite3.connect(f"file:{self.VANILLA.as_posix()}?mode=ro", uri=True)
+        self.addCleanup(con.close)
+        lists = [r[0] for r in con.execute(
+            "SELECT bloodnium_exchange_lineup_id FROM master_automaticshop_schedule "
+            "ORDER BY expire")]
+        self.assertEqual(lists, ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])
+        currencies = dict(con.execute(
+            "SELECT lineup_id, max(currency_type) FROM master_automaticshop_lineup "
+            "GROUP BY lineup_id"))
+        self.assertEqual(currencies["COMMON"], 0)
+        self.assertEqual(currencies["RE"], 3)
+        self.assertEqual(currencies["MON"], 4)
+        for code, (_, column) in builder_data.CURRENCY_TYPES.items():
+            self.assertIn(column, {r[1] for r in con.execute("PRAGMA table_info(master_item)")})
+
+    def test_the_whole_real_database_opens(self) -> None:
+        """Every heading's tables open against the real thing, with tips."""
+        if not self.VANILLA.is_file():
+            self.skipTest("needs the shipped 5.0.4.2 vanilla database")
+        with ModBuilder(self.VANILLA) as builder:
+            for name, _, tables in builder.groups():
+                if name == builder_data.EVERYTHING_ELSE:
+                    continue
+                for table in tables:
+                    with self.subTest(table=table):
+                        builder.view(table, limit=5)
+            self.assertTrue(builder.priced_in("Bloodnium"))
 
 
 class TheGroupings(unittest.TestCase):
@@ -417,3 +842,85 @@ class TheWindow(unittest.TestCase):
         self.assertIn("Everything else", headings)
         self.assertTrue(window.grid.rowCount() > 0, "the first table should be shown")
         self.assertFalse(window.save_button.isEnabled(), "nothing changed yet")
+
+
+@unittest.skipUnless(HAVE_QT, "needs PySide6")
+class TheWindowFindsItsWay(unittest.TestCase):
+    """Headings and currencies open pages of links rather than nothing."""
+
+    def setUp(self) -> None:
+        from lid_db_manager.manager import Manager
+        from lid_db_manager.paths import AppPaths
+        from lid_db_manager.ui.builder_window import BuilderWindow
+
+        self.app = QApplication.instance() or QApplication([])
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, True)
+        (Path(home) / "mods").mkdir()
+        db = Path(home) / "masters.db"
+        a_database(db)
+        shutil.copy2(db, Path(home) / "masters.db.original")
+        manager = Manager(AppPaths(Path(home)))
+        manager.set_db_path(db)
+        self.window = BuilderWindow(manager, parent=None)
+        self.addCleanup(self.window._shut_builder)
+        self.addCleanup(self.window.close)
+
+    def heading(self, name: str):
+        tree = self.window.tree
+        return next(tree.topLevelItem(i) for i in range(tree.topLevelItemCount())
+                    if tree.topLevelItem(i).text(0) == name)
+
+    def test_find_a_price_sits_above_everything_else(self) -> None:
+        tree = self.window.tree
+        names = [tree.topLevelItem(i).text(0) for i in range(tree.topLevelItemCount())]
+        self.assertEqual(names[-2:], [builder_data.FIND_BY_CURRENCY,
+                                      builder_data.EVERYTHING_ELSE])
+        self.assertEqual(names[0], "Prices & money")
+
+    def test_a_heading_shows_its_tables_as_links(self) -> None:
+        from lid_db_manager.ui.builder_window import LINKS_PAGE
+
+        self.window.tree.setCurrentItem(self.heading("Prices & money"))
+        self.assertEqual(self.window.stack.currentIndex(), LINKS_PAGE)
+        self.assertEqual(self.window.links.count(), 1)
+        self.assertIn("Buffalo Bank", self.window.links.item(0).text())
+        self.assertFalse(self.window.search.isVisibleTo(self.window))
+
+    def test_a_currency_lists_every_column_priced_in_it(self) -> None:
+        prices = self.heading(builder_data.FIND_BY_CURRENCY)
+        kill_coins = next(prices.child(i) for i in range(prices.childCount())
+                          if prices.child(i).text(0) == "Kill Coins")
+        self.window.tree.setCurrentItem(kill_coins)
+        texts = [self.window.links.item(i).text() for i in range(self.window.links.count())]
+        self.assertTrue(any("the most Kill Coins it can hold" in t for t in texts))
+
+    def test_following_a_link_opens_the_table_on_that_column(self) -> None:
+        from lid_db_manager.ui.builder_window import COLUMN_ROLE
+
+        prices = self.heading(builder_data.FIND_BY_CURRENCY)
+        kill_coins = prices.child(0)
+        self.window.tree.setCurrentItem(kill_coins)
+        link = next(self.window.links.item(i) for i in range(self.window.links.count())
+                    if "Buffalo Bank" in self.window.links.item(i).text())
+        self.window._follow_link(link)
+        self.assertEqual(self.window.table, "master_safe_level")
+        self.assertEqual(self.window.bulk_column.currentData(), link.data(COLUMN_ROLE))
+
+    def test_tips_show_above_a_table_that_has_them(self) -> None:
+        self.window.tree.setCurrentItem(self.window._tree_items["master_safe_level"])
+        self.assertIn("2,560,000", self.window.tips_label.text())
+        self.assertTrue(self.window.tips_label.isVisibleTo(self.window))
+
+    def test_the_save_dialog_needs_a_name_and_names_the_risks(self) -> None:
+        from lid_db_manager.ui.builder_window import SaveDialog
+
+        builder = self.window.builder
+        builder.set_value("master_safe_level", (1,), "limit", 5_000_000)
+        dialog = SaveDialog(builder, self.window)
+        self.addCleanup(dialog.deleteLater)
+        self.assertFalse(dialog.ok_button.isEnabled())
+        dialog.name.setText("Big bank")
+        self.assertTrue(dialog.ok_button.isEnabled())
+        self.assertIn("5,000,000", dialog.risk_label.text())
+        self.assertFalse(dialog.risk_label.isHidden())

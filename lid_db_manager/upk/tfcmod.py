@@ -167,14 +167,71 @@ def transform(mod: TfcMod, package_name: str, stock: bytes,
     ``installed_as`` maps each of the pack's own cache numbers to the number it
     went into the game under - Texture2D_0.tfc in the pack might be
     Texture2D_3.tfc in the game, if three are there already.
+
+    Only the chunks the mod touches are decoded when that can be done; any
+    doubt, and the whole package is decoded as it always was. Both give the
+    same bytes.
     """
+    patch = _read_patch(mod, package_name)
+    packed = _transform_partly(mod, package_name, stock, installed_as, patch)
+    if packed is not None:
+        return packed
     package = P.read(stock)
     flat_before = package.data
+    package = _rebuild(mod, package_name, package, installed_as, patch)
+    # Written back as chunks when it can be: a change usually touches a few of
+    # them, and the rest are copied across still compressed, so the package
+    # stays near the size the game shipped instead of two to three times it.
+    # Anything that cannot be done that way is written flat, which the game
+    # also reads - that was the only way this worked before.
+    packed = bytepatch.write_chunks(stock, flat_before, package.data)
+    return packed if packed is not None else package.data
+
+
+def _read_patch(mod: TfcMod, package_name: str):
     patch_file = mod.patches.get(package_name.lower())
-    if patch_file is not None:
+    if patch_file is None:
+        return None
+    try:
+        return PP.read(patch_file)
+    except PP.PatchError as problem:
+        raise TfcModError(f"{package_name}: {problem}") from None
+
+
+def _transform_partly(mod: TfcMod, package_name: str, stock: bytes,
+                      installed_as: dict[int, int], patch) -> bytes | None:
+    """``transform`` decoding only the chunks the mod touches, or None."""
+    try:
+        parts = P.PartlyDecoded(stock)
+    except P.PackageError:
+        return None
+    front = parts.package()
+    if patch is not None:
+        for update in patch.objects:
+            if 0 <= update.export_index < len(front.exports):
+                entry = front.exports[update.export_index]
+                parts.need(entry.serial_offset, entry.serial_size)
+    if mod.mapping is not None:
+        by_path = T2.textures_by_path(front)
+        for entry in mod.mapping.entries:
+            export = by_path.get(entry.texture_id.replace("/", "\\").lower())
+            if export is not None:
+                found = front.exports[export]
+                parts.need(found.serial_offset, found.serial_size)
+    parts.need_last()
+    package = parts.package()
+    flat_before = package.data
+    package = _rebuild(mod, package_name, package, installed_as, patch)
+    return bytepatch.write_chunks(stock, flat_before, package.data, decoded=parts.decoded)
+
+
+def _rebuild(mod: TfcMod, package_name: str, package: P.Package,
+             installed_as: dict[int, int], patch) -> P.Package:
+    """The package with the mod's patch and textures written in."""
+    if patch is not None:
         try:
-            flat, _ = A.apply(package, PP.read(patch_file))
-        except (A.ApplyError, PP.PatchError) as problem:
+            flat, _ = A.apply(package, patch)
+        except A.ApplyError as problem:
             raise TfcModError(f"{package_name}: {problem}") from None
         package = P.read(flat)
 
@@ -194,14 +251,7 @@ def transform(mod: TfcMod, package_name: str, stock: bytes,
         if updates:
             flat, _ = A.apply_textures(package, updates)
             package = P.read(flat)
-
-    # Written back as chunks when it can be: a change usually touches a few of
-    # them, and the rest are copied across still compressed, so the package
-    # stays near the size the game shipped instead of two to three times it.
-    # Anything that cannot be done that way is written flat, which the game
-    # also reads - that was the only way this worked before.
-    packed = bytepatch.write_chunks(stock, flat_before, package.data)
-    return packed if packed is not None else package.data
+    return package
 
 
 def cache_numbers_present(cooked_dir: Path) -> set[int]:

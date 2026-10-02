@@ -939,6 +939,7 @@ class MainWindow(QMainWindow):
         self._commit_setting_edits()
         if not self._check_database():
             return
+        self._switch_check_off_first()
         self._run(
             self.manager.save_mod_list,
             self._after_apply,
@@ -976,6 +977,26 @@ class MainWindow(QMainWindow):
         if self._offer_file_check(report):
             return
         QMessageBox.warning(self, "Nothing was applied", message)
+
+    def _switch_check_off_first(self) -> None:
+        """With Auto hash patch on, switch the check off before saving.
+
+        Saving first and fixing it afterwards worked, but the first attempt
+        failed on purpose - an ERROR in the log, in red, while the save was
+        still going and about to succeed. Anything that goes wrong here is
+        left to that same save to report, through the usual offer below.
+        """
+        if not self.manager.state.settings.auto_switch_file_check_off:
+            return
+        try:
+            blocked = self.manager.blocked_packages()
+            done = self.manager.switch_file_check_off(blocked) if blocked else []
+        except (RuntimeError, OSError, ValueError):
+            return
+        if done:
+            self.statusBar().showMessage(
+                f"The game no longer checks {len(done)} file(s) - saving.", 8000
+            )
 
     def _offer_file_check(self, report) -> bool:
         """Offer to switch the game's file check off, if that is what blocked it.
@@ -1399,6 +1420,7 @@ class MainWindow(QMainWindow):
                     selection=details.selection,
                     split_by_table=details.split_by_table,
                     requires=[details.companion_of] if details.companion_of else None,
+                    strip_carriage_returns=details.strip_carriage_returns,
                 )
             mod = self.manager.install(
                 candidate,

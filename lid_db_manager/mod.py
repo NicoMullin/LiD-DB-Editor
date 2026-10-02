@@ -17,6 +17,7 @@ from .settings import (
     parse_settings,
     render,
     render_text,
+    render_values,
     resolve_values,
 )
 
@@ -169,21 +170,24 @@ class Mod:
         return "; ".join(parts) or "(nothing detected)"
 
 
-def _build_patches(patch_data: list, mod_dir: Path, values: dict) -> list[Patch]:
+def _build_patches(
+    patch_data: list, mod_dir: Path, values: dict, settings: list[ModSetting]
+) -> list[Patch]:
+    filled = render_values(settings, values)
     patches = [
-        Patch.from_dict(render(entry, values) if values else entry, mod_dir, index)
+        Patch.from_dict(render(entry, filled) if values else entry, mod_dir, index)
         for index, entry in enumerate(patch_data)
     ]
     for patch in patches:
-        patch.setting_values = dict(values)
+        patch.setting_values = dict(filled)
     return patches
 
 
 def _filled_in(mod: Mod, values: dict) -> Mod:
     return replace(
         mod,
-        patches=_build_patches(mod.patch_data, mod.folder, values),
-        description=render_text(mod.description_template, values),
+        patches=_build_patches(mod.patch_data, mod.folder, values, mod.settings),
+        description=render_text(mod.description_template, render_values(mod.settings, values)),
         values=dict(values),
     )
 
@@ -232,13 +236,13 @@ def load_mod_json(mod_dir: Path) -> Mod:
     # Settings are only looked for in a mod that declares some. A mod without
     # them is read exactly as before, braces and all, so nothing that already
     # loads can start failing because its text happens to contain "{{".
-    settings = parse_settings(data.get("settings"), mod_ref)
+    settings = parse_settings(data.get("settings"), mod_ref, mod_dir)
     description_template = str(data["description"]).strip()
     defaults = {setting.id: setting.default for setting in settings}
     if settings:
         used = check_placeholders(patch_data, settings, mod_ref, "a patch")
         used |= check_placeholders(description_template, settings, mod_ref, "the description")
-    patches = _build_patches(patch_data, mod_dir, defaults)
+    patches = _build_patches(patch_data, mod_dir, defaults, settings)
     if settings:
         for patch in patches:
             if isinstance(patch, RawSqlFilePatch) and patch.path.is_file():
@@ -269,7 +273,11 @@ def load_mod_json(mod_dir: Path) -> Mod:
     return Mod(
         id=mod_dir.name,
         name=str(data["name"]).strip(),
-        description=render_text(description_template, defaults) if settings else description_template,
+        description=(
+            render_text(description_template, render_values(settings, defaults))
+            if settings
+            else description_template
+        ),
         version=str(data["version"]).strip(),
         author=str(data["author"]).strip(),
         folder=mod_dir,

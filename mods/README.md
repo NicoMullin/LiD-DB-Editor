@@ -234,17 +234,18 @@ A copy of this lives in `mods/_example-settings/`.
 
 ### The setting
 
-| Field     | Required | Meaning                                                           |
-|-----------|----------|-------------------------------------------------------------------|
-| `id`      | yes      | Lower-case letters, digits and `_`, starting with a letter        |
-| `label`   | no       | What the box is called. Defaults to the id                        |
-| `type`    | no       | `integer` (the default) or `number` for decimals                  |
-| `default` | yes      | What the player gets without touching it                          |
-| `min`     | yes      | The lowest the box allows                                         |
-| `max`     | yes      | The highest the box allows                                        |
-| `step`    | no       | How far one click of the arrows moves it. Defaults to 1           |
-| `unit`    | no       | `x` shows "x2", `%` shows "40%", anything else follows the number |
-| `help`    | no       | Hover text                                                        |
+| Field     | Required | Meaning                                                                          |
+|-----------|----------|----------------------------------------------------------------------------------|
+| `id`      | yes      | Lower-case letters, digits and `_`, starting with a letter                       |
+| `label`   | no       | What the box is called. Defaults to the id                                       |
+| `type`    | no       | `integer` (the default), `number` for decimals, `choice` or `toggle` (see below) |
+| `default` | yes      | What the player gets without touching it                                         |
+| `min`     | yes      | The lowest the box allows (numbers only)                                         |
+| `max`     | yes      | The highest the box allows (numbers only)                                        |
+| `step`    | no       | How far one click of the arrows moves it. Defaults to 1                          |
+| `unit`    | no       | `x` shows "x2", `%` shows "40%", anything else follows the number                |
+| `help`    | no       | Shown under the box                                                              |
+| `group`   | no       | A heading over this setting and the ones after it with the same group            |
 
 ### Using it
 
@@ -266,11 +267,55 @@ for a style:
 | `{{percent:comma}}` | `100,000` | English                                      |
 | `{{percent:dot}}`   | `100.000` | German, Spanish, French, Italian, Portuguese |
 
+### A pick from a list, or on and off
+
+Not everything is a number. A `choice` gives the player a list to pick from,
+and a `toggle` a tick box:
+
+```json
+"settings": [
+  {
+    "id": "col_skill",
+    "label": "Passive decal",
+    "type": "choice",
+    "group": "Collector",
+    "default": "",
+    "options": [
+      {"value": "", "label": "None"},
+      {"value": "SKL_HPUP_01", "label": "Tank", "group": "Athleticism-related",
+       "help": "Increase max HP by 20%."}
+    ]
+  },
+  {"id": "col_map", "label": "Reveal the map", "type": "toggle", "default": false, "group": "Collector"}
+]
+```
+
+- An option's `value` is what goes into your SQL, so it may only be letters,
+  digits and `_` (or empty, for "none"). Write the quotes yourself:
+  `WHERE id = '{{col_skill}}'`. Nothing a player picks can close them.
+- Every option needs a `label`, and no two labels in one list may read the same.
+  An option's `group` puts a heading into the list; its `help` is shown under the
+  box while it is chosen. A list longer than twelve can be typed into, matching
+  anywhere in a label.
+- A long list can live in a file beside `mod.json`: `"options_from": "decals.json"`
+  instead of `"options"`. Several settings can share one file.
+- A toggle is written as `1` or `0`, so `WHERE {{col_map}} = 1` switches a
+  statement on and off.
+- `{{col_skill:label}}` gives what the player saw ("Tank", "On") - for your
+  mod's own `description`.
+- A choice can decide *which rows* your mod writes. When the player changes it,
+  the manager takes the mod off and puts it back with the new values in the
+  same save, so a row the old choice added never lingers.
+
+`mods/fighter-passives` is a full example, built by
+`tools/build_fighter_passives.py`.
+
 ### The rules
 
-- **Numbers only.** A value is checked against your `min` and `max` and turned
-  into digits before it is written into anything. A player cannot type SQL into
-  a setting.
+- **Only your own values.** A number is checked against your `min` and `max`
+  and turned into digits before it is written into anything; a choice must be
+  one of your options; a toggle is 1 or 0. A player cannot type SQL into a
+  setting.
 - **Pick `integer` for whole-number columns.** Most of `masters.db` is whole
   numbers, and a decimal written into one is a crash waiting to happen.
 - **Multiplying? Use `"apply": "diff"`.** Otherwise saving twice multiplies
@@ -659,10 +704,13 @@ and the CJK characters may be unrecoverable rather than merely ugly.
 newline and a space. In SQL that is `|| x'0a20'` on the end of the string;
 dropping it changes the tooltip layout.
 
-**Some tables will not take effect immediately.** Shop and vending machine
-lineups are settled by the game's daily reset, so rows you add there do not
-appear until the in-game day rolls over. Others are read once at launch. If your
-mod applies cleanly and the diff preview shows the rows, the database is right -
+**Some tables will not take effect immediately.** What the vending machine
+offers is stored in the player's save when it restocks, from the monthly list
+`master_automaticshop_schedule` names, so rows you add to a lineup appear at the
+next restock. `MON` to `SUN` are those monthly Bloodnium lists, not days of the
+week, and the stock schedule's last month ended on 1 August 2026 - a mod that
+wants new stock to show should add months too. Others are read once at launch.
+If your mod applies cleanly and the diff preview shows the rows, the database is right -
 say so in your readme so nobody reports it as broken.
 
 **Test against a copy first.** Point the manager at a duplicate of `masters.db`

@@ -69,6 +69,24 @@ class InstallError(ModManagerError):
     """The dropped thing could not be turned into a mod."""
 
 
+def write_sql(path: Path, text: str) -> None:
+    """Write a .sql file with its characters left exactly as they are.
+
+    ``write_text`` in text mode translates every ``\n`` in the string to the
+    platform's line ending, and a generated statement carries game text inside
+    its string literals - ``master_text`` alone has 30,175 rows with a line
+    break in them. On Windows that turned every one of those into ``\r\n`` on
+    disk, so a tool that runs the file byte for byte wrote a carriage return into
+    the database. The game's own data contains **no** carriage return anywhere,
+    so the next diff saw all 30,000 rows as modified, and each round trip added
+    another one.
+
+    ``newline=""`` means what is in the string is what lands in the file.
+    """
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        handle.write(text)
+
+
 @dataclass
 class InstallCandidate:
     """What a dropped path turns out to be, before anything is written."""
@@ -470,7 +488,7 @@ def _write_content_pack(candidate: InstallCandidate, folder: Path, name: str,
             shutil.copy2(src, dest)
 
         sql_name = f"{safe_folder_name(name)}.sql"
-        (folder / sql_name).write_text(recipe.sql(), encoding="utf-8")
+        write_sql(folder / sql_name, recipe.sql())
 
         # The pack's own readme and changelog, so the Readme tab shows what the
         # content is and who made it.
@@ -597,9 +615,9 @@ def _write_delta_mod(
         for table_delta in delta.tables:
             piece = dbdiff.DbDelta(tables=[table_delta])
             sql_name = f"{safe_folder_name(table_delta.table)}.sql"
-            (folder / sql_name).write_text(
+            write_sql(
+                folder / sql_name,
                 dbdiff.to_sql(piece, header_for(table_delta.table, piece.summary())),
-                encoding="utf-8",
             )
             patches.append(
                 {
@@ -630,6 +648,7 @@ def install_database(
     selection: dict | None = None,
     split_by_table: bool = False,
     requires: list[str] | None = None,
+    strip_carriage_returns: bool = False,
 ) -> list[Path]:
     """Turn a modded database into one mod per table, or one mod for the lot.
 
@@ -641,6 +660,8 @@ def install_database(
         raise InstallError("this file was not compared against vanilla, so it has no changes")
 
     delta = candidate.delta.filtered(selection) if selection is not None else candidate.delta
+    if strip_carriage_returns:
+        delta = delta.without_carriage_returns()
     if delta.empty:
         raise InstallError("nothing was selected, so there is no mod to write")
 
@@ -792,9 +813,7 @@ def install(
                 f"against - vanilla sha256 {fingerprint}.\n"
                 f"{candidate.delta.summary()}"
             )
-            (folder / sql_name).write_text(
-                dbdiff.to_sql(candidate.delta, header), encoding="utf-8"
-            )
+            write_sql(folder / sql_name, dbdiff.to_sql(candidate.delta, header))
         _write_mod_json(folder, name, description, author, version, sql_name)
     except Exception:
         shutil.rmtree(folder, ignore_errors=True)

@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 
 from lid_db_manager.upk import apply as A
+from lid_db_manager.upk import bytepatch
 from lid_db_manager.upk import lzo
 from lid_db_manager.upk import package as P
 from lid_db_manager.upk import packagepatch as PP
@@ -235,6 +236,22 @@ class TexturePackAgainstTfcInstallerTests(unittest.TestCase):
         icon = T2.read(mine, T2.textures_by_path(mine)[
             "ui_icon_pt_arm_wp031_0b4\\tx_ui_image_pt_arm_wp031_0b4"])
         self.assertNotIn("TextureFileCacheName", [t.name for t in icon.tags])
+
+    def test_decoding_only_what_the_mod_touches_gives_the_same_package(self) -> None:
+        from lid_db_manager.upk import tfcmod
+
+        mod = tfcmod.load(MOD)
+        installed = {i: self.TFC_INDEX for i in mod.caches}
+        for name in ("WP_AssaultRifle3102_SF.upk", "UI_Icon_PT_ARM_WP031_0B4_SF.upk"):
+            stock = (REFERENCE / "stock" / name).read_bytes()
+            partly = tfcmod._transform_partly(mod, name, stock, installed,
+                                              tfcmod._read_patch(mod, name))
+            self.assertIsNotNone(partly, f"{name} fell back to decoding everything")
+            whole = P.read(stock)
+            flat_before = whole.data
+            whole = tfcmod._rebuild(mod, name, whole, installed, tfcmod._read_patch(mod, name))
+            self.assertEqual(bytepatch.write_chunks(stock, flat_before, whole.data), partly,
+                             f"{name} differs from decoding the whole package")
 
     def test_textures_point_at_the_installed_cache(self) -> None:
         mine, _ = self.install("WP_AssaultRifle3102_SF.upk", PATCH)
