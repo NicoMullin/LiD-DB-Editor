@@ -1371,6 +1371,7 @@ class TfcInstallerPatch(Patch):
             raise ModLoadError(mod_dir.name, f"{label} {problem}") from None
         self._packages: list[str] | None = None
         self._installed_as: dict[int, int] = {}
+        self._changed: dict[str, dict[tuple, str]] | None = None
 
     # -- tied to a game folder ------------------------------------------------
 
@@ -1406,6 +1407,38 @@ class TfcInstallerPatch(Patch):
     def transform_target(self, target: str, stock: bytes) -> bytes:
         from .upk import tfcmod
         return tfcmod.transform(self.tfc, Path(target).name, stock, self._installed_as)
+
+    def changed_objects(self) -> dict[str, dict[tuple, str]]:
+        """package name (lower case) -> {object it replaces: its name}.
+
+        Read from the .PackagePatch files alone, so it needs no game folder. A
+        patch names the objects it relies on, which usually includes the ones it
+        replaces; where it does not, the object is named by its number.
+        """
+        if self._changed is None:
+            from .upk import packagepatch as PP
+            found: dict[str, dict[tuple, str]] = {}
+            for package, patch_file in self.tfc.patches.items():
+                try:
+                    patch = PP.read(patch_file)
+                except (PP.PatchError, OSError):
+                    continue  # validation says why; nothing to compare here
+                paths = {ref.index - 1: ref.full_path
+                         for ref in patch.object_references if ref.index > 0}
+                found[package.lower()] = {
+                    ("export", update.export_index):
+                        paths.get(update.export_index) or f"object #{update.export_index}"
+                    for update in patch.objects
+                }
+            self._changed = found
+        return self._changed
+
+    def changed_textures(self) -> dict[str, str]:
+        """Texture path (lower case) -> as the pack writes it, for every texture it replaces."""
+        if not self.tfc.has_textures:
+            return {}
+        return {entry.texture_id.replace("/", "\\").lower(): entry.texture_id
+                for entry in self.tfc.mapping.entries}
 
     def to_pristine(self, raw: bytes) -> bytes:
         # There is no working backwards from a patched package; the stock copy
@@ -1667,6 +1700,18 @@ class PackageBytesPatch(Patch):
 
     def asset_targets(self) -> set[str]:
         return {self.target}
+
+    def changed_objects(self) -> dict[str, dict[tuple, str]]:
+        """package name (lower case) -> {what it changes: how to name it}.
+
+        A spot is its signature and how far past it the value sits - two mods
+        naming the same spot write the same bytes. Used to tell two mods in one
+        package apart from two mods on the same thing.
+        """
+        return {Path(self.target).name.lower(): {
+            ("bytes", edit["find"], edit["follows"], edit["skip"]): edit["name"]
+            for edit in self.edits
+        }}
 
     def transform_target(self, target: str, stock: bytes) -> bytes:
         from .upk import bytepatch

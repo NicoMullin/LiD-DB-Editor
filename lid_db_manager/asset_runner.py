@@ -354,34 +354,60 @@ def _wanted_transforms(mods_in_load_order) -> dict[str, tuple[object, str]]:
             for target in targets:
                 key = _normalise(target)
                 earlier = wanted.get(key)
-                if earlier is not None and _stacks(earlier[0]) and _stacks(patch):
-                    # Byte edits each change a few bytes and leave the rest, so
-                    # they are laid one after another rather than the last one
-                    # rebuilding the file from stock and losing the others.
-                    # Instant Drops' two parts both live in BrgGame.upk.
-                    patch = _Stacked(earlier[0], patch)
-                wanted[key] = (patch, mod.id)
+                planned = patch
+                if earlier is not None and _stacks(earlier, patch):
+                    # Edits inside a package each change part of it and leave
+                    # the rest, so they are laid one after another rather than
+                    # the last one rebuilding the file from stock and losing
+                    # the others. Instant Drops' two parts both live in
+                    # BrgGame.upk, and so do most package patches people make.
+                    # A fresh name, not ``patch``: the same patch may still
+                    # have other packages to go, and those are not stacked.
+                    planned = _Stacked(earlier, (patch, mod.id))
+                wanted[key] = (planned, mod.id)
     return wanted
 
 
-def _stacks(patch) -> bool:
+LAYERED = ("package_bytes", "tfc_installer")
+
+
+def _stacks(earlier, patch) -> bool:
+    """Can ``patch`` be laid on top of what is already planned for a file?
+
+    Byte edits and package patches (a TFC Installer mod's) both change part of
+    a package and leave the rest exactly as it was, so any number of them can
+    share one. A package patch never adds to the package's tables - those are
+    refused - so a second one still finds every name and object it checks for
+    after the first has gone in. Two mods replacing the *same* object is a real
+    clash; the conflict check names it, and the later one in the load order wins.
+    """
     # By type name: patch.py imports this module, so it cannot be imported here.
-    return isinstance(patch, _Stacked) or getattr(patch, "type", None) == "package_bytes"
+    parts = [part for part, _ in getattr(earlier[0], "parts", [earlier])] + [patch]
+    return all(getattr(part, "type", None) in LAYERED for part in parts)
 
 
 class _Stacked:
-    """Two or more byte edits to one package, applied in load order."""
+    """Changes from several mods to one package, laid one after another.
 
-    def __init__(self, first, then) -> None:
-        self.parts = [*getattr(first, "parts", [first]), then]
+    Package patches go first, in load order, so the byte edits are written into
+    whatever the package ends up holding. Each part remembers its mod, so a
+    failure names the mod it came from rather than whichever was loaded last.
+    """
+
+    def __init__(self, earlier, then) -> None:
+        parts = [*getattr(earlier[0], "parts", [earlier]), then]
+        self.parts = sorted(parts, key=lambda part: getattr(part[0], "type", None) != "tfc_installer")
 
     def to_pristine(self, raw: bytes) -> bytes:
         return raw
 
     def transform_target(self, target: str, stock: bytes) -> bytes:
         data = stock
-        for part in self.parts:
-            data = part.transform_target(target, data)
+        for part, mod_id in self.parts:
+            try:
+                data = part.transform_target(target, data)
+            except Exception as exc:
+                raise ValueError(f"{mod_id}'s change could not be made ({exc})") from exc
         return data
 
 
@@ -482,11 +508,13 @@ def _bind_tfc_patches(mods_in_load_order, game_root: Path, backups_dir: Path, lo
                 ours.add(int(suffix))
     taken = tfcmod.cache_numbers_present(cooked) - ours
 
-    cache_file = texture_index_file(backups_dir)
-    if log and not cache_file.is_file():
-        log.info("finding which game packages hold each texture - the first time "
-                 "takes a few minutes, and is remembered after that")
-    index = texture_index.build(cooked, cache_file)
+    index = None
+    if _any_textures(bound):
+        cache_file = texture_index_file(backups_dir)
+        if log and not cache_file.is_file():
+            log.info("finding which game packages hold each texture - the first time "
+                     "takes a few minutes, and is remembered after that")
+        index = texture_index.build(cooked, cache_file)
 
     # A cache already in the game with exactly the pack's bytes is used as it
     # is. Without this, a mod installed before - by TFC Installer, or by an
@@ -516,6 +544,17 @@ def _bind_tfc_patches(mods_in_load_order, game_root: Path, backups_dir: Path, lo
     return warnings
 
 
+def _any_textures(bound) -> bool:
+    """Does any of these TFC Installer mods carry a texture pack?
+
+    Only a texture pack needs the index of which package holds which texture -
+    a mod of package patches alone names its packages itself - and building
+    that index the first time reads every package in the game.
+    """
+    patches = [item[1] if isinstance(item, tuple) else item for item in bound]
+    return any(patch.tfc.mapping is not None for patch in patches)
+
+
 def bind_tfc_patches_for_validation(mods, game_root: Path) -> None:
     """Enough binding to know which packages each TFC Installer mod rebuilds.
 
@@ -531,11 +570,13 @@ def bind_tfc_patches_for_validation(mods, game_root: Path) -> None:
     cooked = Path(game_root) / tfcmod.COOKED
     if not cooked.is_dir():
         return
-    from .paths import AppPaths
-    cache_file = texture_index_file(AppPaths.default().backups_dir)
-    if not cache_file.is_file():
-        return          # the first save builds it; until then patched packages only
-    index = texture_index.build(cooked, cache_file)
+    index = None
+    if _any_textures(bound):
+        from .paths import AppPaths
+        cache_file = texture_index_file(AppPaths.default().backups_dir)
+        if not cache_file.is_file():
+            return      # the first save builds it; until then patched packages only
+        index = texture_index.build(cooked, cache_file)
     for patch in bound:
         patch.bind(tfcmod.packages_changed(patch.tfc, index), {})
 
@@ -567,7 +608,8 @@ def bind_tfc_patches_for_revert(mods, game_root: Path, backups_dir: Path) -> Non
             path = cooked / name
             if path.is_file():
                 ours[name] = path
-    index = texture_index.build(cooked, texture_index_file(backups_dir))
+    index = (texture_index.build(cooked, texture_index_file(backups_dir))
+             if _any_textures(bound) else None)
     for patch in bound:
         installed_as = {}
         for pack_number, source in sorted(patch.tfc.caches.items()):

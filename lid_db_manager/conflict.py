@@ -5,6 +5,8 @@
     update_set + text_replace                               -> no conflict
     a mod's declared conflicts_with                         -> serious
     two mods copying the same game file                     -> serious
+    two mods changing the same object inside a package      -> serious
+    two mods changing different objects in one package      -> no conflict
 
 **Only the same box counts.** One mod changing a weapon's damage and another
 changing the same weapon's durability is not a conflict - same row, different
@@ -36,6 +38,7 @@ KIND_COLUMN = "column"
 KIND_TEXT = "text"
 KIND_DECLARED = "declared"
 KIND_ASSET = "asset"
+KIND_OBJECT = "object"
 
 # How bad a clash is. Every clash found here is SERIOUS by now: the same cells,
 # or the same file, written by both mods, so one mod's values are provably lost.
@@ -162,6 +165,13 @@ class _ModFootprint:
     texts: set[tuple] = field(default_factory=set)
     rows: dict[str, set[int] | None] = field(default_factory=dict)
     asset_targets: set[str] = field(default_factory=set)
+    # Packages this mod changes in place rather than copies over, and by which
+    # kinds of patch - see _layers.
+    layered: dict[str, set[str]] = field(default_factory=dict)
+    copied: set[str] = field(default_factory=set)
+    # Inside those packages: package name (lower case) -> {what: its name}.
+    objects: dict[str, dict[tuple, str]] = field(default_factory=dict)
+    textures: dict[str, str] = field(default_factory=dict)
 
     def add_rows(self, table: str, rowids: set[int] | None) -> None:
         if table not in self.rows:
@@ -170,6 +180,32 @@ class _ModFootprint:
             self.rows[table] = None
         else:
             self.rows[table] |= rowids
+
+
+# Patches that change a package in place. The asset runner lays any number of
+# them on the same file one after another, so they all land - see
+# asset_runner._stacks, which this mirrors. What can still clash is two of them
+# changing the same object, which is compared object by object instead.
+LAYERED_KINDS = ("package_bytes", "tfc_installer")
+
+
+def _layers(left: _ModFootprint, right: _ModFootprint, target: str) -> bool:
+    """Do both mods change ``target`` in a way the runner combines?"""
+    if target in left.copied or target in right.copied:
+        return False
+    return bool(left.layered.get(target)) and bool(right.layered.get(target))
+
+
+def _same_objects(left: _ModFootprint, right: _ModFootprint, target: str) -> list[str]:
+    """The objects in ``target`` both mods change, by name."""
+    package = target.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    mine, theirs = left.objects.get(package, {}), right.objects.get(package, {})
+    return sorted(mine[key] for key in mine.keys() & theirs.keys())
+
+
+def _shown(names: list[str], limit: int = 3) -> str:
+    more = f" and {len(names) - limit} more" if len(names) > limit else ""
+    return ", ".join(names[:limit]) + more
 
 
 def footprint(mod: Mod, con: sqlite3.Connection | None = None) -> _ModFootprint:
@@ -189,7 +225,20 @@ def footprint(mod: Mod, con: sqlite3.Connection | None = None) -> _ModFootprint:
                 (table, column) for table, column in resolved if table not in excluded
             }
 
-        result.asset_targets |= patch.asset_targets()
+        targets = patch.asset_targets()
+        result.asset_targets |= targets
+        in_place = (set(patch.transform_targets())
+                    if getattr(patch, "type", None) in LAYERED_KINDS else set())
+        for target in in_place:
+            result.layered.setdefault(target, set()).add(patch.type)
+        result.copied |= targets - in_place
+        changed = getattr(patch, "changed_objects", None)
+        if callable(changed):
+            for package, found in changed().items():
+                result.objects.setdefault(package, {}).update(found)
+        textures = getattr(patch, "changed_textures", None)
+        if callable(textures):
+            result.textures.update(textures())
 
         if con is None:
             for table in patch.tables() - excluded:
@@ -293,10 +342,31 @@ def analyze(
                 )
 
             # Two mods copying the same game file: last in load order wins,
-            # same as a whole-table SQL dump.
+            # same as a whole-table SQL dump. Changes laid one on top of the
+            # other in the same package are not a conflict.
             for target in sorted(left.asset_targets & right.asset_targets):
+                if _layers(left, right, target):
+                    same = _same_objects(left, right, target)
+                    if same:
+                        name = target.replace("\\", "/").rsplit("/", 1)[-1]
+                        report.conflicts.append(
+                            Conflict(KIND_OBJECT, first.id, second.id,
+                                     f"the same part of {name} ({_shown(same)})", SERIOUS)
+                        )
+                    continue
                 report.conflicts.append(
                     Conflict(KIND_ASSET, first.id, second.id, f"game file {target}", SERIOUS)
+                )
+
+            # A texture pack reaches every package holding a copy of the
+            # texture, which is only known with the game in front of it - so
+            # these are compared by texture rather than by package.
+            same_textures = sorted(left.textures[k] for k in left.textures.keys()
+                                   & right.textures.keys())
+            if same_textures:
+                report.conflicts.append(
+                    Conflict(KIND_OBJECT, first.id, second.id,
+                             f"the same texture ({_shown(same_textures)})", SERIOUS)
                 )
 
     return report

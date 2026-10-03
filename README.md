@@ -1,4 +1,4 @@
-## VirusTotal scan of the current code of BETA V0.10.0
+## VirusTotal scan of the current code of BETA V0.10.1
 https://www.virustotal.com/gui/url/63368c8eb96033d99a7a4bc4788535a4810c7ddc300b740e84036b356da2371e
 
 ## Interactive Readme Site
@@ -1253,6 +1253,14 @@ functions and sub-selects in the value, string literals with commas and brackets
 inside them. It cannot be done for an `INSERT` or a `DELETE`, which name no
 column to compare, so a mod built from those is left alone rather than guessed
 at.
+
+Game packages work the same way. Any number of mods can change `BrgGame.upk`
+(or any other package) together - byte edits like Instant Drops and package
+patches made for TFC Installer are all laid into it, in load order. Only two of
+them changing the **same object** inside it, or the same texture, gets a red
+dot. A mod that copies in a whole replacement package is different: it cannot
+be merged with anything, so it still conflicts with every other mod on that
+file.
 
 ## Load order
 

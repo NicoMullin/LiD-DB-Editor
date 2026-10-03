@@ -270,7 +270,13 @@ class TheFighterPassivesMod(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
         self.paths = AppPaths(self.root).ensure()
-        shutil.copytree(PROJECT_ROOT / "mods" / "fighter-passives", self.paths.mods_dir / "fighter-passives")
+        folder = self.paths.mods_dir / "fighter-passives"
+        shutil.copytree(PROJECT_ROOT / "mods" / "fighter-passives", folder)
+        # The database half only: the BrgGame.upk hook needs a real game folder,
+        # and is tested on the real package in test_package_stacking.
+        mod_json = json.loads((folder / "mod.json").read_text(encoding="utf-8"))
+        mod_json["patches"] = [p for p in mod_json["patches"] if p["type"] != "tfc_installer"]
+        (folder / "mod.json").write_text(json.dumps(mod_json), encoding="utf-8")
         self.db = self.root / "game" / "BrgGame" / "Content" / "masters.db"
         self.db.parent.mkdir(parents=True)
         shutil.copy2(VANILLA_5042, self.db)
