@@ -1,0 +1,46 @@
+{
+  "id": "Stew Multi Pull",
+  "name": "Stew Multi-Pull",
+  "description": "Adds \"Purchase x{{count}}\" to the Mushroom Club's stew menu: {{count}} decal pulls in a row. The stew animation plays once instead of {{count}} times; every decal gets its own card, and each pull costs the normal price.",
+  "version": "0.2.1",
+  "author": "KSFA",
+  "category": "Quality of life",
+  "tags": [
+    "decals",
+    "mushroom-stew",
+    "waiting",
+    "game-files"
+  ],
+  "game_version": [
+    "5.0.4.1.0 - 1.89",
+    "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)"
+  ],
+  "requires": [],
+  "conflicts_with": [],
+  "requires_check_off": [
+    "BrgGame.upk"
+  ],
+  "settings": [
+    {
+      "id": "count",
+      "label": "Pulls per purchase",
+      "type": "choice",
+      "default": "10",
+      "options": [
+        {"value": "5", "label": "5"},
+        {"value": "10", "label": "10"},
+        {"value": "15", "label": "15"},
+        {"value": "20", "label": "20"},
+        {"value": "25", "label": "25"}
+      ],
+      "help": "How many decals one \"Purchase\" in the new menu entry pulls. Each costs the normal price, so 25 costs 25 pulls' worth of Kill Coins."
+    }
+  ],
+  "patches": [
+    {
+      "type": "tfc_installer",
+      "source": "tfc/x{{count}}",
+      "description": "Purchase x{{count}} in the stew menu (BrgGame.upk)"
+    }
+  ]
+}

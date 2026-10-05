@@ -32,7 +32,10 @@ def _run_gui() -> int:
 
 
 def main() -> int:
-    if len(sys.argv) > 1:
+    from lid_db_manager.self_update import DONE_FLAG, FINISH_FLAG
+
+    # The two steps of an update are the program's own, not commands.
+    if len(sys.argv) > 1 and sys.argv[1] not in (FINISH_FLAG, DONE_FLAG):
         from lid_db_manager.cli import main as cli_main
 
         return cli_main()

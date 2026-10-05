@@ -109,6 +109,13 @@ class Settings:
     # How big the text is, in percent. Remembered because somebody who needs
     # larger type needs it every time, not once.
     text_scale: int = 100
+    # Ask GitHub for a newer version each time the program starts. Off until
+    # the player switches it on, like everything else that goes online; Help >
+    # Check for updates asks whenever they click it.
+    check_for_updates: bool = False
+    # A version the player said to skip, so the check at start stays quiet
+    # about it. A manual check still offers it.
+    skipped_update: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -133,6 +140,8 @@ class Settings:
             text_scale=clamp_scale(
                 data.get("text_scale", defaults.text_scale)
             ),
+            check_for_updates=bool(data.get("check_for_updates", defaults.check_for_updates)),
+            skipped_update=str(data.get("skipped_update", defaults.skipped_update) or ""),
         )
 
 
@@ -167,6 +176,10 @@ class State:
     # changes a default carries players who never touched it along.
     mod_settings: dict[str, dict] = field(default_factory=dict)
     settings: Settings = field(default_factory=Settings)
+    # Set once state.json has been replaced from outside - by bringing an older
+    # copy's history over - so this now out-of-date copy can never write its
+    # own over it. Not saved.
+    read_only: bool = field(default=False, compare=False)
 
     # -- persistence -----------------------------------------------------
 
@@ -229,6 +242,8 @@ class State:
         return state
 
     def save(self) -> None:
+        if self.read_only:
+            return
         payload = {
             "version": STATE_VERSION,
             "db_path": self.db_path,

@@ -423,6 +423,7 @@ class ShippedModTests(unittest.TestCase):
         "instant-drops",
         "reward-pickup",
         "fall-damage",
+        "Stew Multi Pull",
     }
 
     # By S3er0i9ng, shipped with their permission. Named exactly as a drop of

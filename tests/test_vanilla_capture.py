@@ -232,50 +232,120 @@ class AskingAboutANewBuildTests(unittest.TestCase):
         self.window.close()
         self._tmp.cleanup()
 
-    def _offer(self, answer):
+    def _offer(self, button: str):
+        """Run the question, pressing the button labelled ``button``.
+
+        Returns how many times it was asked (0 or 1) and what it returned.
+        """
         from unittest import mock
 
         from lid_db_manager.ui import main_window as window_module
 
-        with mock.patch.object(window_module.QMessageBox, "question", return_value=answer), \
+        asked = []
+
+        def press(box):
+            asked.append(box.text())
+            for candidate in box.buttons():
+                if candidate.text() == button:
+                    candidate.click()
+                    return
+            raise AssertionError(f"no {button!r} button")
+
+        with mock.patch.object(window_module.QMessageBox, "exec", press), \
                 mock.patch.object(window_module.QMessageBox, "information"), \
                 mock.patch.object(window_module.QMessageBox, "warning"):
-            self.window._offer_clean_copy()
+            started = self.window._offer_clean_copy()
+        return len(asked), started
 
-    def test_yes_keeps_it_as_the_clean_copy_for_that_build(self) -> None:
+    def test_mine_is_clean_keeps_it_as_the_clean_copy_for_that_build(self) -> None:
         self.assertIsNone(self.manager.chosen_vanilla())
-        self._offer(QMessageBox.StandardButton.Yes)
+        self.assertEqual(self._offer("Mine is clean"), (1, False))
         build = self.manager.chosen_vanilla()
         self.assertIsNotNone(build, "it was not kept")
         self.assertEqual(build.version, NEW_BUILD)
         self.assertEqual(build.label, "9.9.9.9")
 
-    def test_no_keeps_nothing_and_is_not_asked_again(self) -> None:
-        self._offer(QMessageBox.StandardButton.No)
+    def test_not_now_keeps_nothing_and_is_not_asked_again(self) -> None:
+        self.assertEqual(self._offer("Not now"), (1, False))
         self.assertIsNone(self.manager.chosen_vanilla())
         self.assertIn(NEW_BUILD, self.manager.state.clean_copy_asked)
+        self.assertEqual(self._offer("Not now"), (0, False))
 
-        from unittest import mock
-
-        from lid_db_manager.ui import main_window as window_module
-
-        with mock.patch.object(window_module.QMessageBox, "question") as asked:
-            self.window._offer_clean_copy()
-        asked.assert_not_called()
+    def test_download_it_fetches_that_build_then_scans_for_mods(self) -> None:
+        wanted = []
+        self.window.download_clean_copy = lambda version, then=None: wanted.append((version, then))
+        self.assertEqual(self._offer("Download it"), (1, True))
+        self.assertEqual(wanted, [(NEW_BUILD, self.window._offer_adoption)])
 
     def test_a_build_already_covered_is_never_asked_about(self) -> None:
-        from unittest import mock
-
-        from lid_db_manager.ui import main_window as window_module
-
         folder = self.paths.vanilla_dir / "9.9.9.9"
         folder.mkdir(parents=True)
         clean = build_db(folder / "masters.db")
         set_version(clean, NEW_BUILD, "9.9.9.9.0")
-        with mock.patch.object(window_module.QMessageBox, "question") as asked:
-            self.window._offer_clean_copy()
-        asked.assert_not_called()
+        self.assertEqual(self._offer("Not now"), (0, False))
 
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 is not installed")
+class NewPlayerChoosesTests(unittest.TestCase):
+    """A new player says up front where the clean copy comes from."""
+
+    app = None
+    setUpClass = AskingAboutANewBuildTests.setUpClass
+    setUp = AskingAboutANewBuildTests.setUp
+    tearDown = AskingAboutANewBuildTests.tearDown
+
+    def _answer(self, *presses: str):
+        """Run the welcome question, pressing each button in turn; returns the
+        titles of the boxes shown."""
+        from unittest import mock
+
+        from lid_db_manager.ui import main_window as window_module
+
+        shown, queue = [], list(presses)
+
+        def press(box):
+            shown.append(box.windowTitle())
+            wanted = queue.pop(0)
+            for candidate in box.buttons():
+                if candidate.text() == wanted:
+                    candidate.click()
+                    return
+            raise AssertionError(f"no {wanted!r} button")
+
+        with mock.patch.object(window_module.QMessageBox, "exec", press):
+            self.assertFalse(self.window._offer_carry_over())
+        return shown
+
+    def test_new_asks_where_the_clean_copy_comes_from(self) -> None:
+        shown = self._answer("I'm new", "Download from GitHub")
+        self.assertEqual(len(shown), 2)
+        self.assertEqual(self.window._clean_source, "download")
+        self._answer("I'm new", "Use my game files")
+        self.assertEqual(self.window._clean_source, "mine")
+
+    def test_download_fetches_that_build_then_scans_for_mods(self) -> None:
+        wanted = []
+        self.window.download_clean_copy = lambda version, then=None: wanted.append((version, then))
+        self.assertTrue(self.window._clean_copy_from("download"))
+        self.assertEqual(wanted, [(NEW_BUILD, self.window._offer_adoption)])
+        self.assertIn(NEW_BUILD, self.manager.state.clean_copy_asked, "not asked again")
+
+    def test_use_mine_keeps_the_game_file_as_the_clean_copy(self) -> None:
+        self.assertTrue(self.window._clean_copy_from("mine"))
+        build = self.manager.chosen_vanilla()
+        self.assertIsNotNone(build)
+        self.assertEqual(build.version, NEW_BUILD)
+        self.assertTrue(self.manager.state.adoption_offered,
+                        "a file compared with itself has no mods to find")
+
+    def test_nothing_happens_when_a_clean_copy_is_already_here(self) -> None:
+        folder = self.paths.vanilla_dir / "9.9.9.9"
+        folder.mkdir(parents=True)
+        set_version(build_db(folder / "masters.db"), NEW_BUILD, "9.9.9.9.0")
+        self.window.download_clean_copy = lambda *a, **k: self.fail("downloaded")
+        self.assertFalse(self.window._clean_copy_from("download"))
+        self.assertFalse(self.window._clean_copy_from("mine"))
 
 
 if __name__ == "__main__":

@@ -405,9 +405,10 @@ program file is ever added to the game.
   only the values it genuinely changes are written — so a whole-table dump stops
   wiping out everything else, and re-applying it can never compound.
 
-It is fully offline: no network calls of any kind, no telemetry, and no Steam
-integration. It writes the `masters.db` you point it at, plus any game files a
-mod ships — normally `.upk` files in `BrgGame\CookedPCConsole\`.
+It goes online only when you ask it to - to download a clean database, or to
+check its GitHub page for a newer version and update itself - and never to
+anywhere but GitHub. No telemetry, and no Steam integration. It writes the
+`masters.db` you point it at, plus any game files a mod ships — normally `.upk` files in `BrgGame\CookedPCConsole\`.
 
 **No mod can add a program file** (`.exe`, `.dll` and the like) anywhere, and no
 mod can change the game's code. Nothing that ships with the manager writes to

@@ -71,9 +71,10 @@ program file is ever added to the game.
   only the values it genuinely changes are written — so a whole-table dump stops
   wiping out everything else, and re-applying it can never compound.
 
-It is fully offline: no network calls of any kind, no telemetry, and no Steam
-integration. It writes the `masters.db` you point it at, plus any game files a
-mod ships — normally `.upk` files in `BrgGame\CookedPCConsole\`.
+It goes online only when you ask it to - to download a clean database, or to
+check its GitHub page for a newer version and update itself - and never to
+anywhere but GitHub. No telemetry, and no Steam integration. It writes the
+`masters.db` you point it at, plus any game files a mod ships — normally `.upk` files in `BrgGame\CookedPCConsole\`.
 
 **No mod can add a program file** (`.exe`, `.dll` and the like) anywhere, and no
 mod can change the game's code. Nothing that ships with the manager writes to
@@ -130,11 +131,17 @@ python run.py
 
 Then:
 
-1. Point it at your `masters.db` — usually under
+1. On the first start it asks whether you are new or updating. Updating, see
+   [Updating to a newer release](#updating-to-a-newer-release). New, it asks
+   where the clean copy of the game's database should come from: **Download
+   from GitHub** (recommended - right even if your game already has mods in it)
+   or **Use my game files** (only if you have never modded the game, or have
+   just verified its files in Steam).
+2. Point it at your `masters.db` — usually under
    `...\steamapps\common\LET IT DIE\BrgGame\Content\masters.db`.
    **Use a clean one** — see [Point it at a clean masters.db](#point-it-at-a-clean-mastersdb).
-2. Tick the mods you want.
-3. Click **Save Mod List**.
+3. Tick the mods you want.
+4. Click **Save Mod List**.
 
 That last click is the one that does everything: backups, validation, then the
 apply, all as one step you can undo.
@@ -210,14 +217,28 @@ for mods already in it...** runs it again whenever you like.
 
 ### The clean copies it compares against
 
-They live in `LiD Vanilla DB/<build>/masters.db`, and the build number is read
-out of each file rather than trusted from the folder name. The manager picks the
-one matching your database. **Tools ▸ Clean database to compare against...**
-shows what is available and lets you pin one.
+They live in `LiD Vanilla DB/<build>/masters.db`, beside the program, and the
+build number is read out of each file rather than trusted from the folder name.
+The manager picks the one matching your database. **Tools ▸ Clean database to
+compare against...** shows what is available and lets you pin one.
 
-If you run from source, anything you drop in that folder is picked up — so an
-older build, or a newer one before the manager ships it, works with no code
-change.
+None ship with the program: they are the game's own data, and 276 MB of it. The
+one you need comes from one of three places:
+
+- **Downloaded from the manager's GitHub page** — the same `LiD Vanilla DB`
+  folder you can browse there, about 57 MB per build. Offered the first time
+  your build has no clean copy, or any time from **Tools ▸ Download a clean
+  database...**. Only that file is fetched, and only when you click. It is kept
+  only when it matches the size and checksum GitHub lists for it *and* the
+  database inside says it is the build you asked for.
+- **Brought over from an older copy** — versions up to 0.10.1 carried all of
+  them inside the program, and **Tools ▸ Bring over from your old version**
+  copies them across, so nothing needs downloading.
+- **Kept from your own game** after an update — see below.
+- **Dropped in by you** — any untouched `masters.db`, in a folder of its own.
+
+If you run from source, anything in that folder is picked up — so an older
+build, or a newer one before it is on GitHub, works with no code change.
 
 **If nothing matches your game build**, it does not diff against the nearest
 build instead: after a game patch that would read the developers' own changes as
@@ -243,11 +264,9 @@ manager keeps it, and you do nothing. It only does that when all of this holds:
 The copy lands in `LiD Vanilla DB/<build>/masters.db` and is named after the
 build, and a line in the log says so.
 
-**If it cannot tell, it asks you.** You know whether you have modded that file
-yet. Say yes and it is kept as the clean copy for that build; say no and nothing
-happens, and you are not asked about that build again. When you are not sure,
-say no — Steam's *Verify integrity of game files* puts an untouched copy back,
-and then the answer is yes. A copy kept this way can always be deleted: it is
+**If it cannot tell, it asks you**, once per build: download the clean copy,
+keep yours because you know it has no mods in it yet, or leave it for now.
+When you are not sure yours is clean, download it. A copy kept this way can always be deleted: it is
 one folder, and removing it puts everything back as it was.
 
 You can also do it by hand at any time: make a folder in `LiD Vanilla DB` and
@@ -526,6 +545,23 @@ Switching `instant-drops` off puts the game's own package back, byte for byte.
 
 The findings behind both are from **Claudia-diva's LID-Patches** (MIT), where
 they are the `dropdelay` and `drops` patches.
+
+### Mushroom stew
+
+| Mod               | What it does                                                | Default | You can choose    |
+|-------------------|-------------------------------------------------------------|---------|-------------------|
+| `Stew Multi Pull` | Adds "Purchase xN" to the stew menu: N decal pulls in a row | 10      | 5, 10, 15, 20, 25 |
+
+Each decal gets its own result card. The stew animation plays once, for the
+first pull, and the closing animation once at the end. Every pull is the game's own single pull, so it costs the normal price (a
+`decal-draw-price` setting still applies), takes the next decal from the queue
+in your save, and is saved. If the Kill Coins run out, or a decal reaches 99,
+the pulls stop there with the game's own message. Plain Purchase and the
+bonus-box stews are unchanged.
+
+It changes two functions of the stew menu in `BrgGame.upk`, so like
+`instant-drops` it needs the game's file check off for that package, and the
+two can be on together.
 
 ### By S3er0i9ng
 
@@ -1646,9 +1682,56 @@ All created on first run. Set `LID_DB_MANAGER_HOME` to put them somewhere else.
 
 ## Updating to a newer release
 
-A new folder each time is not needed, and starting fresh loses what the manager
-knows: which mods are on, the rows that let each one be switched off, and the
-only copies of the game files your mods replaced.
+**Help ▸ Check for updates...** asks the manager's GitHub page whether there is
+a newer version. If there is, **Update now** downloads it (about 60 MB), checks
+it against the SHA-256 GitHub lists for it, and restarts the program as the new
+version. Tick **Help ▸ Check for updates when it starts** to be told without
+asking; it is off until you switch it on, and **Skip this version** keeps it
+quiet about one you do not want.
+
+Only the program is replaced: the `.exe`, the `_internal/` folder, and the mods
+that come with it. Everything else in the folder - `state.json`, snapshots,
+backups, logs, the cache, mods you added yourself, clean databases - is left
+exactly where it is, so there is nothing to carry over and nothing to switch off
+first. The new copy waits for the old one to close, moves the old program files
+aside, and puts them back if anything goes wrong. Afterwards, click **Save Mod
+List** once if any of the bundled mods changed.
+
+The folder keeps its name, so shortcuts and taskbar pins go on working. That
+means a folder updated this way still carries the version it was first unzipped
+as - a release zip unpacks into a folder named after its version, like
+`LID DB Mod Manager 0.11.0`. The window title and **Help ▸ About** always show
+the version you are running.
+
+It cannot update itself when it runs from source, or from a folder it cannot
+write to such as `Program Files` - it then offers the release page instead.
+
+### Coming from 0.10.1 or older
+
+Those versions have no update button, so this one time the new release is
+unzipped beside the old one. Starting fresh would lose what the manager knows:
+which mods are on, the rows that let each one be switched off, and the only
+copies of the game files your mods replaced. The new release brings all of that
+over from the old one for you:
+
+1. Unzip the new release into a folder of its own, and close the old copy.
+2. Run the new `.exe`. On its first start it asks whether you are new or
+   updating. Click **I'm updating** and choose your old copy's folder - or do
+   it later with **Tools > Bring over from your old version**, or by dropping
+   the old folder (or its `.exe`) on the window.
+3. Check what it lists and click **Bring it over**. The window reopens where
+   the old copy left off: same mods, same load order, same settings.
+4. Click **Save Mod List** once. Any mod that the new release updated is
+   swapped for its new version; nothing has to be switched off and on again.
+
+The old folder is only read, never changed. Delete it once you are happy.
+
+It brings over the data and nothing else: your settings and history, the
+backups, and mods you added yourself. The program and the mods that come with
+it are the new release's own. It will not copy into a release that has already
+applied mods of its own, because that history would no longer match the game.
+
+### By hand
 
 Unzip the new release somewhere else first, then copy these across from the old
 folder into the new one, replacing what is there:
@@ -1677,6 +1760,17 @@ If you would rather your files never moved, set `LID_DB_MANAGER_HOME` to a
 folder of your own before running either release. Both then read and write the
 same place, and updating is only ever replacing the program.
 
+## Putting up a clean database after a game update (maintainers)
+
+The manager downloads clean databases straight from this repository's
+`LiD Vanilla DB` folder on `main`. After a game update, take the `masters.db`
+Steam has just written - before modding it - and commit it as
+`LiD Vanilla DB/<build>/masters.db`, where `<build>` is the game's Steam build
+number with four parts: `5.0.4.2` for Steam 5.0.4.2.0. That is the folder the
+manager looks in for a player on that build; once it is pushed, they can
+download it. No release and no extra file are needed - GitHub's own listing of
+the repository supplies the size and checksum each download is checked against.
+
 ## Building an .exe
 
 There is a release with an exe already compiled. If you want to build it
@@ -1684,7 +1778,7 @@ yourself for whatever reason, keep reading.
 
 ```bash
 pip install pyinstaller
-python build.py              # -> dist/LID DB Mod Manager/
+python build.py              # -> dist/LID DB Mod Manager 0.11.0/
 python build.py --onefile    # -> dist/LID DB Mod Manager.exe
 ```
 
@@ -1693,6 +1787,8 @@ then copies `mods/` next to the finished executable, which is the part a bare
 `pyinstaller run.py` gets wrong: a frozen build treats the folder the `.exe`
 sits in as its home, so `mods/`, `logs/`, `snapshots/`, `backups/` and
 `state.json` all live there. **Put it somewhere writable — not Program Files.**
+The folder is named after the version in `lid_db_manager/__init__.py`; the
+`.exe` inside keeps the plain name, which older copies look for.
 
 |                | Folder (default) | `--onefile`             |
 |----------------|------------------|-------------------------|

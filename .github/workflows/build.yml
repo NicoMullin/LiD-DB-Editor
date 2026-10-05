@@ -3,18 +3,30 @@ name: Build Windows exe
 # Runs on GitHub's own Windows machines, so nobody needs Python installed to
 # get a working .exe - including you.
 #
-#   push to main / a pull request -> run the tests, build, attach a zip you can
-#                                    download from the run's Artifacts section
-#   push a tag like v0.1.0        -> all of the above, plus publish a Release
-#                                    with the zip attached
-#   Actions tab -> Run workflow   -> build on demand from any branch
+#   push to main / a pull request   -> run the tests, build, attach a zip you
+#                                      can download from the run's Artifacts
+#   Actions tab -> Run workflow,    -> all of the above, then tag the commit
+#     with a version typed in          Release_Beta_V<version> and publish the
+#                                      release "Beta V<version>" with the zip
+#   push a tag Release_Beta_V0.11.0 -> the same release, from a tag you made
+#     (or v0.11.0)
+#
+# A release is refused unless the version asked for is the one in
+# lid_db_manager/__init__.py. The in-app updater reads the version out of the
+# release's tag and the program reads its own from __init__.py; if the two
+# disagreed, every copy would offer the same update forever.
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ["v*", "Release_Beta_V*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Publish a release for this version (e.g. 0.11.0). Leave empty to only build."
+        required: false
+        default: ""
 
 jobs:
   build:
@@ -31,9 +43,35 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          # PySide6 6.11 has no wheels for 3.14 yet; 3.12 is safely inside range.
-          python-version: "3.12"
+          # The interpreter the releases have been built with by hand.
+          python-version: "3.13"
           cache: pip
+
+      - name: Work out the version and whether to release
+        id: label
+        shell: pwsh
+        run: |
+          $inside = (Select-String -Path lid_db_manager/__init__.py -Pattern '^__version__ = "(.+)"').Matches[0].Groups[1].Value
+          $asked = "${{ github.event.inputs.release_version }}".Trim()
+          $release = "false"
+          if ("${{ github.ref_type }}" -eq "tag") {
+            # Release_Beta_V0.11.0 or v0.11.0 -> 0.11.0
+            $asked = "${{ github.ref_name }}" -replace '^(Release_Beta_V|v)', ''
+          }
+          if ($asked) {
+            if ($asked -ne $inside) {
+              Write-Error "Asked to release $asked, but lid_db_manager/__init__.py says $inside. Change one of them so they match."
+              exit 1
+            }
+            $release = "true"
+            $version = $asked
+          } else {
+            $version = "$inside-$($env:GITHUB_SHA.Substring(0,7))"
+          }
+          $safe = $version -replace '[^A-Za-z0-9._-]', '-'
+          "version=$safe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "release=$release" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Version $version, release: $release"
 
       - name: Install dependencies
         run: |
@@ -58,25 +96,14 @@ jobs:
       - name: Build the executable
         run: python build.py
 
-      - name: Work out the version label
-        id: label
-        shell: pwsh
-        run: |
-          $ref = "${{ github.ref_name }}"
-          # A tag pushed as v0.1.0 becomes 0.1.0; anything else uses the commit.
-          if ("${{ github.ref_type }}" -eq "tag") {
-            $version = $ref -replace '^v', ''
-          } else {
-            $version = "$ref-$($env:GITHUB_SHA.Substring(0,7))"
-          }
-          $safe = $version -replace '[^A-Za-z0-9._-]', '-'
-          "version=$safe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-
       - name: Zip it up
         shell: pwsh
         run: |
+          # build.py names the folder after the version: "LID DB Mod Manager 0.11.0".
+          $folder = Get-ChildItem dist -Directory | Where-Object Name -like "LID DB Mod Manager*" | Select-Object -First 1
+          if (-not $folder) { Write-Error "build.py left no program folder in dist"; exit 1 }
           $name = "LID-DB-Mod-Manager-${{ steps.label.outputs.version }}-win64.zip"
-          Compress-Archive -Path "dist/LID DB Mod Manager" -DestinationPath $name
+          Compress-Archive -Path $folder.FullName -DestinationPath $name
           "ZIP_NAME=$name" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Get-Item $name | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
 
@@ -104,12 +131,16 @@ jobs:
           if-no-files-found: error
 
       - name: Publish a Release
-        # Only for tags, so ordinary pushes never create releases.
-        if: github.ref_type == 'tag'
+        # Only when asked for, so ordinary pushes never create releases.
+        if: steps.label.outputs.release == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $version = "${{ steps.label.outputs.version }}"
+          # The tag the updater reads the version from, and the title players see.
+          $tag = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "Release_Beta_V$version" }
+          $title = "Beta V$version"
           # The notes as written, plus the hash of the file actually published.
           # Built here rather than kept in the repo: every build has its own.
           $notes = "release-notes-published.md"
@@ -139,4 +170,5 @@ jobs:
             "avoids the most common false positive._"
           )
           Add-Content -Path $notes -Value $lines -Encoding utf8
-          gh release create "${{ github.ref_name }}" "$env:ZIP_NAME" --title "${{ github.ref_name }}" --notes-file $notes
+          # --target tags the commit this build came from when the tag is new.
+          gh release create $tag "$env:ZIP_NAME" --title $title --notes-file $notes --target $env:GITHUB_SHA

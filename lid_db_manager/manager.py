@@ -89,6 +89,9 @@ class Manager:
         self.paths = (paths or AppPaths.default()).ensure()
         self.log = SessionLog(self.paths.logs_dir, echo=echo_log)
         rotate_logs(self.paths.logs_dir)
+        # A copy opened for the first time may be a new release replacing an
+        # older one; the window offers to bring that one's history over.
+        self.started_fresh = not self.paths.state_file.is_file()
         self.state = State.load(self.paths.state_file)
         self.scan = ScanResult()
         self.watcher = DbWatcher(

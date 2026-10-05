@@ -7,8 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction, QGuiApplication
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -31,6 +31,9 @@ from PySide6.QtWidgets import (
 
 from .. import APP_NAME, DB_FILENAME, DEFAULT_DB_HINT, __version__, steam_locate
 from .. import browse
+from .. import carry_over
+from .. import clean_db_download
+from .. import self_update
 from ..browse import SORT_LABELS, SORT_ORDER
 from ..textsize import DEFAULT_SCALE, SCALE_PRESETS, clamp_scale, stepped
 from .. import backup as backup_module
@@ -59,6 +62,12 @@ from .theme import apply_theme, colors
 from .workers import TaskThread, WatchThread
 
 ORDER_HINT = "Load order: top applies first, bottom wins"
+# A window opened in place of another (after bringing an older copy over) has
+# no other Python reference holding it; without one it would be collected.
+_OPEN_WINDOWS: list = []
+# The check at start runs on a thread of its own, owned by nobody so closing
+# the window never destroys it mid-request; it is kept here until it ends.
+_UPDATE_CHECKS: list = []
 
 
 class MainWindow(QMainWindow):
@@ -68,6 +77,9 @@ class MainWindow(QMainWindow):
         self.dark = manager.state.settings.dark_mode
         self.task: TaskThread | None = None
         self.unsaved = False
+        # A new player's answer to where the clean copy comes from, until the
+        # game's database has been found and it can be acted on.
+        self._clean_source = ""
 
         self.setWindowTitle(f"{APP_NAME} {__version__}")
         self.resize(1180, 780)
@@ -95,6 +107,8 @@ class MainWindow(QMainWindow):
         self._first_run.setSingleShot(True)
         self._first_run.timeout.connect(self._first_run_checks)
         self._first_run.start(0)
+        if manager.state.settings.check_for_updates:
+            self._later(lambda: self.check_for_updates(quiet=True))
 
     # -- construction ------------------------------------------------------
 
@@ -354,6 +368,9 @@ class MainWindow(QMainWindow):
             tools, "Scan my database for mods already in it...", self.scan_for_existing_mods
         )
         self._add_action(tools, "Clean database to compare against...", self.choose_vanilla)
+        self._add_action(
+            tools, "Download a clean database...", lambda: self.download_clean_copy()
+        )
 
         tools.addSection("Your game folder")
         self._add_action(tools, "Set item artwork folder...", self.set_icon_folder)
@@ -363,6 +380,12 @@ class MainWindow(QMainWindow):
         tools.addSection("Putting things back")
         self._add_action(tools, "Restore game files...", self.restore_game_files)
         self._add_action(tools, "Restore a backup...", self.restore_backup)
+
+        tools.addSection("Updating")
+        self._add_action(tools, "Check for updates...", self.check_for_updates)
+        self._add_action(
+            tools, "Bring over from your old version...", self.bring_over_old_version
+        )
 
         view = self.menuBar().addMenu("&View")
         view.addSection("Text size")
@@ -390,6 +413,13 @@ class MainWindow(QMainWindow):
         self._refresh_text_size_menu()
 
         help_menu = self.menuBar().addMenu("&Help")
+        self._add_action(help_menu, "Check for updates...", self.check_for_updates)
+        self.update_at_start_action = QAction("Check for updates when it starts", self)
+        self.update_at_start_action.setCheckable(True)
+        self.update_at_start_action.setChecked(self.manager.state.settings.check_for_updates)
+        self.update_at_start_action.toggled.connect(self._on_update_at_start_toggled)
+        help_menu.addAction(self.update_at_start_action)
+        help_menu.addSeparator()
         self._add_action(help_menu, "About", self.about)
 
     def _add_action(self, menu, text: str, slot, shortcut: str = "") -> QAction:
@@ -1232,7 +1262,9 @@ class MainWindow(QMainWindow):
     ACCEPTED_SUFFIXES = (".sql", ".zip", ".db", ".sqlite", ".sqlite3")
 
     def _droppable(self, path: Path) -> bool:
-        return path.is_dir() or path.suffix.lower() in self.ACCEPTED_SUFFIXES
+        # An older copy's .exe counts too: dropping it brings that copy over.
+        return (path.is_dir() or path.suffix.lower() in self.ACCEPTED_SUFFIXES
+                or path.name.lower() == carry_over.EXE_NAME.lower())
 
     def dragEnterEvent(self, event) -> None:
         data = event.mimeData()
@@ -1248,10 +1280,18 @@ class MainWindow(QMainWindow):
     def dropEvent(self, event) -> None:
         paths = [Path(u.toLocalFile()) for u in event.mimeData().urls() if u.isLocalFile()]
         event.acceptProposedAction()
+        # An older copy of the manager is not a mod: dropping one brings its
+        # mods and history over. Anything else dropped with it installs as usual.
+        old_copies = [p for p in paths if carry_over.find_install(p) is not None]
         # Get out of the drop handler before opening a modal dialog - Qt is
         # still holding the drag when this returns.
-        self._install_queue.extend(p for p in paths if self._droppable(p))
-        QTimer.singleShot(0, self._drain_install_queue)
+        self._install_queue.extend(
+            p for p in paths if self._droppable(p) and p not in old_copies
+        )
+        if old_copies:
+            self._later(lambda: self._carry_over_from(old_copies[0]))
+        else:
+            QTimer.singleShot(0, self._drain_install_queue)
 
     def add_mod_from_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -1614,7 +1654,202 @@ class MainWindow(QMainWindow):
 
     # -- first run ---------------------------------------------------------
 
-    def _first_run_checks(self) -> None:
+    # -- bringing an older copy over ---------------------------------------
+
+    def bring_over_old_version(self) -> None:
+        """Tools entry: pick the folder of an older copy of the manager."""
+        path = QFileDialog.getExistingDirectory(
+            self, f"Choose the folder of your old {APP_NAME}",
+            str(self.manager.paths.root.parent),
+        )
+        if path:
+            self._carry_over_from(Path(path))
+
+    def _offer_carry_over(self) -> bool:
+        """First start of this copy: is it replacing an older one?
+
+        Returns True once a copy has started, so the caller can stop there.
+        """
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(f"Welcome to {APP_NAME} {__version__}")
+        box.setText(f"Are you new to {APP_NAME}, or updating from an older version?")
+        box.setInformativeText(
+            "<b>Updating:</b> pick your old copy's folder, and this copy brings over "
+            "its mods, settings, load order and the record of what each mod changed, "
+            "so nothing has to be switched off and on again. The old folder is not "
+            "changed.<br><br>"
+            "<b>New:</b> you are asked where the game's database is."
+        )
+        updating = box.addButton("I'm updating", QMessageBox.ButtonRole.AcceptRole)
+        new = box.addButton("I'm new", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(new)
+        box.exec()
+        if box.clickedButton() is not updating:
+            self._clean_source = self._ask_clean_source()
+            return False
+        path = QFileDialog.getExistingDirectory(
+            self, f"Choose the folder of your old {APP_NAME}",
+            str(self.manager.paths.root.parent),
+        )
+        if path:
+            return self._carry_over_from(Path(path), from_first_run=True)
+        return False
+
+    def _ask_clean_source(self) -> str:
+        """New player: where the clean copy of their game build should come
+        from. Returns "download" or "mine"; acted on once the game's database
+        has been found, since that says which build it has to be."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(f"A clean {DB_FILENAME}")
+        box.setText(f"Download a clean {DB_FILENAME} from the {APP_NAME} GitHub page, "
+                    "or use the one in your game files?")
+        box.setInformativeText(
+            f"The manager compares your game's {DB_FILENAME} with an untouched copy of "
+            "the same game build. That is how it knows which mods are already in it "
+            "and what each mod changes.<br><br>"
+            "<b>Download from GitHub</b> (recommended) - an untouched copy for your "
+            "game build, about 57 MB. Right even if your game already has mods in it."
+            "<br><br>"
+            "<b>Use my game files</b> - keep the one in your game folder as the clean "
+            "copy. Only if you have never modded the game, or have just verified its "
+            "files in Steam."
+        )
+        download = box.addButton("Download from GitHub", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Use my game files", QMessageBox.ButtonRole.ActionRole)
+        box.setDefaultButton(download)
+        box.exec()
+        return "download" if box.clickedButton() is download else "mine"
+
+    def _carry_over_from(self, path: Path, *, from_first_run: bool = False) -> bool:
+        """Check, confirm, then copy in the background. True once copying starts."""
+        if self.task is not None and self.task.isRunning():
+            QMessageBox.information(self, "Busy", "Wait for the current job to finish first.")
+            return False
+        old = carry_over.find_install(path)
+        if old is None:
+            QMessageBox.warning(
+                self, "Not a copy of the manager",
+                f"{path} does not look like a copy of {APP_NAME}: there is no "
+                f"state.json beside a {carry_over.EXE_NAME} in it.\n\n"
+                f"Pick the folder that holds the old {carry_over.EXE_NAME}.",
+            )
+            return False
+        try:
+            plan = carry_over.plan(
+                old, self.manager.paths, has_applied_here=bool(self.manager.state.applied)
+            )
+        except carry_over.CarryOverError as exc:
+            QMessageBox.warning(self, "Cannot bring that copy over", str(exc))
+            return False
+        if not self._confirm_carry_over(plan):
+            return False
+
+        # From here this window's state is about to be replaced; nothing it
+        # saves later may land on top of the copy.
+        self.manager.state.read_only = True
+
+        def work():
+            try:
+                return carry_over.carry_over(plan)
+            except carry_over.CarryOverError as exc:
+                return exc
+
+        self._run(
+            work,
+            lambda result: self._after_carry_over(result, from_first_run),
+            message="Bringing your old copy over...",
+        )
+        return True
+
+    def _confirm_carry_over(self, plan: carry_over.CarryOverPlan) -> bool:
+        old = plan.old
+        lines = [
+            f"<b>{_mods_applied(len(old.applied)).capitalize()}</b>, "
+            "with their settings and load order",
+            "the record of what each one changed, so they can still be undone",
+        ]
+        if "backups" in plan.data_dirs:
+            lines.append("its backups, including the stock copies of any game files "
+                         "its mods changed")
+        if plan.own_mods:
+            lines.append("mods you added yourself: " + ", ".join(plan.own_mods))
+        if plan.vanilla_files:
+            lines.append(f"{len(plan.vanilla_files)} clean database file(s) you added")
+        kept = ""
+        if plan.shipped_mods:
+            kept = ("<br><br>The mods that come with the manager keep this version's "
+                    "copies, which may be newer. Click <b>Save Mod List</b> once "
+                    "afterwards and any that changed are swapped over for you.")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Bring the old copy over?")
+        box.setText(f"Bring over from <code>{old.root}</code>?")
+        box.setInformativeText(
+            "This comes over:<ul>" + "".join(f"<li>{line}</li>" for line in lines)
+            + "</ul>" + kept
+            + "<br><br>If the old copy is open, close it first. Its folder is only "
+            "read, never changed."
+        )
+        go = box.addButton("Bring it over", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        return box.clickedButton() is go
+
+    def _after_carry_over(self, result, from_first_run: bool) -> None:
+        if not isinstance(result, carry_over.CarryOverReport):
+            self.manager.state.read_only = False
+            QMessageBox.warning(
+                self, "Not brought over",
+                (str(result) if result else "The copy did not finish.")
+                + "\n\nThis copy is as it was before.",
+            )
+            if from_first_run:
+                self._later(lambda: self._first_run_checks(offer_carry_over=False))
+            return
+        plan = result.plan
+        self.manager.log.info(
+            f"Brought over {plan.old.root}: {len(plan.old.applied)} applied mod(s), "
+            f"{len(plan.own_mods)} of your own, {result.files_copied} file(s)"
+        )
+        QMessageBox.information(
+            self, "Brought over",
+            f"Your old copy's mods and history are now in this one.\n\n"
+            "Click Save Mod List once: any mod that this version updated is swapped "
+            "for its new version. Once you are happy, the old folder can be deleted.",
+        )
+        # After _finish is done with this window, open a new one on the copied
+        # state and close this one.
+        self._later(self._reopen)
+
+    def _reopen(self) -> None:
+        manager = Manager(self.manager.paths)
+        app = QApplication.instance()
+        apply_theme(app, manager.state.settings.dark_mode, manager.state.settings.text_scale)
+        window = MainWindow(manager)
+        _OPEN_WINDOWS.append(window)
+        window.show()
+        self.close()
+
+    def _later(self, action) -> None:
+        """Run ``action`` once control is back in the event loop.
+
+        A timer parented to the window, not QTimer.singleShot with a bound
+        method: that one outlives the window and fires on a dead object.
+        """
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(action)
+        timer.timeout.connect(timer.deleteLater)
+        timer.start(0)
+
+    def _first_run_checks(self, *, offer_carry_over: bool = True) -> None:
+        fresh = self.manager.started_fresh and not self.manager.state.db_path
+        if offer_carry_over and fresh and self._offer_carry_over():
+            # The copy runs in the background and opens a new window when it is
+            # done, which makes its own checks; this one has nothing left to do.
+            return
         if not self.manager.db_path or not self.manager.db_path.is_file():
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Information)
@@ -1622,42 +1857,67 @@ class MainWindow(QMainWindow):
             box.setText(f"{APP_NAME} needs to know where {DB_FILENAME} lives.")
             hint, found = self._database_hint()
             where = "Found your game here:" if found else "It is usually under:"
-            builds = self.manager.vanilla_builds()
-            if builds:
-                # Clean copies ship with the manager, so the file being picked
-                # no longer has to be a clean one - that is the whole point of
-                # the scan that follows.
-                box.setInformativeText(
-                    "<b>Any copy will do — modded or not.</b><br><br>"
-                    "This build carries clean copies of the game's database "
-                    f"({len(builds)} of them), so yours is compared against the one "
-                    "matching your game build. If it turns out to have mods in it "
-                    "already, you are shown what they are and asked what to keep.<br><br>"
-                    f"{where}<br><code>{hint}</code>"
-                )
+            # A clean copy of the player's build comes from the manager's GitHub
+            # page if there is not one here already, so the file picked no
+            # longer has to be clean - that is the point of the scan that follows.
+            source = getattr(self, "_clean_source", "")
+            if source == "mine":
+                about = ("Pick the one in your game folder. It is kept as the clean "
+                         "copy for your game build.")
             else:
-                box.setInformativeText(
-                    "<b>Use a clean, unmodified copy.</b><br><br>"
-                    "The moment you pick it, this tool keeps a copy as "
-                    f"<code>{DB_FILENAME}{ORIGINAL_SUFFIX}</code> and never overwrites it "
-                    "again — that is your permanent way back to vanilla. If the file "
-                    "has already been edited by hand or by another tool, that "
-                    "\"original\" is a copy of the edited version, and no amount of "
-                    "reverting will get you back to stock.<br><br>"
-                    "If you are not sure yours is clean, replace it <i>before</i> pointing "
-                    "this tool at it: delete it and let Steam re-download it "
-                    "(Properties &gt; Installed Files &gt; Verify integrity of game files). "
-                    "Doing that afterwards means downloading it all over again.<br><br>"
-                    f"{where}<br><code>{hint}</code>"
+                fetched = ("it is downloaded" if source == "download"
+                           else "you are offered a download of it")
+                about = (
+                    "<b>Any copy will do — modded or not.</b><br><br>"
+                    "Yours is compared against a clean copy of the same game build. If "
+                    f"there is not one here yet, {fetched} (about 57 MB) from the "
+                    "manager's GitHub page. If your file turns out to have mods in it "
+                    "already, you are shown what they are and asked what to keep."
                 )
+            box.setInformativeText(f"{about}<br><br>{where}<br><code>{hint}</code>")
             box.exec()
             self.choose_database()
         self._offer_to_revert_deleted_mods()
         self._validate_quietly()
-        self._offer_clean_copy()
-        self._offer_adoption()
+        source, self._clean_source = getattr(self, "_clean_source", ""), ""
+        if source and self._clean_copy_from(source):
+            return
+        if not self._offer_clean_copy():
+            self._offer_adoption()
 
-    def _offer_clean_copy(self) -> None:
+    def _clean_copy_from(self, source: str) -> bool:
+        """Carry out a new player's answer to _ask_clean_source. Returns True
+        when it has dealt with the clean copy and what follows it; False
+        leaves them to the usual offer."""
+        manager = self.manager
+        if not manager.db_path or not manager.db_path.is_file():
+            return False
+        if manager.chosen_vanilla() is not None:
+            return False        # one is here already; nothing to fetch or keep
+        version = vanilla_library.database_version(manager.db_path)
+        if not version:
+            return False
+        if version not in manager.state.clean_copy_asked:
+            manager.state.clean_copy_asked.append(version)
+            manager.state.save()
+        if source == "download":
+            self.download_clean_copy(version, then=self._offer_adoption)
+            return True
+        kept = manager.keep_as_clean_copy()
+        if not kept.ok:
+            QMessageBox.warning(self, "Not kept", kept.reason)
+            return False
+        self.statusBar().showMessage(
+            f"Kept your {DB_FILENAME} as the clean copy for build {kept.label}", 8000
+        )
+        # Measured against itself it can only look unmodded, so the scan for
+        # mods already in it has nothing to say.
+        manager.state.adoption_offered = True
+        manager.state.save()
+        self.refresh()
+        return True
+
+    def _offer_clean_copy(self) -> bool:
         """No clean copy for this build: ask whether this file is one.
 
         After a game update the manager normally keeps the game's own database
@@ -1665,48 +1925,58 @@ class MainWindow(QMainWindow):
         written it and nothing had touched it since. When it cannot tell, the
         player can: they know whether they have modded this file yet. Asked
         once per build - saying no is remembered.
+
+        Returns True when a download has started; what comes after the clean
+        copy (the scan for mods already in the file) then runs when it lands.
         """
         manager = self.manager
         if not manager.db_path or not manager.db_path.is_file():
-            return
+            return False
         if manager.chosen_vanilla() is not None:
-            return
+            return False
         version = vanilla_library.database_version(manager.db_path)
         if not version or version in manager.state.clean_copy_asked:
-            return
+            return False
         result = manager.capture_clean_copy()
         if result.ok:
             self.statusBar().showMessage(
                 f"Kept your masters.db as the clean copy for build {result.label}", 8000
             )
             self.refresh()
-            return
+            return False
 
         manager.state.clean_copy_asked.append(version)
         manager.state.save()
-        detail = f"\n\nWhat it found: {result.reason}." if result.reason else ""
-        answer = QMessageBox.question(
-            self,
-            "A game build I have no clean copy of",
-            f"Your database says it is game build {version}, and no clean copy of that "
-            "build ships with the manager. Without one, nothing can be compared: which "
-            "mods are already in your file, and what a mod actually changes, both need "
-            f"an untouched copy of the same build.{detail}\n\n"
-            "Is this file a fresh, unmodded masters.db — the one the game update just "
-            "put there, with no mods applied to it yet?\n\n"
-            "Yes  - keep it as the clean copy for this build.\n"
-            "No   - leave it alone. Nothing is compared until a clean copy turns up.\n\n"
-            "If you are not sure, say No. Steam's Verify integrity of game files puts "
-            "an untouched copy back, and then this can be answered with Yes.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+        detail = f"<br><br>What it found: {result.reason}." if result.reason else ""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("No clean copy of your game build yet")
+        box.setText(f"Your database is game build <b>{version}</b>, and there is no clean "
+                    "copy of that build here yet.")
+        box.setInformativeText(
+            "Without one, nothing can be compared: which mods are already in your file, "
+            "and what a mod actually changes, both need an untouched copy of the same "
+            f"build.{detail}<br><br>"
+            "<b>Download it</b> - fetch it from the manager's GitHub page (about 57 MB). "
+            "Nothing else is sent or received.<br>"
+            "<b>Mine is clean</b> - your masters.db is the one the game update just put "
+            "there, with no mods in it yet: keep that.<br>"
+            "<b>Not now</b> - both can be done later from the Tools menu."
         )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
+        download = box.addButton("Download it", QMessageBox.ButtonRole.AcceptRole)
+        mine = box.addButton("Mine is clean", QMessageBox.ButtonRole.ActionRole)
+        box.addButton("Not now", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(download)
+        box.exec()
+        if box.clickedButton() is download:
+            self.download_clean_copy(version, then=self._offer_adoption)
+            return True
+        if box.clickedButton() is not mine:
+            return False
         kept = manager.keep_as_clean_copy()
         if not kept.ok:
             QMessageBox.warning(self, "Not kept", kept.reason)
-            return
+            return False
         QMessageBox.information(
             self,
             "Kept",
@@ -1715,6 +1985,219 @@ class MainWindow(QMainWindow):
             "back to how it was.",
         )
         self.refresh()
+        return False
+
+    # -- clean databases from GitHub ----------------------------------------
+
+    def download_clean_copy(self, version: str | None = None, then=None) -> None:
+        """Fetch a clean masters.db from the manager's GitHub page.
+
+        With ``version``, that build; without, the player picks from what is
+        on offer. ``then`` runs once a copy has been kept.
+        """
+        def fetch():
+            try:
+                return clean_db_download.fetch_index()
+            except clean_db_download.DownloadError as exc:
+                return exc
+
+        self._run(fetch, lambda result: self._after_index(result, version, then),
+                  message="Asking GitHub which clean databases there are...")
+
+    def _after_index(self, result, version: str | None, then) -> None:
+        if isinstance(result, clean_db_download.DownloadError):
+            QMessageBox.warning(self, "No download", str(result))
+            return
+        if version is not None:
+            build = clean_db_download.find(result, version)
+            if build is None:
+                QMessageBox.information(
+                    self, "Not up yet",
+                    f"There is no clean copy of build {version} on the manager's GitHub "
+                    "page yet. It goes up after each game update - try again in a while.",
+                )
+                return
+        else:
+            have = {clean_db_download.label_for(b.version) if b.version else b.label
+                    for b in self.manager.vanilla_builds()}
+            offered = [b for b in result if b.label not in have]
+            if not offered:
+                QMessageBox.information(
+                    self, "Nothing new",
+                    "You already have every clean database the manager's GitHub page has.",
+                )
+                return
+            db_path = self.manager.db_path
+            mine = (vanilla_library.database_version(db_path)
+                    if db_path and db_path.is_file() else "")
+            mine = clean_db_download.label_for(mine) if mine else ""
+            labels = [f"{b.label}  ({b.size / 1e6:.0f} MB)"
+                      + ("  - your game" if b.label == mine else "") for b in offered]
+            current = next((i for i, b in enumerate(offered) if b.label == mine), 0)
+            picked, ok = QInputDialog.getItem(
+                self, "Download a clean database", "Game build:", labels, current, False
+            )
+            if not ok:
+                return
+            build = offered[labels.index(picked)]
+
+        def fetch(progress):
+            try:
+                return clean_db_download.download(
+                    build, self.manager.paths.root, progress, version=version or ""
+                )
+            except clean_db_download.DownloadError as exc:
+                return exc
+
+        self._run(fetch, lambda kept: self._after_download(kept, build, then),
+                  message=f"Downloading the clean database for build {build.label}...",
+                  progress=True)
+
+    def _after_download(self, kept, build, then) -> None:
+        if isinstance(kept, clean_db_download.DownloadError):
+            QMessageBox.warning(self, "Not downloaded", str(kept))
+            return
+        self.manager.log.info(f"Downloaded the clean database for build {build.label} to {kept}")
+        self.statusBar().showMessage(
+            f"Downloaded the clean database for build {build.label}", 8000
+        )
+        self.refresh()
+        if then is not None:
+            self._later(then)
+
+    # -- updating the program ----------------------------------------------
+
+    def _on_update_at_start_toggled(self, enabled: bool) -> None:
+        self.manager.state.settings.check_for_updates = enabled
+        self.manager.state.save()
+
+    def check_for_updates(self, quiet: bool = False) -> None:
+        """Ask the manager's GitHub page whether there is a newer version.
+
+        ``quiet`` is the check at start: it says nothing unless there is one
+        the player has not skipped, and stays out of the way of other work.
+        """
+        def ask():
+            try:
+                return self_update.check()
+            except self_update.UpdateError as exc:
+                return exc
+
+        if not quiet:
+            self._run(ask, lambda result: self._after_update_check(result, quiet=False),
+                      message="Asking GitHub for the newest version...")
+            return
+        thread = TaskThread(ask)
+        _UPDATE_CHECKS.append(thread)
+        # A bound method, so Qt drops the call if this window has gone.
+        thread.succeeded.connect(self._after_quiet_update_check)
+        thread.finished.connect(lambda: _UPDATE_CHECKS.remove(thread))
+        thread.start()
+
+    def _after_quiet_update_check(self, result) -> None:
+        self._after_update_check(result, quiet=True)
+
+    def _after_update_check(self, result, quiet: bool) -> None:
+        if isinstance(result, self_update.UpdateError):
+            self.manager.log.info(f"Could not check for updates: {result}")
+            if not quiet:
+                QMessageBox.warning(self, "Could not check for updates", str(result))
+            return
+        release = result
+        if not release.is_newer_than(__version__):
+            if not quiet:
+                QMessageBox.information(
+                    self, "Up to date", f"You have the newest version, {__version__}."
+                )
+            return
+        if quiet and self.manager.state.settings.skipped_update == release.version:
+            return
+        self.manager.log.info(f"{APP_NAME} {release.version} is out (this is {__version__})")
+
+        reason = self_update.why_not_here()
+        if not reason and release.asset is None:
+            reason = "That release has no download the program can check for itself."
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle("Update available")
+        box.setText(f"<b>{APP_NAME} {release.version}</b> is out. You have {__version__}.")
+        if reason:
+            box.setInformativeText(
+                f"{reason}<br><br>Download it from the release page, unpack it, and "
+                "answer <b>I'm updating</b> when the new copy first starts."
+            )
+        else:
+            box.setInformativeText(
+                f"<b>Update now</b> downloads it from the manager's GitHub page "
+                f"({release.asset.size / 1e6:.0f} MB), checks it against the SHA-256 "
+                f"GitHub lists for it, and restarts the program as {release.version}."
+                "<br><br>It stays in this folder, so your shortcuts keep working, and "
+                "your mods, settings, snapshots and backups stay as they are."
+            )
+        if release.notes:
+            box.setDetailedText(release.notes)
+        update = None if reason else box.addButton(
+            "Update now", QMessageBox.ButtonRole.AcceptRole
+        )
+        page = box.addButton("Open the release page", QMessageBox.ButtonRole.ActionRole)
+        skip = box.addButton(
+            "Skip this version", QMessageBox.ButtonRole.DestructiveRole
+        ) if quiet else None
+        later = box.addButton("Not now", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(update or page)
+        box.setEscapeButton(later)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is page:
+            QDesktopServices.openUrl(QUrl(release.page))
+        elif skip is not None and clicked is skip:
+            self.manager.state.settings.skipped_update = release.version
+            self.manager.state.save()
+        elif update is not None and clicked is update:
+            self.update_now(release)
+
+    def update_now(self, release) -> None:
+        folder, exe = self_update.program_dir(), self_update.exe_name()
+
+        def fetch(progress):
+            try:
+                return self_update.fetch(release, folder, exe, progress)
+            except self_update.UpdateError as exc:
+                return exc
+
+        self._run(fetch, lambda result: self._after_update_fetch(result, release, folder, exe),
+                  message=f"Downloading {APP_NAME} {release.version}...", progress=True)
+
+    def _after_update_fetch(self, result, release, folder: Path, exe: str) -> None:
+        if isinstance(result, self_update.UpdateError):
+            QMessageBox.warning(self, "Not updated", str(result))
+            return
+        self.manager.state.save()
+        try:
+            self_update.hand_over(result, exe, folder)
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "Not updated",
+                f"{APP_NAME} {release.version} was downloaded to <code>{result}</code> but "
+                f"could not be started ({exc}). Security software may have stopped it. "
+                "Nothing was changed.",
+            )
+            return
+        self.manager.log.info(f"Updating to {release.version}; handed over to {result}")
+        # From here the new copy owns the folder: nothing more is written.
+        self.manager.state.read_only = True
+        self._later(_quit_for_update)
+
+    def updated_from(self, old: str) -> None:
+        """Just restarted by an update."""
+        text = f"Updated to {__version__}" + (f" from {old}" if old else "")
+        self.manager.log.info(text)
+        self.statusBar().showMessage(text, 15000)
+        self._later(lambda: QMessageBox.information(
+            self, "Updated",
+            f"{text}.<br><br>If any mods that come with the program changed, click "
+            "<b>Save Mod List</b> once to swap them for their new versions.",
+        ))
 
     def _offer_adoption(self) -> None:
         """First run: if their database is already modded, say so and offer to
@@ -1745,9 +2228,10 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "No clean database",
-                "No clean copy of masters.db ships with this build, and none was found "
-                f"in {self.manager.paths.vanilla_dir}.\n\n"
-                "Put one in a folder named after its game build, like\n"
+                f"There is no clean copy of masters.db in {self.manager.paths.vanilla_dir} "
+                "yet.\n\n"
+                "Tools > Download a clean database fetches the one for your game build. "
+                "Or put one there yourself, in a folder named after its game build, like\n"
                 f"{self.manager.paths.vanilla_dir / '5.0.3.0' / DB_FILENAME}",
             )
             return
@@ -1917,7 +2401,8 @@ class MainWindow(QMainWindow):
             f"Mods: <code>{self.manager.paths.mods_dir}</code><br>"
             f"Logs: <code>{self.manager.paths.logs_dir}</code><br>"
             f"Backups: <code>{self.manager.paths.backups_dir}</code><br><br>"
-            "Offline tool. It makes no network calls.",
+            "It goes online only when you ask it to: to download a clean database, "
+            "or to check its GitHub page for a newer version (Help menu).",
         )
 
     # -- shutdown ----------------------------------------------------------
@@ -1929,6 +2414,17 @@ class MainWindow(QMainWindow):
             self.task.wait(5000)
         self.manager.state.save()
         super().closeEvent(event)
+
+
+def _quit_for_update() -> None:
+    QApplication.closeAllWindows()
+    QApplication.quit()
+
+
+def _mods_applied(count: int) -> str:
+    if count == 0:
+        return "no mods applied"
+    return f"{count} mod{'' if count == 1 else 's'} applied"
 
 
 def _open_folder(path: Path) -> None:

@@ -335,7 +335,9 @@ class StrippingTheKeptEdits(unittest.TestCase):
         mods = self.manager.install_database(
             self.candidate, f"Round trip {strip}", selection=self.real_only,
             strip_carriage_returns=strip)
-        return "".join(p.read_text(encoding="utf-8", newline="")
+        # Read with newlines left alone, so a stray \r is seen. (Not
+        # Path.read_text(newline=...): that only exists from Python 3.13.)
+        return "".join(p.read_bytes().decode("utf-8")
                        for mod in mods for p in mod.folder.rglob("*.sql"))
 
     def test_installing_with_the_box_ticked_writes_none(self) -> None:

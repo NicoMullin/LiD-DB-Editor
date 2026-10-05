@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build a standalone Windows .exe with PyInstaller.
 
-    python build.py              -> dist/LID DB Mod Manager/   (recommended)
+    python build.py              -> dist/LID DB Mod Manager 0.11.0/   (recommended)
     python build.py --onefile    -> dist/LID DB Mod Manager.exe
 
 Run it with the same interpreter PySide6 is installed in.
@@ -173,15 +173,9 @@ def build(one_file: bool, icon: Path | None, keep_console: bool) -> Path:
     if recipes.is_dir():
         command += ["--add-data", f"{recipes}{os.pathsep}lid_db_manager/recipes"]
         print(f"Bundling {len(list(recipes.glob('*.sql')))} content-pack recipe(s)")
-    # The clean databases everything is measured against. Without one bundled,
-    # a first run has nothing to compare a player's masters.db with, so it
-    # cannot tell which mods are already in it - see vanilla_library.py.
-    vanilla = ROOT / "LiD Vanilla DB"
-    if vanilla.is_dir():
-        shipped = [p.name for p in sorted(vanilla.iterdir()) if (p / "masters.db").is_file()]
-        if shipped:
-            command += ["--add-data", f"{vanilla}{os.pathsep}LiD Vanilla DB"]
-            print(f"Bundling {len(shipped)} clean database(s): {', '.join(shipped)}")
+    # The clean databases are NOT bundled: they are the game's own data, 276 MB
+    # of it. The manager downloads the one for the player's build from the
+    # repository's own LiD Vanilla DB folder instead - see clean_db_download.py.
     command += ["--version-file", str(write_version_file(ROOT / "build"))]
     bootloader_note()
     if icon is not None:
@@ -285,29 +279,49 @@ def main() -> int:
         )
         return 2
 
+    # A folder build is named after its version - "LID DB Mod Manager 0.11.0" -
+    # so a release unzipped by hand lands beside the old one under its own
+    # name. (The in-app update swaps files inside the folder a player already
+    # has and keeps its name, so their shortcuts keep working - self_update.py.)
+    # Only the folder: the .exe keeps its name, which older copies look for.
+    from lid_db_manager import __version__
+    from lid_db_manager.self_update import folder_name
+
     # PyInstaller deletes its output folder, and for a --onedir build that is
     # also where the app keeps everything a player has done with it. Carry that
     # out of the way first and put it back afterwards; a rebuild is a developer
     # action and must not cost someone their installed mods, their mod list, or
-    # the only copies of the game files those mods replaced.
-    target_dir = ROOT / "dist" / APP_NAME
+    # the only copies of the game files those mods replaced. A rebuild of the
+    # same version takes it from that version's folder; the first build of a
+    # new one from PyInstaller's own, unversioned folder, which earlier builds
+    # used.
+    output_dir = ROOT / "dist" / APP_NAME
+    target_dir = ROOT / "dist" / folder_name(__version__)
     rescue = None
     saved: list[str] = []
-    if not args.onefile and target_dir.is_dir():
-        rescue = Path(tempfile.mkdtemp(prefix="lid-build-state-"))
-        saved = rescue_runtime_state(target_dir, rescue)
-        if saved:
-            print(f"Set aside {', '.join(saved)} so the rebuild does not destroy them")
+    if not args.onefile:
+        source = target_dir if target_dir.is_dir() else output_dir
+        if source.is_dir():
+            rescue = Path(tempfile.mkdtemp(prefix="lid-build-state-"))
+            saved = rescue_runtime_state(source, rescue)
+            if saved:
+                print(f"Set aside {', '.join(saved)} from {source.name} so the rebuild "
+                      "does not destroy them")
 
     result = build(args.onefile, args.icon, args.console)
-    if saved and rescue is not None:
-        target_dir.mkdir(parents=True, exist_ok=True)
-        restore_runtime_state(target_dir, rescue, saved)
-        shutil.rmtree(rescue, ignore_errors=True)
-        print(f"Put back {', '.join(saved)}")
     if not result.exists():
         print(f"Expected {result} but it is not there.", file=sys.stderr)
         return 1
+    if not args.onefile:
+        if target_dir.exists():
+            shutil.rmtree(target_dir)   # its state was set aside above
+        shutil.move(str(result), str(target_dir))
+        result = target_dir
+    if saved and rescue is not None:
+        result.mkdir(parents=True, exist_ok=True)
+        restore_runtime_state(result, rescue, saved)
+        shutil.rmtree(rescue, ignore_errors=True)
+        print(f"Put back {', '.join(saved)}")
 
     # For --onefile the exe stands alone, so mods/ goes beside it in dist/.
     stage_mods(result.parent if args.onefile else result)
