@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       release_version:
-        description: "Publish a release for this version (e.g. 0.11.0). Leave empty to only build."
+        description: "Publish a release for this version: 0.11.0 or Beta V0.11.0. Leave empty to only build."
         required: false
         default: ""
 
@@ -38,10 +38,10 @@ jobs:
 
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           # The interpreter the releases have been built with by hand.
           python-version: "3.13"
@@ -52,11 +52,19 @@ jobs:
         shell: pwsh
         run: |
           $inside = (Select-String -Path lid_db_manager/__init__.py -Pattern '^__version__ = "(.+)"').Matches[0].Groups[1].Value
-          $asked = "${{ github.event.inputs.release_version }}".Trim()
+          $typed = "${{ github.event.inputs.release_version }}".Trim()
+          if ("${{ github.ref_type }}" -eq "tag") { $typed = "${{ github.ref_name }}" }
           $release = "false"
-          if ("${{ github.ref_type }}" -eq "tag") {
-            # Release_Beta_V0.11.0 or v0.11.0 -> 0.11.0
-            $asked = "${{ github.ref_name }}" -replace '^(Release_Beta_V|v)', ''
+          $asked = ""
+          if ($typed) {
+            # However it was written - 0.11.0, Beta V0.11.0, v0.11.0,
+            # Release_Beta_V0.11.0 - the version is its numbers.
+            $found = [regex]::Match($typed, '\d+(\.\d+)+')
+            if (-not $found.Success) {
+              Write-Error "No version number in '$typed'. Type it like 0.11.0 or Beta V0.11.0."
+              exit 1
+            }
+            $asked = $found.Value
           }
           if ($asked) {
             if ($asked -ne $inside) {
@@ -124,7 +132,7 @@ jobs:
             Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Attach the zip to this run
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: LID-DB-Mod-Manager-${{ steps.label.outputs.version }}-win64
           path: ${{ env.ZIP_NAME }}
