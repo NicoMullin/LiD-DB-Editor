@@ -631,6 +631,7 @@ def _stage_transforms(
     manifest: dict[str, dict],
     staging: Path,
     progress: Progress | None = None,
+    log=None,
 ) -> tuple[list[tuple[str, Path, Path]], dict[str, Path]]:
     """Work out each transformed file's new contents, without writing to the game.
 
@@ -668,6 +669,28 @@ def _stage_transforms(
             (store / kept).unlink(missing_ok=True)
             manifest.pop(target, None)
             kept = None
+        elif kept and not _is_game_exe(target) and (store / kept).is_file():
+            # The same for a package, told apart by the hash the game lists for
+            # it: rebuilt from an older build's copy, the game would be running
+            # that build's package under this build's executable.
+            if exe_entries is _NOT_READ:
+                exe_entries = _exe_entries(game_root)
+            stock_sha1 = stock_hash_for(game_root, dest.name, entries=exe_entries)
+            if stock_sha1 is not None and _sha1(store / kept) != stock_sha1:
+                if _sha1(dest) != stock_sha1:
+                    raise OSError(
+                        f"{mod_id}: the copy of {dest.name} kept from before any mod changed it "
+                        "is from an older game build, and the one in the game folder has been "
+                        "changed, so there is no copy of this build's to rebuild from. Steam's "
+                        "\"Verify integrity of game files\" puts the game's own copy back. It "
+                        "also resets masters.db and the game .exe, so switch the file check "
+                        "back off and save your mod list again afterwards.")
+                (store / kept).unlink(missing_ok=True)
+                manifest.pop(target, None)
+                kept = None
+                if log:
+                    log.info(f"the kept copy of {target} was from an older game build; "
+                             "rebuilding from this build's")
         pristine = store / kept if kept else dest
         if not pristine.is_file():
             raise OSError(f"{mod_id}: the saved copy of {target} is missing")
@@ -1205,6 +1228,7 @@ def apply_asset_patches(
         staged_plan, stock_files = _stage_transforms(
             transforms, game_root, store, manifest, rollback_dir / "staged",
             progress.part(0.0, 0.8 if transforms else 0.0, "Rebuilding game packages..."),
+            log=log,
         )
         copying = progress.part(0.8 if transforms else 0.0, 1.0, "Copying game files...")
         for target, source, dest in staged_plan:

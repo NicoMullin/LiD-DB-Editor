@@ -71,13 +71,17 @@ program file is ever added to the game.
   only the values it genuinely changes are written — so a whole-table dump stops
   wiping out everything else, and re-applying it can never compound.
 
-It goes online only when you ask it to - to download a clean database, or to
-check its GitHub page for a newer version and update itself - and never to
+It goes online only when you ask it to - to download a clean database, to
+check its GitHub page for a newer version and update itself, or to get a mod
+that needs a plugin ([Get mods](#mods-that-need-a-plugin)) - and never to
 anywhere but GitHub. No telemetry, and no Steam integration. It writes the
 `masters.db` you point it at, plus any game files a mod ships — normally `.upk` files in `BrgGame\CookedPCConsole\`.
 
 **No mod can add a program file** (`.exe`, `.dll` and the like) anywhere, and no
-mod can change the game's code. Nothing that ships with the manager writes to
+mod can change the game's code. The one way a DLL gets into the game folder is
+the **Get mods** window, for KSFA's plugins, from their own GitHub releases,
+after it has shown you exactly what it will write -
+see [Mods that need a plugin](#mods-that-need-a-plugin). Nothing that ships with the manager writes to
 `BrgGame-Steam.exe` at all: a mod that replaces artwork the game checks is
 refused with an explanation instead. The machinery for changing one file hash
 inside the executable is still in the code — twenty bytes in a data table, no
@@ -430,14 +434,29 @@ backups are taken by **Save Mod List**. Re-apply, automatic or manual, never
 takes one — so an automatic re-apply can't quietly rotate your good backups
 away.
 
+## Starting a new game day
+
+The game does its once-a-day things - whatever refills or comes round each
+day - when it starts on a new game day, and its day turns at 10:00 UTC. Testing
+one of those otherwise means waiting for the reset or winding the PC clock,
+which upsets every other timer in the game.
+
+**Tools > Start a new game day...** sets the day your save last began back by
+one (`user.last_login_date`), so the next time the game starts it counts as a
+new day. That one number is changed where it stands; nothing else in the save
+moves. Every time, the save as it was is copied first to
+`backups\saves\<your Steam id>\` in the manager's folder, and the new file only
+replaces the save once it reads back right. Close the game first - the manager
+refuses while it runs, since the game writes its save on the way out.
+
 ## Mods included
 
-Eighteen, in `mods/`, each with its own `readme.md`: thirteen database tweaks of
-mine, one that changes a number inside a game package, one that writes a game
-config file, and three larger mods by S3er0i9ng included with their permission
-([below](#by-s3er0i9ng)).
+Twenty-three, in `mods/`, each with its own `readme.md`: twenty of mine -
+database tweaks, a few that change a game package or config file, and the
+larger restorations further down - and three larger mods by S3er0i9ng included
+with their permission ([below](#by-s3er0i9ng)).
 
-Every one of mine comes down to a number, and **the number is yours to choose**
+Most of mine come down to a number, and **the number is yours to choose**
 in the mod's **Configuration** tab — see
 [Choosing a mod's value](#choosing-a-mods-value). The defaults below are what you get if you never
 touch it.
@@ -507,13 +526,24 @@ load order, and still able to be switched off. The old folders are moved into
 
 ### Game rules
 
-| Mod           | What it does                                  | Default | You can choose |
-|---------------|-----------------------------------------------|---------|----------------|
-| `fall-damage` | Falls hurt this much of what they normally do | 0%      | 0% to 100%     |
+| Mod             | What it does                                                                         | Default | You can choose                          |
+|-----------------|--------------------------------------------------------------------------------------|---------|-----------------------------------------|
+| `fall-damage`   | Falls hurt this much of what they normally do                                        | 0%      | 0% to 100%                              |
+| `Golden Beasts` | Golden beasts turn up more often and on every floor, or nearly every beast is golden | x3      | x1 to x50; or nearly every beast golden |
 
 At 0% nobody takes fall damage, the same as everyone wearing Super Shock
 Absorber. Haters land by the same rules as your fighter, so it applies to them
 too.
+
+Which beast turns up on a floor is drawn from one of the game's beast spawn
+lists, each a few beasts with weights. Where golden beasts are in a list they
+are usually 1 to 6% of it, and twelve of the lists the floors use have none.
+`Golden Beasts` multiplies the golden ones' share and gives every list without
+one a golden twin of each beast at a twentieth of its odds, or hands nearly all
+of each beast's odds to its golden twin. Whatever the setting, each list adds up
+to the same total as before and every normal beast stays in at a weight of at
+least 1: the game crashes on the way into a floor if a list's weights add up to
+more than they did, or if a list has golden beasts but no normal ones left.
 
 ### Not in the database
 
@@ -548,27 +578,89 @@ they are the `dropdelay` and `drops` patches.
 
 ### Mushroom stew
 
-| Mod               | What it does                                                | Default | You can choose    |
-|-------------------|-------------------------------------------------------------|---------|-------------------|
-| `Stew Multi Pull` | Adds "Purchase xN" to the stew menu: N decal pulls in a row | 10      | 5, 10, 15, 20, 25 |
+**Stew Multi Pull** (Purchase x5 to x25 at the stew, every decal shown together
+at the end, the whole run paid for, drawn and saved in one request) has its own
+GitHub page now, with its plugin: see
+[Mods that need a plugin](#mods-that-need-a-plugin). The copy that came with
+0.12.5 and older still works on its own, one pull after another.
 
-Each decal gets its own result card. The stew animation plays once, for the
-first pull, and the closing animation once at the end. Every pull is the game's own single pull, so it costs the normal price (a
-`decal-draw-price` setting still applies), takes the next decal from the queue
-in your save, and is saved. If the Kill Coins run out, or a decal reaches 99,
-the pulls stop there with the game's own message. Plain Purchase and the
-bonus-box stews are unchanged.
+### The HUD
 
-It changes two functions of the stew menu in `BrgGame.upk`, so like
-`instant-drops` it needs the game's file check off for that package, and the
-two can be on together.
+| Mod            | What it does                                               | Default          | You can choose                        |
+|----------------|------------------------------------------------------------|------------------|---------------------------------------|
+| `Enemies Left` | Shows "Enemies left: 12 / 20" on the HUD while you explore | Top right, white | Where, size, colour, lining up, total |
+
+The numbers are the game's own: the living Haters and monsters it counts to
+decide a floor is cleared, and how many the floor started with. It shows only
+while the game shows its HUD, and never in the Waiting Room. Its place, size and
+colour are numbers in `masters.db` that the patch reads each frame, so changing them
+in Configuration needs no new patch. It changes one function, `BrgHUD.PostRender`,
+in `BrgGame.upk`, so it needs the game's file check off for that package.
+
+### Events and seasons
+
+| Part                      | What it does                                                          | Default            |
+|---------------------------|-----------------------------------------------------------------------|--------------------|
+| Hub festivals             | The Mushroom Club's festival look, Chokufunsha's lights, the TDM sign | All three on       |
+| Super Stew Festival       | A festival stew with ★★★★ and ★★★★★ odds boosted, for KC or DM        | On, 100,000 KC, 3x |
+| Fighter recovery discount | The recovery discount event                                           | Off                |
+| Chokufunsha sale          | Two sale weapons in the parts shop                                    | Off                |
+| Seasonal mushrooms        | One season's, or all four, in every month                             | The game's months  |
+| Collab Haters             | Travis Imposters, WarDogs or both on the Tower's floors               | Off                |
+| Weekly and season quests  | As online to 2033, a new draw every X days, or all on; pick which     | As online          |
+
+All of it is one mod, `Events and Seasons`, set part by part in
+Configuration. The online game switched these on and off from its server; the
+offline release still reads them from `masters.db` - the events from
+`master_event_schedule`, the stews by their dates - but every date there has
+run out. The mod writes its own rows, so nothing of the game's is redated.
+
+The festival stew draws from its own list of decals, so it needs the Stew
+Multi Pull plugin (`lid-stewpull.dll`, see
+[Mods that need a plugin](#mods-that-need-a-plugin)); paying in Death Metals
+also needs the `Death Metals` mod on. The WarDogs wear World of Tanks gear the PC release
+left out, so they need the Crossover Content pack. Seasonal mushrooms follow
+the PC's month in the game itself, so "all year" adds a season's mushrooms to
+the other months' spawn lists; the title screen and hub decorations still
+follow the month.
+
+The weekly and season quests are the game's own: every one that ran from 2019
+to January 2026, which come down to 43 quests repeated. They can run on the
+same calendar 365 weeks later, as a fresh random draw every few days, or all
+at once, and a window (Manager 0.12.2) picks which of the 43 can appear. A
+quest still needs its floor reached. The one-off event quests are not in yet:
+the game kept their names and rewards but not their targets.
+
+### The vending machine
+
+| Mod               | What it does                                       | Default                  | You can choose                                                                                      |
+|-------------------|----------------------------------------------------|--------------------------|-----------------------------------------------------------------------------------------------------|
+| `Vending Machine` | The online Buy tab back, or your own list of goods | As online, all 113 goods | As online or your own list; KC, DM or both; what it sells, each one's bundle, price and daily limit |
+
+Offline, the Waiting Room's vending machine sells only the seven things it
+always had. The online server sent the rest - a daily list of faction metals,
+materials and mushrooms, and weekly blueprints - and those lists were lost
+with it. The mod rebuilds them from the Let It Die wiki's Hernia page (as
+archived in 2023), at the online prices, which match the game's own. Online
+the machine drew 8 daily goods and 8 blueprints at random; offline the game
+has no random pick, so everything ticked is on sale every day. The machine
+restocks at the daily reset, so new goods show up the next game day (or after
+Tools > Start a new game day). Death Metal prices need the `Death Metals` mod.
+
+Or make it your own (Manager 0.12.4): **Your own list** sells only what you
+put on it - any consumable, material, blueprint or mushroom in your database,
+no weapons or armour - each with how many one purchase gives, Kill Coins or
+Death Metals, its price, and how many times a day it can be bought. The list
+starts as the online stock. The game only knows "once a day" or "no limit", so
+a good allowed more than once a day is put on the machine that many times.
+Switch the mod off for the machine exactly as the game has it.
 
 ### By S3er0i9ng
 
 | Mod                                  | What it does                                                                                  |
 |--------------------------------------|-----------------------------------------------------------------------------------------------|
 | `LET IT DIE Crossover Content v3.79` | Restores cut crossover gear: Mushroom Club decals, blueprint quests, and 287 artwork packages |
-| `Colored PlayStation Buttons v1.4`   | Colored PlayStation button prompts. Needs the game's file check off for that one package      |
+| `Colored PlayStation Buttons v1.5`   | Colored PlayStation button prompts. Needs the game's file check off for that one package      |
 | `Tower Static Radio`                 | A new radio station, Tower Static, on channel 501 with four tracks                            |
 
 All three are included with their author's permission; the originals are at
@@ -581,6 +673,41 @@ Nitro Boost, used to show a "both write table" warning. It no longer does: they
 share a table but never the same box — the pack switches hidden gear on and adds
 new rows, while those mods change other columns of other rows. See
 [Only the same box is reported](#only-the-same-box-is-reported).
+
+## Mods that need a plugin
+
+Some mods need a **plugin**: a DLL the game loads through the
+[LiD Plugin Loader](https://github.com/NicoMullin/LiD-Plugin-Loader) (a small
+`dinput8.dll` next to the game, which loads every DLL in
+`Binaries\Win64\lid-plugins`). Those do not come with the manager. Each has
+its own GitHub page, where GitHub builds and tests every release:
+
+| Mod                    | Repository                                                                             | What it does                                                                              |
+|------------------------|----------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
+| Stew Multi Pull        | [LiD-Stew-Multi-Pull](https://github.com/NicoMullin/LiD-Stew-Multi-Pull)               | Purchase x5 to x25 at the stew, all decals shown together, the whole run in one request   |
+| Death Metals           | [LiD-Death-Metals](https://github.com/NicoMullin/LiD-Death-Metals)                     | Death Metal rewards, the count on screen, the exchange, and things paid in Death Metals   |
+| Timers                 | [LiD-Timers](https://github.com/NicoMullin/LiD-Timers)                                 | Crafting, research and facility upgrades take time again, with Uncle Death's time skip    |
+| Login Bonus            | [LiD-Login-Bonus](https://github.com/NicoMullin/LiD-Login-Bonus)                       | A random daily login bonus, from the online rewards for your floor or your own lists      |
+| Fighter Class Passives | [LiD-Fighter-Class-Passives](https://github.com/NicoMullin/LiD-Fighter-Class-Passives) | A skill decal for each fighter class, always on, and the pause-map reveals                |
+| Offline Fixes          | [LiD-Offline-Fixes](https://github.com/NicoMullin/LiD-Offline-Fixes)                   | Bugs in the game's own offline mode, such as closing when a Hater dies as you take stairs |
+
+**Get mods...** (top right, or Mods > Get mods that need a plugin) lists them,
+shows which you have, and gets one with a click:
+
+1. It asks GitHub for that mod's newest release and downloads its package
+   (`LiD-<name>.zip`), keeping it only if it matches the SHA-256 GitHub lists
+   for it.
+2. It shows you every file it will write and where, and waits for your yes.
+3. The mod goes in the manager's `mods` folder and the plugin in the game's
+   `Binaries\Win64\lid-plugins`. Without the Plugin Loader it gets that first.
+   A `dinput8.dll` that is not the Plugin Loader is never replaced.
+
+Close the game first: a running game holds its plugins open. Then tick the mod
+and **Save Mod List** as usual. A mod you already have is replaced by the new
+copy, with its settings kept.
+
+By hand works too: each release's `LiD-<name>.zip` holds `mods/` for the
+manager and `lid-plugins/` for the game's `Binaries\Win64`.
 
 ## Adding mods
 
@@ -784,6 +911,12 @@ It has **two halves**, and both have to arrive or nothing shows up in game:
 **It comes with the manager.** Tick `LET IT DIE Crossover Content v3.79` in
 the mod list and click **Save Mod List**. That is the whole procedure.
 
+Three sets of gear in it can be switched off on their own in Configuration, as
+in S3er0i9ng's own manager: **DUKE-WoT Sniper Rifle04**, **Assault Master G**
+and **White Kat**, all on to begin with. Off expires that set's blueprint
+quests and closes its research; nothing is deleted, so gear you already own
+keeps working.
+
 You do not need to run the pack's own installer, and you should not. The
 manager rebuilds `masters.db` from your mod list every time you save, so
 anything written to the game from outside that list is replaced the next time
@@ -792,9 +925,12 @@ the content has to be a mod in the list to survive.
 
 ### Updates
 
-The manager ships v3.79, made for game version 1.88. When the pack gets an
-update, the manager has to be updated to include it — a new release of this
-program will carry it.
+The manager ships v3.79 as refreshed for game version 1.91 (from S3er0i9ng's
+Mod Manager v1.3.25): 45 of its packages are copies of game files that 1.91
+changed, and the pack's installer now also corrects three decal descriptions.
+The manager calls it 3.79.1, so a copy already switched on is updated on the
+next save. When the pack gets an update, the manager has to be updated to
+include it — a new release of this program will carry it.
 
 If you had an earlier version applied, the first **Save Mod List** after
 updating the manager takes the old version off in full and puts the new one on.
@@ -1074,7 +1210,7 @@ a pair of hashes; it can only name a recording that ships here, and an unknown
 name does not load:
 
 ```json
-{ "type": "exe_checksum_entry", "recipe": "exe-buttons-1.4" }
+{ "type": "exe_checksum_entry", "recipe": "exe-buttons-1.5" }
 ```
 
 Each recording lives in `lid_db_manager/recipes/` as two committed files: the
@@ -1429,7 +1565,7 @@ columns described and the rarer ones still shown under their real names.
 | Floors       | what drops and at what level, materials, hazards, how floors join the elevator, the top of the Tower |
 | Pools        | mushrooms by season, beasts, items, treasure boxes, Mystery Bags, Death Boxes                        |
 | Rewards      | daily login bonuses, quest rewards, stamps, magazines, vouchers, Steam DLC                           |
-| Shops        | prices, where shops appear, the vending machine and its schedule                                     |
+| Shops        | prices, where shops appear, the vending machine                                                      |
 | Presentation | game text, subtitles, the radio's tracks and channels, posters, the credits                          |
 | Left over    | ten tables the offline game never reads — it says so instead of describing them                      |
 
@@ -1460,9 +1596,9 @@ you the rows. If the game still looks unchanged, the mod probably applied fine
 and the game simply has not re-read it yet.
 
 The clearest case is **the vending machine**. What it has on offer is stored
-in your *save* when it restocks, from whichever monthly list the schedule names,
-so newly added items appear at the next restock — no amount of re-applying will
-hurry it along. The stock schedule also ran out on 1 August 2026; see
+in your *save* when it restocks, once a game day (10:00 UTC), so newly added
+items appear at the next restock — no amount of re-applying will hurry it
+along. Tools > **Start a new game day** brings the restock forward; see
 [Stocking the vending machine](#stocking-the-vending-machine).
 
 Before assuming a mod is broken:
@@ -1490,7 +1626,7 @@ The headings are sorted by what you want to change:
 | Decals                  | what each decal does and costs, the draw pool and its odds                |
 | Mushrooms · Beasts      | prices, effects, where they grow or appear                                |
 | Drops & pickups         | what floors, boxes and enemies drop, floor pickups, Death Boxes           |
-| Vending machine & shops | what the machine sells, its monthly schedule, where floor shops turn up   |
+| Vending machine & shops | what the machine sells, where floor shops turn up                         |
 | Quests · Rewards        | what quests ask and pay, login bonuses, Mystery Bags, stamps              |
 | Enemies                 | Screamers, small enemies, mid-bosses, the Four Forcemen, Haters, Jackals  |
 | Tokyo Death Metro       | ranks and payouts, the players you raid, team wars                        |
@@ -1581,26 +1717,21 @@ you want, choose a list, and optionally set a price.
 
 What it knows that you'd otherwise have to work out yourself:
 
-- **`MON` to `SUN` are not days of the week.** They are seven Bloodnium
-  exchange lists, and the schedule moves to the next one **each month**.
-  `COMMON` is the Kill Coin shop and `RE` the recycle-point exchange.
-- **Each list charges in its own currency** — Kill Coins, recycle points or
-  Bloodnium. The game's own script sorts goods onto its tabs by that, so a new
-  item copies the list it joins.
-- **The machine carries no price of its own.** What it charges is the *item's*
-  price in that list's currency — which is what setting a price here changes,
-  everywhere that item is sold. The window says so before you do it.
+- **`MON` to `SUN` are the days of the week.** The offline game restocks the
+  Bloodnium exchange from the day's list. `COMMON` is the Buy tab and `RE` the
+  recycle-point exchange. Its schedule table is never read, so it needs no
+  extending.
+- **Each list charges in its own currency** — Kill Coins, Death Metals,
+  recycle points or Bloodnium. The game's own script sorts goods onto its tabs
+  by that, so a new item copies the list it joins.
+- **Setting a price here changes the item's own price**, everywhere that item
+  is sold. The window says so before you do it. (A row can also carry a price
+  of its own; the `Vending Machine` mod does that, per good.)
 - **Blueprints have no names.** All 1,899 of them are called "RMAP" in the
   game's text, so each is shown as *the weapon or armour it makes* — "Battle
   Machete — blueprint". The unidentified variants are marked as such.
-- **A full list drops things.** Each month offers exactly as many goods as the
-  list had in the stock game, so by default adding an item raises that count
-  too, rather than pushing another item out at random.
-
-**The stock schedule ran out on 1 August 2026.** **Keep the machine rotating...**
-adds a month for every month up to a year you choose, carrying on the
-MON → SUN rotation. Whether a save that is already past the old last month picks
-the new months up by itself has not been tested in game yet.
+- **Everything on a list is offered.** The offline game sells every row marked
+  always in stock (`is_stable` 1) and has no random pick.
 
 Two things make bulk edits painless. **Set every one shown to...** applies one
 value to everything currently listed, and **Multiply by...** scales it — so

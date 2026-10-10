@@ -1,8 +1,8 @@
 {
   "id": "LET IT DIE Crossover Content v3.79",
   "name": "LET IT DIE Crossover Content v3.79",
-  "description": "50 decal-pool entries and 32 blueprint quests, with the 287 artwork packages they need. Database changes recorded from the pack's own v3.79 installer; artwork from the pack itself.",
-  "version": "3.79",
+  "description": "50 decal-pool entries and 32 blueprint quests, with the 287 artwork packages they need. Database changes recorded from the pack's own v3.79 installer; artwork from the pack itself, as refreshed for game 1.91.",
+  "version": "3.79.1",
   "author": "S3er0i9ng",
   "category": "Game content",
   "tags": [
@@ -15,15 +15,70 @@
   ],
   "game_version": [
     "5.0.4.0.0 - 1.88",
-    "5.0.4.1.0 - 1.89"
+    "5.0.4.1.0 - 1.89",
+    "5.0.4.4.0 - 1.91"
   ],
   "requires": [],
   "conflicts_with": [],
+  "min_manager_version": "0.12.0",
+  "settings": [
+    {
+      "id": "wot_sniper",
+      "label": "DUKE-WoT Sniper Rifle04",
+      "type": "toggle",
+      "default": true,
+      "group": "Optional equipment",
+      "help": "The DUKE-WoT Sniper Rifle04 blueprint quest and its research. On: they can be found and researched. Off: the quests are expired and the research closed, as S3er0i9ng's own manager does it. The gear's models and item definitions stay, so anything you already own keeps working; switch it back on to get the quests and research again."
+    },
+    {
+      "id": "assault_master_g",
+      "label": "Assault Master G",
+      "type": "toggle",
+      "default": true,
+      "group": "Optional equipment",
+      "help": "The Assault Master G head, top and bottom: three blueprint quests and their research. On: they can be found and researched. Off: the quests are expired and the research closed, as S3er0i9ng's own manager does it. The gear's models and item definitions stay, so anything you already own keeps working; switch it back on to get the quests and research again."
+    },
+    {
+      "id": "white_kat",
+      "label": "White Kat",
+      "type": "toggle",
+      "default": true,
+      "group": "Optional equipment",
+      "help": "White Kat's head, top and bottom: three blueprint quests and the research for all 15 upgrade tiers. On: they can be found and researched. Off: the quests are expired and the research closed, as S3er0i9ng's own manager does it. The gear's models and item definitions stay, so anything you already own keeps working; switch it back on to get the quests and research again."
+    }
+  ],
   "patches": [
     {
       "type": "raw_sql_file",
       "path": "LET IT DIE Crossover Content v3.79.sql",
       "description": "50 decal-pool entries and 32 blueprint quests (v3.79)"
+    },
+    {
+      "type": "raw_sql",
+      "id": "wot_sniper-off",
+      "when": {
+        "wot_sniper": false
+      },
+      "description": "DUKE-WoT Sniper Rifle04: quests expired, research closed",
+      "sql": "UPDATE master_quest SET start_date = 0, end_date = 1 WHERE qid IN ('CODEX_WOT_ARM_WP025_0A4');\nUPDATE master_part_research SET is_open = 0 WHERE ptid IN ('PT_ARM_WP025_0A4');"
+    },
+    {
+      "type": "raw_sql",
+      "id": "assault_master_g-off",
+      "when": {
+        "assault_master_g": false
+      },
+      "description": "Assault Master G: quests expired, research closed",
+      "sql": "UPDATE master_quest SET start_date = 0, end_date = 1 WHERE qid IN ('CODEX_WOT_MIL_HEAD_1002', 'CODEX_WOT_MIL_TOPS_1002', 'CODEX_WOT_MIL_BTM_1002');\nUPDATE master_part_research SET is_open = 0 WHERE ptid IN ('PT_MIL_HEAD_1002', 'PT_MIL_TOPS_1002', 'PT_MIL_BTM_1002');"
+    },
+    {
+      "type": "raw_sql",
+      "id": "white_kat-off",
+      "when": {
+        "white_kat": false
+      },
+      "description": "White Kat: quests expired, research closed",
+      "sql": "UPDATE master_quest SET start_date = 0, end_date = 1 WHERE qid IN ('CODEX_WHITE_KAT_HEAD', 'CODEX_WHITE_KAT_TOPS', 'CODEX_WHITE_KAT_BTM');\nUPDATE master_part_research SET is_open = 0 WHERE ptid IN ('PT_SPE_HEAD_063', 'PT_SPE_HEAD_163', 'PT_SPE_HEAD_064', 'PT_SPE_HEAD_164', 'PT_SPE_HEAD_164_G', 'PT_SPE_TOPS_063', 'PT_SPE_TOPS_163', 'PT_SPE_TOPS_064', 'PT_SPE_TOPS_164', 'PT_SPE_TOPS_164_G', 'PT_SPE_BTM_063', 'PT_SPE_BTM_163', 'PT_SPE_BTM_064', 'PT_SPE_BTM_164', 'PT_SPE_BTM_164_G');"
     },
     {
       "type": "asset_file",

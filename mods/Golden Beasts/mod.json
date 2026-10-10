@@ -1,0 +1,54 @@
+{
+  "id": "Golden Beasts",
+  "name": "Golden Beasts",
+  "description": "Golden beasts turn up {{chance}} times as often, on every floor - or nearly every beast in the Tower is golden. Set it in Configuration.",
+  "version": "0.1.3",
+  "author": "KSFA",
+  "category": "Game content",
+  "tags": ["beasts", "golden-beasts", "spawn-rate", "farming", "mushrooms"],
+  "game_version": ["5.0.4.1.0 - 1.89", "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)", "5.0.4.4.0 - 1.91"],
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "mode",
+      "label": "Golden beasts",
+      "type": "choice",
+      "default": "more",
+      "options": [
+        {"value": "more", "label": "More of them",
+         "help": "Golden beasts turn up as often as you set below, on every floor: the floors that never had any get a golden twin of each beast too."},
+        {"value": "only", "label": "Nearly every beast is golden",
+         "help": "A Golden Frog wherever a Frog would be, a Golden Scorpion for a Scorpion or Red Scorpion, and so on - with a few normal beasts left in, about 2 in 100. The game can only show a golden beast while its normal one could still turn up on the floor: with none left, it crashes on the way in."}
+      ]
+    },
+    {
+      "id": "chance",
+      "label": "How often",
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 50,
+      "unit": "x",
+      "group": "More of them",
+      "help": "How much more often a golden beast turns up. Where the game has them they are usually 1 to 6% of the beasts on a floor: x3 makes that about 3 to 18%, x10 about 10 to 60%. x1 leaves the game's own odds. The extra comes out of the normal beasts' odds, so a floor has as many beasts as before and every normal beast can still turn up: the game crashes on the way into a floor if a spawn list's odds add up to more than they did."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "more",
+      "when": {"mode": "more"},
+      "description": "Golden beasts x{{chance}}",
+      "sql": "INSERT OR IGNORE INTO master_beast_gen (id, bstid, freq) SELECT id, twin, -MAX(1, SUM(freq) / 20) FROM (SELECT id, freq, CASE bstid WHEN 'BST_SCORPION02' THEN 'BST_GSCORPION' WHEN 'BST_BASS02' THEN 'BST_GBASS' ELSE 'BST_G' || substr(bstid, 5) END AS twin FROM master_beast_gen WHERE substr(bstid, 1, 5) <> 'BST_G') WHERE twin IN (SELECT id FROM master_beast) AND id NOT IN (SELECT id FROM master_beast_gen WHERE substr(bstid, 1, 5) = 'BST_G') GROUP BY id, twin;\nWITH r AS MATERIALIZED (SELECT id, bstid, freq, substr(bstid, 1, 5) = 'BST_G' AS g FROM master_beast_gen WHERE id IN (SELECT id FROM master_beast_gen WHERE substr(bstid, 1, 5) = 'BST_G')), l AS (SELECT id, SUM(MAX(freq, 0)) AS t, SUM(CASE WHEN g THEN ABS(freq) ELSE 0 END) AS gs, SUM(CASE WHEN g THEN 0 ELSE freq END) AS ns, SUM(1 - g) AS nn FROM r GROUP BY id), n AS (SELECT r.id, r.bstid, MAX(1, r.freq * (l.t - MIN(l.gs * {{chance}}, l.t - l.nn)) / l.ns) AS f FROM r JOIN l USING (id) WHERE NOT r.g), lg AS (SELECT l.id, l.gs, l.t - COALESCE((SELECT SUM(n.f) FROM n WHERE n.id = l.id), 0) AS gt FROM l), gr AS (SELECT r.id, r.bstid, ABS(r.freq) * lg.gt / lg.gs AS f, ROW_NUMBER() OVER (PARTITION BY r.id ORDER BY ABS(r.freq) DESC, r.bstid) AS rn FROM r JOIN lg USING (id) WHERE r.g), nw AS MATERIALIZED (SELECT id, bstid, f FROM n UNION ALL SELECT gr.id, gr.bstid, MAX(1, gr.f + CASE WHEN gr.rn = 1 THEN lg.gt - (SELECT SUM(x.f) FROM gr x WHERE x.id = gr.id) ELSE 0 END) FROM gr JOIN lg USING (id)) UPDATE master_beast_gen SET freq = nw.f FROM nw WHERE master_beast_gen.id = nw.id AND master_beast_gen.bstid = nw.bstid;"
+    },
+    {
+      "type": "raw_sql",
+      "id": "only",
+      "when": {"mode": "only"},
+      "description": "Nearly every beast golden",
+      "sql": "UPDATE master_beast_gen SET freq = freq + (SELECT SUM(n.freq - 1) FROM master_beast_gen n WHERE n.id = master_beast_gen.id AND CASE n.bstid WHEN 'BST_SCORPION02' THEN 'BST_GSCORPION' WHEN 'BST_BASS02' THEN 'BST_GBASS' ELSE 'BST_G' || substr(n.bstid, 5) END = master_beast_gen.bstid AND substr(n.bstid, 1, 5) <> 'BST_G') WHERE substr(bstid, 1, 5) = 'BST_G' AND EXISTS (SELECT 1 FROM master_beast_gen n WHERE n.id = master_beast_gen.id AND CASE n.bstid WHEN 'BST_SCORPION02' THEN 'BST_GSCORPION' WHEN 'BST_BASS02' THEN 'BST_GBASS' ELSE 'BST_G' || substr(n.bstid, 5) END = master_beast_gen.bstid AND substr(n.bstid, 1, 5) <> 'BST_G');\nINSERT OR IGNORE INTO master_beast_gen (id, bstid, freq) SELECT id, twin, MAX(1, SUM(freq - 1)) FROM (SELECT id, freq, CASE bstid WHEN 'BST_SCORPION02' THEN 'BST_GSCORPION' WHEN 'BST_BASS02' THEN 'BST_GBASS' ELSE 'BST_G' || substr(bstid, 5) END AS twin FROM master_beast_gen WHERE substr(bstid, 1, 5) <> 'BST_G') WHERE twin IN (SELECT id FROM master_beast) GROUP BY id, twin;\nUPDATE master_beast_gen SET freq = 1 WHERE substr(bstid, 1, 5) <> 'BST_G' AND (CASE bstid WHEN 'BST_SCORPION02' THEN 'BST_GSCORPION' WHEN 'BST_BASS02' THEN 'BST_GBASS' ELSE 'BST_G' || substr(bstid, 5) END) IN (SELECT id FROM master_beast);"
+    }
+  ]
+}

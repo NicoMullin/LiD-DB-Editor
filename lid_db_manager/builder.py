@@ -35,10 +35,6 @@ from .sqlutil import quote_ident
 # try to put 6,252 rows into a grid at once.
 PAGE = 200
 
-# The most schedule months one "keep it rotating" may add. Far more than anyone
-# needs; it only stops a typo in the year from adding thousands of rows.
-MAX_SCHEDULE_MONTHS = 600
-
 SCHEDULE_TABLE = "master_automaticshop_schedule"
 SCHEDULE_DATE = "%Y-%m-%d %H:%M:%S"
 
@@ -162,11 +158,6 @@ def read_text_date(typed) -> str:
             f"\"{typed}\" is not a date. Type it as 2027-01-31, or 2027-01-31 10:00."
         )
     return when.strftime(SCHEDULE_DATE)
-
-
-def _next_month(when: datetime) -> datetime:
-    return when.replace(year=when.year + (when.month == 12),
-                        month=1 if when.month == 12 else when.month + 1)
 
 
 class ModBuilder:
@@ -824,98 +815,6 @@ class ModBuilder:
             (lineup_id,),
         ).fetchone()[0]
 
-    def _schedule_columns(self) -> set[str]:
-        if SCHEDULE_TABLE not in self._present():
-            return set()
-        return {c.name for c in self.columns(SCHEDULE_TABLE)}
-
-    def make_room(self, lineup_id: str) -> int:
-        """Let the machine offer everything on a list, not a random part of it.
-
-        Each schedule month says how many goods from a list are offered at once.
-        Stock sets that to the list's size exactly (7 of 7, 28 of 28), so a new
-        item on a full list would push another out. Raises the number on every
-        month that uses the list. Returns how many values changed.
-        """
-        have = self._schedule_columns()
-        size = self.lineup_size(lineup_id)
-        changed = 0
-        for slot, (low, high) in builder_data.SCHEDULE_SLOTS.items():
-            if not {slot, low, high} <= have:
-                continue
-            months = self._con.execute(
-                f"SELECT rowid, {quote_ident(low)}, {quote_ident(high)} "
-                f"FROM {quote_ident(SCHEDULE_TABLE)} WHERE {quote_ident(slot)} = ?",
-                (lineup_id,),
-            ).fetchall()
-            for rowid, least, most in months:
-                if (most or 0) >= size:
-                    continue
-                if least == most:
-                    self.set_value(SCHEDULE_TABLE, (rowid,), low, size, commit=False)
-                    changed += 1
-                self.set_value(SCHEDULE_TABLE, (rowid,), high, size, commit=False)
-                changed += 1
-        self._con.commit()
-        return changed
-
-    def schedule_end(self) -> str:
-        """The last date the machine has a month for, as stored ('' if none)."""
-        if "expire" not in self._schedule_columns():
-            return ""
-        row = self._con.execute(
-            f"SELECT max(expire) FROM {quote_ident(SCHEDULE_TABLE)}"
-        ).fetchone()
-        return row[0] or ""
-
-    def extend_schedule(self, until_year: int) -> int:
-        """Add months to the machine's schedule, carrying the rotation on.
-
-        The stock schedule has one row per month and ran out on 2026-08-01. New
-        rows copy the last one and move to the next Bloodnium list each month
-        (MON, TUE ... SUN, MON), until the end of ``until_year``. Returns how
-        many months were added.
-        """
-        if "expire" not in self._schedule_columns():
-            raise BuildError("This database has no vending machine schedule.")
-        rows = self._con.execute(
-            f"SELECT rowid, * FROM {quote_ident(SCHEDULE_TABLE)} ORDER BY expire"
-        ).fetchall()
-        if not rows:
-            raise BuildError("The schedule is empty, so there is no month to carry on from.")
-        last = rows[-1]
-        when = _parse_date(str(last["expire"]))
-        if when is None:
-            raise BuildError(f"The schedule's last date, {last['expire']}, is not a date.")
-        cycle: list[str] = []
-        slot = "bloodnium_exchange_lineup_id"
-        for r in rows:
-            if slot in r.keys() and r[slot] and r[slot] not in cycle:
-                cycle.append(r[slot])
-        if (until_year - when.year) * 12 > MAX_SCHEDULE_MONTHS:
-            raise BuildError(
-                f"That is more than {MAX_SCHEDULE_MONTHS} months - pick an earlier year."
-            )
-        stop = datetime(until_year + 1, 1, 1, tzinfo=timezone.utc)
-        template = {c: last[c] for c in last.keys() if c != "rowid"}
-        current = template.get(slot)
-        added = 0
-        while True:
-            when = _next_month(when)
-            if when > stop:
-                break
-            if added >= MAX_SCHEDULE_MONTHS:
-                raise BuildError(
-                    f"That is more than {MAX_SCHEDULE_MONTHS} months - pick an earlier year."
-                )
-            values = dict(template, expire=when.strftime(SCHEDULE_DATE))
-            if cycle and current in cycle:
-                current = cycle[(cycle.index(current) + 1) % len(cycle)]
-                values[slot] = current
-            self.add_row(SCHEDULE_TABLE, values)
-            added += 1
-        return added
-
     # -- what you have changed ---------------------------------------------
 
     @property
@@ -986,7 +885,7 @@ SELLABLE_CATEGORIES: dict[str, tuple[str, ...]] = {
 }
 
 # The vending machine's lists: the Kill Coin shop, the recycle-point exchange,
-# and the seven monthly Bloodnium lists (not days - see builder_data).
+# and the seven Bloodnium lists, one for each day of the week (see builder_data).
 LINEUP_TABS = ["COMMON", "RE", "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
 
 LINEUP_TABLE = "master_automaticshop_lineup"

@@ -28,7 +28,12 @@ from lid_db_manager.mod_loader import load_mod_folder
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TARGET = "BrgGame/CookedPCConsole/BrgGame.upk"
 # Released on its own rather than with the manager, so it may not be here.
-FIGHTER_PASSIVES = PROJECT_ROOT / "mods" / "fighter-passives"
+# Fighter Class Passives needs a plugin, so it lives in its own repository
+# (LiD-Fighter-Class-Passives), not in mods/. Found beside this checkout, or
+# where LID_FIGHTER_PASSIVES says; without it these tests are skipped.
+FIGHTER_PASSIVES = Path(os.environ.get(
+    "LID_FIGHTER_PASSIVES",
+    PROJECT_ROOT.parent / "LiD Fighter Mod" / "LiD Fighter Mod" / "mods" / "fighter-passives"))
 GAME_PACKAGE = Path(os.environ.get(
     "LID_GAME_UPK",
     r"C:\Program Files (x86)\Steam\steamapps\common\LET IT DIE"
@@ -269,7 +274,7 @@ class ThreeModsInTheRealPackage(unittest.TestCase):
                          "the drop wait was lost")
 
 
-@unittest.skipUnless(FIGHTER_PASSIVES.is_dir(), "Fighter Class Passives is not in mods/")
+@unittest.skipUnless(FIGHTER_PASSIVES.is_dir(), "Fighter Class Passives is not beside this checkout")
 class TheFighterPassivesHook(unittest.TestCase):
     PATCH = (FIGHTER_PASSIVES / "tfc" / "Game" / "BrgGame" / "CookedPCConsole"
              / "BrgGame.upk.PackagePatch")

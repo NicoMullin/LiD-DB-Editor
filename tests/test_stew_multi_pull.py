@@ -1,7 +1,8 @@
 """The Stew Multi-Pull mod: "Purchase xN" in the Mushroom Club's stew menu.
 
-It is a .PackagePatch that replaces two functions of BrgUIMenu_SkillExchange in
-BrgGame.upk with longer copies, one patch for each count the player can choose.
+It is a .PackagePatch that replaces seven functions in BrgGame.upk with longer
+copies - six of the stew menu, BrgUIMenu_SkillExchange, and one of the box
+stew's lineup grid - one patch for each count the player can choose.
 A patch carries both functions whole, so most of what can go wrong - a jump
 landing mid-statement, a token the engine cannot read, a table the patch would
 have to grow - is checked here without the game.
@@ -25,35 +26,56 @@ sys.path.insert(0, str(PROJECT_ROOT / "tools"))
 from ue3dis import Dis  # noqa: E402
 
 TARGET = "BrgGame/CookedPCConsole/BrgGame.upk"
-MOD = PROJECT_ROOT / "mods" / "Stew Multi Pull"
+# Stew Multi Pull goes with a plugin, so it lives in its own repository
+# (LiD-Stew-Multi-Pull), not in mods/. Found beside this checkout, or where
+# LID_STEW_MULTI_PULL says; without it these tests are skipped.
+MOD = Path(os.environ.get(
+    "LID_STEW_MULTI_PULL",
+    PROJECT_ROOT.parent / "LiD Stew Multi Pull" / "mods" / "Stew Multi Pull"))
+if not MOD.is_dir():
+    raise unittest.SkipTest(f"needs the LiD Stew Multi Pull repository ({MOD})")
 COUNTS = (5, 10, 15, 20, 25)
 PATCH_PATH = Path("Game") / "BrgGame" / "CookedPCConsole" / "BrgGame.upk.PackagePatch"
 PATCHES = {n: MOD / "tfc" / f"x{n}" / PATCH_PATH for n in COUNTS}
-TOOL = PROJECT_ROOT / "tools" / "build_stew_multi_pull.py"
+TOOL = MOD.parent.parent / "tools" / "build_stew_multi_pull.py"
 GAME_PACKAGE = Path(os.environ.get(
     "LID_GAME_UPK",
     r"C:\Program Files (x86)\Steam\steamapps\common\LET IT DIE"
     r"\BrgGame\CookedPCConsole\BrgGame.upk"))
-FIGHTER_PASSIVES = PROJECT_ROOT / "mods" / "fighter-passives"
+# Fighter Class Passives needs a plugin, so it lives in its own repository
+# (LiD-Fighter-Class-Passives), not in mods/. Found beside this checkout, or
+# where LID_FIGHTER_PASSIVES says; without it these tests are skipped.
+FIGHTER_PASSIVES = Path(os.environ.get(
+    "LID_FIGHTER_PASSIVES",
+    PROJECT_ROOT.parent / "LiD Fighter Mod" / "LiD Fighter Mod" / "mods" / "fighter-passives"))
 DROP_DELAY = b"\x2c\x06\x1f" + b"Item Drop Delay Time" + b"\x00\x28\x2c"
 MENU = "BrgUIMenu_SkillExchange\\SetGachaTopMenuType"
 TICK = "BrgUIMenu_SkillExchange\\Tick"
+DRAW = "BrgUIMenu_SkillExchange_BoxGachaLineup\\DrawList"
+CHECK = "BrgUIMenu_SkillExchange\\GetStateAfterGacha"
+PRICE_LINE = "BrgUIMenu_SkillExchange\\RenderGachaMenu"
+REQUEST = "BrgUIMenu_SkillExchange\\NetGacha"
+RENDER = "BrgUIMenu_SkillExchange\\Render"
+COST = "(I:BrgUIMenu_SkillExchange\\mCurrentGachaProperty).BrgUIMenu_SkillExchange\\SkillExchange_GachaProperty\\mCost"
+GRID_LIST = ("I:BrgUIMenu_SkillExchange\\mBOXGachaLineup.{skip=0x9,BrgUIMenu_SkillExchange_BoxGachaLineup"
+             "\\mBoxGachaSkillList,0}I:BrgUIMenu_SkillExchange_BoxGachaLineup\\mBoxGachaSkillList")
 COUNT_BYTE = "I:BrgUIMenu_SkillExchange\\mReturnState"
 MATINEE = "L:BrgUIMenu_SkillExchange\\Tick\\Matinee"
 HEADER = 48
 
 
-def read_script(data: bytes, refs: dict[int, str] | None = None):
+def read_script(data: bytes, refs: dict[int, str] | None = None, names: dict[int, str] | None = None):
     """A function's export data -> (statements, the reader that read them)."""
     mem, disk = struct.unpack_from("<ii", data, HEADER - 8)
-    refs = refs or {}
-    reader = Dis(data[HEADER:HEADER + disk], obj_of=lambda r: refs.get(r, f"#{r}"))
+    refs, names = refs or {}, names or {}
+    reader = Dis(data[HEADER:HEADER + disk], obj_of=lambda r: refs.get(r, f"#{r}"),
+                 name_of=lambda i: names.get(i, f"name#{i}"))
     lines = reader.run()
     return lines, reader, mem, disk
 
 
-def script_text(data: bytes, refs: dict[int, str]) -> str:
-    lines, *_ = read_script(data, refs)
+def script_text(data: bytes, refs: dict[int, str], names: dict[int, str] | None = None) -> str:
+    lines, *_ = read_script(data, refs, names)
     return "\n".join(line[4] for line in lines)
 
 
@@ -88,11 +110,12 @@ class ThePatches(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         from lid_db_manager.upk import packagepatch
-        cls.patches, cls.refs, cls.functions = {}, {}, {}
+        cls.patches, cls.refs, cls.names, cls.functions = {}, {}, {}, {}
         for n, path in PATCHES.items():
             patch = packagepatch.read(path)
             refs = {r.index: r.full_path for r in patch.object_references}
             cls.patches[n], cls.refs[n] = patch, refs
+            cls.names[n] = {r.index: r.text for r in patch.name_references}
             cls.functions[n] = {refs[o.export_index + 1]: o.data for o in patch.objects}
 
     def each(self):
@@ -105,9 +128,9 @@ class ThePatches(unittest.TestCase):
         for n, _, _ in self.each():
             self.assertEqual(apply.unsupported(self.patches[n]), "")
 
-    def test_they_replace_the_two_menu_functions_and_nothing_else(self) -> None:
+    def test_they_replace_the_seven_functions_and_nothing_else(self) -> None:
         for n, functions, _ in self.each():
-            self.assertEqual(sorted(functions), [MENU, TICK])
+            self.assertEqual(sorted(functions), sorted([MENU, TICK, CHECK, PRICE_LINE, REQUEST, RENDER, DRAW]))
 
     def test_both_read_back_to_their_end(self) -> None:
         for n, functions, refs in self.each():
@@ -147,10 +170,66 @@ class ThePatches(unittest.TestCase):
         for n, functions, refs in self.each():
             self.assertNotIn(f"pcast0x3a({MATINEE})", script_text(functions[TICK], refs))
 
-    def test_ten_is_the_patch_proven_in_game(self) -> None:
+    def test_ten_is_the_patch_this_version_ships(self) -> None:
+        # 0.2.1's x10 (b48bb365...a293), proven in game, showed a card for
+        # every decal; 0.3.0 (6eb28676...5f1c, proven) showed them all in the
+        # grid; 0.4.0 (e0a460ee...1973, proven) asks for the run's whole price and
+        # can do it in one request; 0.4.1 raises the grid a little
         import hashlib
         self.assertEqual(hashlib.sha256(PATCHES[10].read_bytes()).hexdigest(),
-                         "b48bb3657bda4983deb3d23b5a1cd65bf3b3f231b80f072b67e62050fb67a293")
+                         "8d4f280d1bf1241a5b1fcdf09d0d6642e867358f547e950a27cf9e400c83c7d4")
+
+    def test_a_run_fills_the_grid_instead_of_showing_cards(self) -> None:
+        for n, functions, refs in self.each():
+            text = script_text(functions[TICK], refs, self.names[n])
+            # emptied when a run starts, and again when the grid closes
+            self.assertEqual(text.count("mBOXGachaLineup.{skip=0xa,None,0}ClearLineup()"), 3)
+            self.assertIn(f"len({GRID_LIST}) = N146(len({GRID_LIST}), 1)", text)
+            self.assertIn("SkillID[0,1] = L:BrgUIMenu_SkillExchange\\Tick\\gachaSkillId", text)
+            self.assertIn("StartWait(0.0f, 19)", text)
+            # every decal of the reply joins the grid
+            self.assertIn("mResult).BrgGameBase\\BrgNetworkDeclStruct\\BrgDbSkillGachaResult\\mSklids[0,0][L:BrgUIMenu_SkillExchange\\Tick\\gachaIndex]", text)
+            # a plain Purchase still shows its card: the card's own call stays, beside the grid's
+            self.assertEqual(text.count("F:BrgUIMenu_SkillExchange\\InitializeGachaResult("), 2)
+
+    def test_a_box_stew_still_goes_back_to_its_own_menu(self) -> None:
+        for n, functions, refs in self.each():
+            text = script_text(functions[TICK], refs, self.names[n])
+            self.assertEqual(text.count("StartWait(0.0f, 18)"), 3)
+
+    def test_a_run_asks_for_its_whole_price(self) -> None:
+        run_times = f"(N151(pcast0x3a({COUNT_BYTE}), 0) ? pcast0x3a({COUNT_BYTE}) : 1)"
+        for n, functions, refs in self.each():
+            check = script_text(functions[CHECK], refs, self.names[n])
+            self.assertIn(f"N152(N144({COST}[0,0], {run_times}), L:", check)
+            line = script_text(functions[PRICE_LINE], refs, self.names[n])
+            # Purchase xN's price while the cursor is on it, and back after the line
+            self.assertIn(f"{COST}[0,1] = N144({COST}[0,0], (N154(pcast0x3a(I:BrgUIMenu_SkillExchange\\mGachaMenu), 1) ? ", line)
+            self.assertIn(f" ? {n} : 1) : 1))", line)
+            self.assertIn(f"{COST}[0,1] = N145({COST}[0,0], ", line)
+
+    def test_the_request_marks_a_run_for_the_plugin(self) -> None:
+        for n, functions, refs in self.each():
+            text = script_text(functions[REQUEST], refs, self.names[n])
+            self.assertIn("'LID_MULTI_LEFT='", text)
+            self.assertIn("'LID_MULTI_ALL='", text)
+            self.assertIn(f"N154(pcast0x3a({COUNT_BYTE}), {n})", text)
+
+    def test_the_grid_shows_three_rows_and_its_page(self) -> None:
+        for n, functions, refs in self.each():
+            tick = script_text(functions[TICK], refs, self.names[n])
+            self.assertIn("mListH,0}I:BrgUIMenu_SkillExchange_BoxGachaLineup\\mListH = 3", tick)
+            self.assertIn("mListH,0}I:BrgUIMenu_SkillExchange_BoxGachaLineup\\mListH = 2", tick)
+            render = script_text(functions[RENDER], refs, self.names[n])
+            self.assertIn("DrawText_UseImgPos(", render)
+            self.assertIn("'/'", render)
+
+    def test_the_grid_rows_follow_the_cursor(self) -> None:
+        grid = "BrgUIMenu_SkillExchange_BoxGachaLineup\\"
+        for n, functions, refs in self.each():
+            text = script_text(functions[DRAW], refs)
+            self.assertIn(f"F:{grid}DrawListCursor(L:{grid}DrawList\\inHUD, N147(I:{grid}mCursorPos, "
+                          f"N147(L:{grid}DrawList\\Index, N144(I:{grid}mListH, I:{grid}mListW))))", text)
 
     def test_the_menu_reads_purchase_xn_in_the_games_own_words(self) -> None:
         for n, functions, refs in self.each():
@@ -159,13 +238,15 @@ class ThePatches(unittest.TestCase):
             self.assertIn("I:BrgUIMenu_SkillExchange\\mGachaMenuSelectItemNum = 3", text)
 
     def test_they_differ_only_in_the_count(self) -> None:
-        # The count is written three times: in the menu label, in
-        # `mReturnState = N` and in `count < N`.
+        # The count is written six times: in the menu label, in
+        # `mReturnState = N`, in `count < N`, twice in the price line's
+        # Purchase xN (the price times N, then back) and in the request's
+        # `count == N`.
         base = PATCHES[10].read_bytes()
         for n in COUNTS:
             other = PATCHES[n].read_bytes()
             self.assertEqual(len(other), len(base), n)
-            self.assertEqual(sum(a != b for a, b in zip(base, other)), 0 if n == 10 else 3, n)
+            self.assertEqual(sum(a != b for a, b in zip(base, other)), 0 if n == 10 else 6, n)
 
 
 @unittest.skipUnless(GAME_PACKAGE.is_file(), "needs LET IT DIE installed (set LID_GAME_UPK)")
@@ -193,7 +274,7 @@ class AgainstTheRealPackage(unittest.TestCase):
 
     def test_the_tool_makes_the_shipped_patches(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            subprocess.run([sys.executable, str(TOOL), "--upk", str(GAME_PACKAGE), "--out", tmp],
+            subprocess.run([sys.executable, str(TOOL), "--manager", str(PROJECT_ROOT), "--upk", str(GAME_PACKAGE), "--out", tmp],
                            check=True, capture_output=True)
             for n, path in PATCHES.items():
                 self.assertEqual((Path(tmp) / f"x{n}" / PATCH_PATH).read_bytes(), path.read_bytes(), n)

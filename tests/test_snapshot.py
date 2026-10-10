@@ -158,6 +158,7 @@ class DeltaScopedSnapshotTests(unittest.TestCase):
         con = connect(self.db)
         try:
             con.execute("CREATE TABLE many (id INTEGER PRIMARY KEY, v INTEGER)")
+            con.execute("BEGIN")
             con.executemany(
                 "INSERT INTO many (id, v) VALUES (?, ?)", [(i, i) for i in range(3000)]
             )
@@ -170,6 +171,10 @@ class DeltaScopedSnapshotTests(unittest.TestCase):
             self.assertEqual(len(captured.entries[0].rows), 3000)
 
             con.execute("UPDATE many SET v = -1")
+            # In one transaction, as the runner always restores. Without it
+            # every row is its own write to disk: 8 s here, and long enough on
+            # GitHub's build machines to be mistaken for a hang.
+            con.execute("BEGIN IMMEDIATE")
             restored, warnings = snapshot_module.restore(con, captured)
             con.commit()
             self.assertEqual(restored, 3000)

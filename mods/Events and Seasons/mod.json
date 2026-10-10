@@ -1,0 +1,711 @@
+{
+  "id": "Events and Seasons",
+  "name": "Events and Seasons",
+  "description": "Brings back the online game's events: the hub's festival looks, the Super Stew Festival (Kill Coins or Death Metals), the fighter recovery discount, the Chokufunsha sale, seasonal mushrooms all year, the Travis Imposter and WarDogs collab Haters, and the weekly and season quests. Each is set in Configuration. The festival stew needs lid-stewpull.dll, the Stew Multi Pull plugin (Get mods...).",
+  "version": "0.3.3",
+  "author": "KSFA",
+  "category": "Game content",
+  "tags": [
+    "events",
+    "seasons",
+    "festival",
+    "stew",
+    "decals",
+    "mushrooms",
+    "collab",
+    "hub",
+    "quests"
+  ],
+  "game_version": [
+    "5.0.4.1.0 - 1.89",
+    "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)"
+  ],
+  "min_manager_version": "0.12.2",
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "mushroom_fes",
+      "label": "Mushroom Club festival",
+      "type": "toggle",
+      "default": true,
+      "group": "Hub festivals",
+      "help": "The hub's Mushroom Club in its festival look, as during the online game's stew festivals (the MUSHROOM_FES event). The Super Stew Festival below turns it on by itself."
+    },
+    {
+      "id": "choku_fes",
+      "label": "Chokufunsha festival lights",
+      "type": "toggle",
+      "default": true,
+      "group": "Hub festivals",
+      "help": "The neon lights on the Chokufunsha parts shop, as during the online game's parts shop festivals (CHOKU_FES)."
+    },
+    {
+      "id": "tdm_fes",
+      "label": "TDM festival sign",
+      "type": "toggle",
+      "default": true,
+      "group": "Hub festivals",
+      "help": "The animated Fort-kun sign in the hub, as during the online game's TDM festivals (TDM_FES)."
+    },
+    {
+      "id": "fest_stew",
+      "label": "Super Stew Festival",
+      "type": "toggle",
+      "default": true,
+      "group": "Super Stew Festival",
+      "help": "A festival stew at the Mushroom Stew shop, with its festival icon: one random decal a pull from the ones you choose below, with the ★★★★ and ★★★★★ ones boosted. It needs lid-stewpull.dll, the Stew Multi Pull plugin (Get mods...) - without it the offline server only offers the first stew, so this one does not show. With the Stew Multi Pull mod its Purchase xN gives no decal twice."
+    },
+    {
+      "id": "fest_currency",
+      "label": "Pay with",
+      "type": "choice",
+      "default": "kc",
+      "options": [
+        {
+          "value": "kc",
+          "label": "Kill Coins"
+        },
+        {
+          "value": "dm",
+          "label": "Death Metals (needs the Death Metals mod on)"
+        }
+      ],
+      "group": "Super Stew Festival",
+      "help": "Death Metal stews only show with the Death Metals mod on: its BrgGame.upk patch takes out the offline release's filter that hides them."
+    },
+    {
+      "id": "fest_price_kc",
+      "label": "Price in Kill Coins",
+      "type": "integer",
+      "default": 100000,
+      "min": 1,
+      "max": 999999,
+      "step": 5000,
+      "unit": "KC",
+      "group": "Super Stew Festival",
+      "help": "A pull, when paying with Kill Coins. The normal stew is 50,000."
+    },
+    {
+      "id": "fest_price_dm",
+      "label": "Price in Death Metals",
+      "type": "integer",
+      "default": 10,
+      "min": 1,
+      "max": 9999,
+      "unit": "DM",
+      "group": "Super Stew Festival",
+      "help": "A pull, when paying with Death Metals."
+    },
+    {
+      "id": "fest_boost",
+      "label": "★★★★ and ★★★★★ odds",
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 10,
+      "unit": "x",
+      "group": "Super Stew Festival",
+      "help": "How many times their normal stew odds the four- and five-star decals get. 3x is what the online festivals advertised; 1x leaves the odds as they are."
+    },
+    {
+      "id": "fest_decals",
+      "label": "Decals in the festival stew",
+      "type": "decals",
+      "default_label": "Every ★★★ and up from the normal stew",
+      "default_sql": "SELECT o.sklid FROM master_skillgacha_odds o JOIN master_skill s ON s.id = o.sklid WHERE o.id = 'SKLGACH_NORMAL_OFFLINE' AND o.odds > 0 AND s.rarity >= 3",
+      "group": "Super Stew Festival",
+      "help": "Which decals the festival stew can give. The list is every decal in your masters.db, including ones other mods add, so switch those mods on first. Each keeps the odds the normal stew gives it (one it never gives gets the normal odds for its stars), times the boost above for four and five stars."
+    },
+    {
+      "id": "fest_banner",
+      "label": "Festival banner and hub flyer",
+      "type": "toggle",
+      "default": true,
+      "group": "Super Stew Festival",
+      "help": "The festival's banner in the stew shop and its flyer in the hub. The online game showed a picture from its server in the banner; offline the frame, title and text show without it."
+    },
+    {
+      "id": "free_continues",
+      "label": "Free continues",
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 10,
+      "group": "Bonuses",
+      "help": "The online game's Free Continue campaigns: how many continues are free each day. 0 is off. The campaigns gave 1, 3 or 4. They are topped up at the game's daily reset (10:00 UTC), so they show from the next reset, not straight away."
+    },
+    {
+      "id": "recovery_discount",
+      "label": "Fighter recovery discount",
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "unit": "%",
+      "group": "Bonuses",
+      "help": "The online game's recovery discount event: this much off recovering fighters, on top of any Express Pass discount. 0 is off; the event was 50%."
+    },
+    {
+      "id": "part_sale",
+      "label": "Chokufunsha sale weapons",
+      "type": "toggle",
+      "default": false,
+      "group": "Bonuses",
+      "help": "The online game's Chokufunsha sale: the Jungle Machete E RG and the Iron Hammer RG in the parts shop."
+    },
+    {
+      "id": "seasons",
+      "label": "Seasonal mushrooms",
+      "type": "choice",
+      "default": "game",
+      "options": [
+        {
+          "value": "game",
+          "label": "In their own months (as the game does it)"
+        },
+        {
+          "value": "all",
+          "label": "All four seasons, all year"
+        },
+        {
+          "value": "spring",
+          "label": "Spring's (Eggshrooms) all year"
+        },
+        {
+          "value": "summer",
+          "label": "Summer's (Parasol Shrooms) all year"
+        },
+        {
+          "value": "autumn",
+          "label": "Autumn's (Pumpkinshrooms) all year"
+        },
+        {
+          "value": "winter",
+          "label": "Winter's (Snowcaps) all year"
+        }
+      ],
+      "group": "Seasons",
+      "help": "The game picks the season from your PC's month: winter in January and February, spring in April and May, summer in July and August, autumn in October and November, and none in the months between. \"All year\" puts that season's mushrooms in every month instead of the others. \"All four\" mixes them, each a quarter as common, so seasonal mushrooms overall turn up as often as in a season month. The title screen and hub decorations still follow the month."
+    },
+    {
+      "id": "collab",
+      "label": "Collab Haters",
+      "type": "choice",
+      "default": "off",
+      "options": [
+        {
+          "value": "off",
+          "label": "Off"
+        },
+        {
+          "value": "travis",
+          "label": "Travis Imposters (No More Heroes)"
+        },
+        {
+          "value": "wardogs",
+          "label": "WarDogs (World of Tanks; needs the Crossover pack)"
+        },
+        {
+          "value": "both",
+          "label": "Both"
+        }
+      ],
+      "group": "Tower",
+      "help": "The online collab events' Haters on the Tower's floors, using the game's own event spawn pattern, which also has more Haters about. The WarDogs wear World of Tanks gear the PC release left out; the LET IT DIE Crossover Content pack puts it back, so switch that on first."
+    },
+    {
+      "id": "quest_mode",
+      "label": "Quest schedule",
+      "type": "choice",
+      "default": "online",
+      "options": [
+        {
+          "value": "online",
+          "label": "As online: a new week every Monday",
+          "help": "The weekly sets as they ran online, each week the one from that week of the year, and the season quests by their seasons, until January 2033."
+        },
+        {
+          "value": "rotate",
+          "label": "A new draw every few days",
+          "help": "Every period a fresh set of the quests you picked, drawn at random."
+        },
+        {
+          "value": "all",
+          "label": "All of them, all the time",
+          "help": "Every quest you picked, always on the board. The first-clear reward comes once; each clear after pays the smaller one."
+        },
+        {
+          "value": "off",
+          "label": "Off",
+          "help": "No weekly or season quests, as the game shipped."
+        }
+      ],
+      "group": "Quests",
+      "help": "The online game's weekly and season quests at the quest board. Only the quests ticked in \"Quests in the pool\" appear, whichever schedule you choose."
+    },
+    {
+      "id": "quest_days",
+      "label": "Days per period",
+      "type": "integer",
+      "default": 7,
+      "min": 1,
+      "max": 90,
+      "unit": "days",
+      "group": "Quests",
+      "help": "For \"A new draw every few days\": how long each set stays (7 starts them on Mondays, 10:00 UTC). Periods are written up to a year ahead of the day you save (fewer when they hold many quests - about 6,000 quests in all); saving the mod list again later carries them on."
+    },
+    {
+      "id": "quest_count",
+      "label": "Quests per period",
+      "type": "integer",
+      "default": 15,
+      "min": 1,
+      "max": 43,
+      "group": "Quests",
+      "help": "For \"A new draw every few days\": how many of the picked quests each period draws (online weeks had 15 or 16)."
+    },
+    {
+      "id": "quest_pick",
+      "label": "Quests in the pool",
+      "type": "pick",
+      "noun": "quest",
+      "default_label": "All 43 quests",
+      "options": [
+        {
+          "value": "SEASON_20190107_1",
+          "label": "Defeat SCREAMER x1000",
+          "group": "Season",
+          "help": "Needs floor 1 reached. First clear: 10 Gold Lost Bags. Each clear after: 4,000 KC. Online it ran in 28 seasons of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_10",
+          "label": "Defeat Max Sharp",
+          "group": "Weekly",
+          "help": "Needs floor 10 reached. First clear: 3 D.O.D. ARMS Red Metal. Each clear after: 500 KC. Online it ran in 92 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_11",
+          "label": "Capture 20 beast(s) in the tower (first clear: 3 Golden Turtle)",
+          "group": "Weekly",
+          "help": "Needs floor 1 reached. First clear: 3 Golden Turtle. Each clear after: 500 KC. Online it ran in 92 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_12",
+          "label": "Collect 20 mushroom(s) in the tower (first clear: 3 Golden Oakshroom)",
+          "group": "Weekly",
+          "help": "Needs floor 1 reached. First clear: 3 Golden Oakshroom. Each clear after: 500 KC. Online it ran in 92 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_13",
+          "label": "Successfully Attack in Tokyo Death Metro x5",
+          "group": "Weekly",
+          "help": "Needs floor 1 reached. First clear: 1 Gold Lost Bag. Each clear after: 500 KC. Online it ran in 365 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_14",
+          "label": "Successfully Defend in Tokyo Death Metro x5",
+          "group": "Weekly",
+          "help": "Needs floor 1 reached. First clear: 1 Gold Lost Bag. Each clear after: 500 KC. Online it ran in 365 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_15",
+          "label": "Defeat White Steel(HARD) (first clear: 1 D.O.D. ARMS 44CE Metal)",
+          "group": "Weekly",
+          "help": "Needs floor 5 reached. First clear: 1 D.O.D. ARMS 44CE Metal. Each clear after: 2,000 KC. Online it ran in 92 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_16",
+          "label": "Defeat White Steel(HARD) (first clear: 100,000 SP)",
+          "group": "Weekly",
+          "help": "Needs floor 5 reached. First clear: 100,000 SP. Each clear after: 2,000 KC. Online it ran in 92 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_17",
+          "label": "Defeat White Steel(NIGHTMARE) (first clear: 1 D.O.D. ARMS 44CE Metal)",
+          "group": "Weekly",
+          "help": "Needs floor 8 reached. First clear: 1 D.O.D. ARMS 44CE Metal. Each clear after: 4,000 KC. Online it ran in 92 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_18",
+          "label": "Defeat White Steel(NIGHTMARE) (first clear: 1 Mega Splattershroom)",
+          "group": "Weekly",
+          "help": "Needs floor 8 reached. First clear: 1 Mega Splattershroom. Each clear after: 4,000 KC. Online it ran in 92 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_19",
+          "label": "Reach Floor 60F in the TENGOKU",
+          "group": "Weekly",
+          "help": "Needs floor 50 reached. First clear: 3 Big Splattershroom. Each clear after: 2,000 KC. Online it ran in 365 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_2",
+          "label": "Defeat Haters in the Tower of Barbs: x1000",
+          "group": "Season",
+          "help": "Needs floor 1 reached. First clear: 1 Rainbow Lost Bag. Each clear after: 4,000 KC. Online it ran in 28 seasons of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_20",
+          "label": "Reach Floor 80F in the TENGOKU",
+          "group": "Weekly",
+          "help": "Needs floor 60 reached. First clear: 1 Mega Splattershroom. Each clear after: 4,000 KC. Online it ran in 365 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_21",
+          "label": "Reach Floor 100F in the TENGOKU",
+          "group": "Weekly",
+          "help": "Needs floor 80 reached. First clear: 2 Mega Splattershroom. Each clear after: 4,000 KC. Online it ran in 365 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_3",
+          "label": "Capture 500 beast(s) in the tower",
+          "group": "Season",
+          "help": "Needs floor 1 reached. First clear: 10 Gold Lost Bags. Each clear after: 4,000 KC. Online it ran in 28 seasons of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_4",
+          "label": "Collect 500 mushroom(s) in the tower",
+          "group": "Season",
+          "help": "Needs floor 1 reached. First clear: 10 Gold Lost Bags. Each clear after: 4,000 KC. Online it ran in 28 seasons of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_5",
+          "label": "Successfully Attack in Tokyo Death Metro x100",
+          "group": "Season",
+          "help": "Needs floor 1 reached. First clear: 1 Rainbow Lost Bag. Each clear after: 4,000 KC. Online it ran in 28 seasons of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_6",
+          "label": "Successfully Defend in Tokyo Death Metro x50",
+          "group": "Season",
+          "help": "Needs floor 1 reached. First clear: 1 Rainbow Lost Bag. Each clear after: 4,000 KC. Online it ran in 28 seasons of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_7",
+          "label": "Defeat SCREAMER x50",
+          "group": "Weekly",
+          "help": "Needs floor 1 reached. First clear: 100,000 KC. Each clear after: 4,000 KC. Online it ran in 365 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_8",
+          "label": "Defeat Haters in the Tower of Barbs: x50",
+          "group": "Weekly",
+          "help": "Needs floor 1 reached. First clear: 100,000 SP. Each clear after: 1,000 KC. Online it ran in 365 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190107_9",
+          "label": "Defeat any of the Jackals",
+          "group": "Weekly",
+          "help": "Needs floor 1 reached. First clear: 200,000 KC. Each clear after: 4,000 KC. Online it ran in 365 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190114_10",
+          "label": "Defeat Red Napalm(HARD) (first clear: 100,000 SP)",
+          "group": "Weekly",
+          "help": "Needs floor 14 reached. First clear: 100,000 SP. Each clear after: 2,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190114_11",
+          "label": "Defeat Red Napalm(NIGHTMARE) (first clear: 1 War Ensemble 44CE Metal)",
+          "group": "Weekly",
+          "help": "Needs floor 17 reached. First clear: 1 War Ensemble 44CE Metal. Each clear after: 4,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190114_12",
+          "label": "Defeat Red Napalm(NIGHTMARE) (first clear: 1 Mega Splattershroom)",
+          "group": "Weekly",
+          "help": "Needs floor 17 reached. First clear: 1 Mega Splattershroom. Each clear after: 4,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190114_4",
+          "label": "Defeat Colonel Jackson",
+          "group": "Weekly",
+          "help": "Needs floor 20 reached. First clear: 3 War Ensemble Red Metal. Each clear after: 1,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190114_5",
+          "label": "Capture 20 beast(s) in the tower (first clear: 3 Golden Bird)",
+          "group": "Weekly",
+          "help": "Needs floor 1 reached. First clear: 3 Golden Bird. Each clear after: 500 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190114_6",
+          "label": "Collect 20 mushroom(s) in the tower (first clear: 3 Golden Lifeshroom)",
+          "group": "Weekly",
+          "help": "Needs floor 1 reached. First clear: 3 Golden Lifeshroom. Each clear after: 500 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190114_9",
+          "label": "Defeat Red Napalm(HARD) (first clear: 1 War Ensemble 44CE Metal)",
+          "group": "Weekly",
+          "help": "Needs floor 14 reached. First clear: 1 War Ensemble 44CE Metal. Each clear after: 2,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190121_10",
+          "label": "Defeat Black Thunder(HARD) (first clear: 100,000 SP)",
+          "group": "Weekly",
+          "help": "Needs floor 26 reached. First clear: 100,000 SP. Each clear after: 2,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190121_11",
+          "label": "Defeat Black Thunder(NIGHTMARE) (first clear: 1 Candle Wolf 44CE Metal)",
+          "group": "Weekly",
+          "help": "Needs floor 30 reached. First clear: 1 Candle Wolf 44CE Metal. Each clear after: 4,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190121_12",
+          "label": "Defeat Black Thunder(NIGHTMARE) (first clear: 1 Mega Splattershroom)",
+          "group": "Weekly",
+          "help": "Needs floor 30 reached. First clear: 1 Mega Splattershroom. Each clear after: 4,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190121_4",
+          "label": "Defeat Mr. Crowley",
+          "group": "Weekly",
+          "help": "Needs floor 30 reached. First clear: 3 Candle Wolf Red Metal. Each clear after: 2,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190121_5",
+          "label": "Capture 20 beast(s) in the tower (first clear: 3 Golden Pillbug)",
+          "group": "Weekly",
+          "help": "Needs floor 1 reached. First clear: 3 Golden Pillbug. Each clear after: 500 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190121_6",
+          "label": "Collect 20 mushroom(s) in the tower (first clear: 3 Golden Dragonshroom)",
+          "group": "Weekly",
+          "help": "Needs floor 1 reached. First clear: 3 Golden Dragonshroom. Each clear after: 500 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190121_9",
+          "label": "Defeat Black Thunder(HARD) (first clear: 1 Candle Wolf 44CE Metal)",
+          "group": "Weekly",
+          "help": "Needs floor 26 reached. First clear: 1 Candle Wolf 44CE Metal. Each clear after: 2,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190128_10",
+          "label": "Defeat Pale Wind(HARD) (first clear: 100,000 SP)",
+          "group": "Weekly",
+          "help": "Needs floor 35 reached. First clear: 100,000 SP. Each clear after: 2,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190128_11",
+          "label": "Defeat Pale Wind(NIGHTMARE) (first clear: 1 M.I.L.K. 44CE Metal)",
+          "group": "Weekly",
+          "help": "Needs floor 38 reached. First clear: 1 M.I.L.K. 44CE Metal. Each clear after: 4,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190128_12",
+          "label": "Defeat Pale Wind(NIGHTMARE) (first clear: 1 Mega Splattershroom)",
+          "group": "Weekly",
+          "help": "Needs floor 38 reached. First clear: 1 Mega Splattershroom. Each clear after: 4,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190128_4",
+          "label": "Defeat Taro Gunkanyama",
+          "group": "Weekly",
+          "help": "Needs floor 40 reached. First clear: 3 M.I.L.K. Red Metal. Each clear after: 4,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190128_5",
+          "label": "Capture 20 beast(s) in the tower (first clear: 3 Golden Lizard)",
+          "group": "Weekly",
+          "help": "Needs floor 1 reached. First clear: 3 Golden Lizard. Each clear after: 500 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190128_6",
+          "label": "Collect 20 mushroom(s) in the tower (first clear: 3 Golden Evershroom)",
+          "group": "Weekly",
+          "help": "Needs floor 1 reached. First clear: 3 Golden Evershroom. Each clear after: 500 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190128_9",
+          "label": "Defeat Pale Wind(HARD) (first clear: 1 M.I.L.K. 44CE Metal)",
+          "group": "Weekly",
+          "help": "Needs floor 35 reached. First clear: 1 M.I.L.K. 44CE Metal. Each clear after: 2,000 KC. Online it ran in 91 weeks of the seven years."
+        },
+        {
+          "value": "SEASON_20190701_22",
+          "label": "Reach Floor 120F in the TENGOKU",
+          "group": "Weekly",
+          "help": "Needs floor 100 reached. First clear: 3 Mega Splattershroom. Each clear after: 4,000 KC. Online it ran in 340 weeks of the seven years."
+        }
+      ],
+      "group": "Quests",
+      "help": "The 43 quests behind all 365 online weeks and 28 seasons. Untick any you never want to see."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "mushroom-fes",
+      "when": {
+        "mushroom_fes": true
+      },
+      "description": "The Mushroom Club festival look in the hub",
+      "sql": "INSERT OR REPLACE INTO master_event_schedule (id, type, val0, val1, val2, start, end) VALUES ('LID_EVENT_MUSHROOM_FES', 'MUSHROOM_FES', '', '', '', 0, 2147483647);"
+    },
+    {
+      "type": "raw_sql",
+      "id": "choku-fes",
+      "when": {
+        "choku_fes": true
+      },
+      "description": "The Chokufunsha festival lights",
+      "sql": "INSERT OR REPLACE INTO master_event_schedule (id, type, val0, val1, val2, start, end) VALUES ('LID_EVENT_CHOKU_FES', 'CHOKU_FES', '', '', '', 0, 2147483647);"
+    },
+    {
+      "type": "raw_sql",
+      "id": "tdm-fes",
+      "when": {
+        "tdm_fes": true
+      },
+      "description": "The TDM festival sign",
+      "sql": "INSERT OR REPLACE INTO master_event_schedule (id, type, val0, val1, val2, start, end) VALUES ('LID_EVENT_TDM_FES', 'TDM_FES', '', '', '', 0, 2147483647);"
+    },
+    {
+      "type": "raw_sql",
+      "id": "stew",
+      "when": {
+        "fest_stew": true
+      },
+      "description": "The Super Stew Festival: its decals, odds and words",
+      "sql": "INSERT OR REPLACE INTO master_shop_product (id, name, \"desc\", type) VALUES ('PRD_SKILL_GACHA_FEST', 'ガチャ', 'ガチャ(超汁祭)', 'PRDTP_FIXED_PRICE');\nINSERT OR REPLACE INTO master_skillgacha_odds (id, sklid, odds, display_priority) SELECT 'SKLGACH_RANDOM_FEST', s.id, COALESCE((SELECT MAX(o.odds) FROM master_skillgacha_odds o WHERE o.id = 'SKLGACH_NORMAL_OFFLINE' AND o.sklid = s.id AND o.odds > 0), CASE s.rarity WHEN 1 THEN 74 WHEN 2 THEN 72 WHEN 3 THEN 40 WHEN 4 THEN 4 ELSE 2 END) * CASE WHEN s.rarity >= 4 THEN {{fest_boost}} ELSE 1 END, COALESCE((SELECT MAX(o.display_priority) FROM master_skillgacha_odds o WHERE o.id = 'SKLGACH_NORMAL_OFFLINE' AND o.sklid = s.id AND o.odds > 0), 0) FROM master_skill s WHERE s.id IN ({{fest_decals}});\nINSERT OR REPLACE INTO master_text (sct, id, snd, lang, txt, type) VALUES\n  ('MSHR_KAIKAN', 'TXT_LID_GACHA_FEST', '', 'int', 'Super Stew Festival', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_GACHA_FEST', '', 'esn', 'Festival de superguiso', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_GACHA_FEST', '', 'deu', 'Super-Eintopf-Festival', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_GACHA_FEST', '', 'fra', 'Fest du Super Bouillon', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_GACHA_FEST', '', 'ita', 'Super Festival del Brodo', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_GACHA_FEST', '', 'ptb', 'Superfestival da Sopa', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_GACHA_FEST', '', 'jpn', '超汁祭', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_GACHA_FEST', '', 'kor', '초절 죽 축제', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_GACHA_FEST', '', 'chn', '超級燉湯祭', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_GACHA_FEST', '', 'kan', '超级炖汤祭', 4);\nINSERT OR REPLACE INTO master_text (sct, id, snd, lang, txt, type) VALUES\n  ('MSHR_KAIKAN', 'TXT_LID_FEST_BOOST', '', 'int', '{{fest_boost}}x Boosted Rate for ★★★★ and Up!', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_FEST_BOOST', '', 'esn', '{{fest_boost}}x tasa mayor en ★★★★ o más.', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_FEST_BOOST', '', 'deu', '{{fest_boost}}x Chance auf ★★★★ und mehr!', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_FEST_BOOST', '', 'fra', 'Taux amélioré de {{fest_boost}}x pour ★★★★ et plus !', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_FEST_BOOST', '', 'ita', 'Tasso aum. {{fest_boost}}x per ★★★★ e oltre!', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_FEST_BOOST', '', 'ptb', '{{fest_boost}}x + Chance p/ ★★★★ ou mais!', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_FEST_BOOST', '', 'jpn', '★★★★以上の的中確率{{fest_boost}}倍!!', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_FEST_BOOST', '', 'kor', '★★★★ 이상 획득 확률 {{fest_boost}}배!', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_FEST_BOOST', '', 'chn', '★★★★以上獲得機率提昇為{{fest_boost}}倍！', 4),\n  ('MSHR_KAIKAN', 'TXT_LID_FEST_BOOST', '', 'kan', '★★★★以上获得几率提升为{{fest_boost}}倍！', 4);"
+    },
+    {
+      "type": "raw_sql",
+      "id": "stew-kc",
+      "when": {
+        "fest_stew": true,
+        "fest_currency": "kc"
+      },
+      "description": "The festival stew, for Kill Coins",
+      "sql": "INSERT OR REPLACE INTO master_skillgacha (id, odds_id, type, name, \"desc\", menu_priority, product_id, platform, is_fest, is_display_days_left, fest_text, fest_detail_text, banner, menu_text_id, confirm_text_id, icon_type, matinee_type, inspires, expires) VALUES ('SKLGACH_RANDOM_FEST', 'SKLGACH_RANDOM_FEST', 'NORMAL', 'Super Stew Festival', 'Super Stew Festival', 3, 'PRD_SKILL_GACHA_FEST', 0, 1, 0, 'MSHR_KAIKAN.TEXT_MUSHROOM_TITLE_1', CASE WHEN {{fest_boost}} > 1 THEN 'MSHR_KAIKAN.TXT_LID_FEST_BOOST' ELSE '' END, CASE WHEN {{fest_banner}} = 1 THEN 'lid_super_stew_festival' ELSE '' END, 'MSHR_KAIKAN.TXT_LID_GACHA_FEST', 'MSHR_KAIKAN.TXT_MS_GACHA', 'FEST', 'NORMAL', 1480730400, 2147483647);\nINSERT OR REPLACE INTO master_shop_product_price (id, price, spirit, medal) VALUES ('PRD_SKILL_GACHA_FEST', {{fest_price_kc}}, 0, 0);"
+    },
+    {
+      "type": "raw_sql",
+      "id": "stew-dm",
+      "when": {
+        "fest_stew": true,
+        "fest_currency": "dm"
+      },
+      "description": "The festival stew, for Death Metals",
+      "sql": "INSERT OR REPLACE INTO master_skillgacha (id, odds_id, type, name, \"desc\", menu_priority, product_id, platform, is_fest, is_display_days_left, fest_text, fest_detail_text, banner, menu_text_id, confirm_text_id, icon_type, matinee_type, inspires, expires) VALUES ('SKLGACH_RANDOM_FEST', 'SKLGACH_RANDOM_FEST', 'NORMAL', 'Super Stew Festival', 'Super Stew Festival', 3, 'PRD_SKILL_GACHA_FEST', 0, 1, 0, 'MSHR_KAIKAN.TEXT_MUSHROOM_TITLE_1', CASE WHEN {{fest_boost}} > 1 THEN 'MSHR_KAIKAN.TXT_LID_FEST_BOOST' ELSE '' END, CASE WHEN {{fest_banner}} = 1 THEN 'lid_super_stew_festival' ELSE '' END, 'MSHR_KAIKAN.TXT_LID_GACHA_FEST', 'MSHR_KAIKAN.TXT_MS_GACHA_DM', 'FEST', 'NORMAL', 1480730400, 2147483647);\nINSERT OR REPLACE INTO master_shop_product_price (id, price, spirit, medal) VALUES ('PRD_SKILL_GACHA_FEST', 0, 0, {{fest_price_dm}});"
+    },
+    {
+      "type": "raw_sql",
+      "id": "bonuses",
+      "description": "Free continues and the fighter recovery discount",
+      "sql": "INSERT OR REPLACE INTO master_event_schedule (id, type, val0, val1, val2, start, end) SELECT 'LID_EVENT_FREE_CONTINUE', 'FREE_CONTINUE', '{{free_continues}}', '', '', 0, 2147483647 WHERE {{free_continues}} > 0;\nINSERT OR REPLACE INTO master_event_schedule (id, type, val0, val1, val2, start, end) SELECT 'LID_EVENT_RECOVERY_DISCOUNT', 'RECOVERY_DISCOUNT', '{{recovery_discount}}', '', '', 0, 2147483647 WHERE {{recovery_discount}} > 0;"
+    },
+    {
+      "type": "raw_sql",
+      "id": "part-sale",
+      "when": {
+        "part_sale": true
+      },
+      "description": "The Chokufunsha sale weapons",
+      "sql": "INSERT OR REPLACE INTO master_event_schedule (id, type, val0, val1, val2, start, end) VALUES ('LID_EVENT_PART_SALE_01', 'PART_SALE', 'PT_ARM_WP001_0B1', '', '', 0, 2147483647);\nINSERT OR REPLACE INTO master_event_schedule (id, type, val0, val1, val2, start, end) VALUES ('LID_EVENT_PART_SALE_02', 'PART_SALE', 'PT_ARM_WP011_0B1', '', '', 0, 2147483647);"
+    },
+    {
+      "type": "raw_sql",
+      "id": "seasons-all",
+      "when": {
+        "seasons": "all"
+      },
+      "description": "Every season's mushrooms all year",
+      "sql": "INSERT OR REPLACE INTO master_mushroom_gen (id, msrid, freq) SELECT id, msrid, freq FROM (SELECT id, msrid, MAX(1, freq / 4) AS freq FROM master_mushroom_gen_odds WHERE (odds_id = 'MUSHROOM_SPRING' AND msrid IN ('MSR_200', 'MSR_201', 'MSR_202')) OR (odds_id = 'MUSHROOM_SUMMER' AND msrid IN ('MSR_306', 'MSR_307', 'MSR_308')) OR (odds_id = 'MUSHROOM_AUTUMN' AND msrid IN ('MSR_309', 'MSR_310', 'MSR_311')) OR (odds_id = 'MUSHROOM_WINTER' AND msrid IN ('MSR_312', 'MSR_313', 'MSR_314')));\nINSERT OR REPLACE INTO master_mushroom_gen_odds (odds_id, id, msrid, freq) SELECT o.odds_id, s.id, s.msrid, s.freq FROM (SELECT id, msrid, MAX(1, freq / 4) AS freq FROM master_mushroom_gen_odds WHERE (odds_id = 'MUSHROOM_SPRING' AND msrid IN ('MSR_200', 'MSR_201', 'MSR_202')) OR (odds_id = 'MUSHROOM_SUMMER' AND msrid IN ('MSR_306', 'MSR_307', 'MSR_308')) OR (odds_id = 'MUSHROOM_AUTUMN' AND msrid IN ('MSR_309', 'MSR_310', 'MSR_311')) OR (odds_id = 'MUSHROOM_WINTER' AND msrid IN ('MSR_312', 'MSR_313', 'MSR_314'))) s JOIN (SELECT DISTINCT odds_id FROM master_mushroom_gen_odds WHERE odds_id IN ('MUSHROOM_SPRING', 'MUSHROOM_SUMMER', 'MUSHROOM_AUTUMN', 'MUSHROOM_WINTER')) o;"
+    },
+    {
+      "type": "raw_sql",
+      "id": "seasons-spring",
+      "when": {
+        "seasons": "spring"
+      },
+      "description": "Spring's mushrooms all year",
+      "sql": "INSERT OR REPLACE INTO master_mushroom_gen (id, msrid, freq) SELECT id, msrid, freq FROM master_mushroom_gen_odds WHERE odds_id = 'MUSHROOM_SPRING' AND msrid IN ('MSR_200', 'MSR_201', 'MSR_202');\nINSERT OR REPLACE INTO master_mushroom_gen_odds (odds_id, id, msrid, freq) SELECT o.odds_id, m.id, m.msrid, m.freq FROM master_mushroom_gen_odds m JOIN (SELECT DISTINCT odds_id FROM master_mushroom_gen_odds WHERE odds_id IN ('MUSHROOM_SUMMER', 'MUSHROOM_AUTUMN', 'MUSHROOM_WINTER')) o WHERE m.odds_id = 'MUSHROOM_SPRING' AND m.msrid IN ('MSR_200', 'MSR_201', 'MSR_202');\nUPDATE master_mushroom_gen_odds SET freq = 0 WHERE odds_id <> 'MUSHROOM_SPRING' AND msrid IN ('MSR_306', 'MSR_307', 'MSR_308', 'MSR_309', 'MSR_310', 'MSR_311', 'MSR_312', 'MSR_313', 'MSR_314');"
+    },
+    {
+      "type": "raw_sql",
+      "id": "seasons-summer",
+      "when": {
+        "seasons": "summer"
+      },
+      "description": "Summer's mushrooms all year",
+      "sql": "INSERT OR REPLACE INTO master_mushroom_gen (id, msrid, freq) SELECT id, msrid, freq FROM master_mushroom_gen_odds WHERE odds_id = 'MUSHROOM_SUMMER' AND msrid IN ('MSR_306', 'MSR_307', 'MSR_308');\nINSERT OR REPLACE INTO master_mushroom_gen_odds (odds_id, id, msrid, freq) SELECT o.odds_id, m.id, m.msrid, m.freq FROM master_mushroom_gen_odds m JOIN (SELECT DISTINCT odds_id FROM master_mushroom_gen_odds WHERE odds_id IN ('MUSHROOM_SPRING', 'MUSHROOM_AUTUMN', 'MUSHROOM_WINTER')) o WHERE m.odds_id = 'MUSHROOM_SUMMER' AND m.msrid IN ('MSR_306', 'MSR_307', 'MSR_308');\nUPDATE master_mushroom_gen_odds SET freq = 0 WHERE odds_id <> 'MUSHROOM_SUMMER' AND msrid IN ('MSR_200', 'MSR_201', 'MSR_202', 'MSR_309', 'MSR_310', 'MSR_311', 'MSR_312', 'MSR_313', 'MSR_314');"
+    },
+    {
+      "type": "raw_sql",
+      "id": "seasons-autumn",
+      "when": {
+        "seasons": "autumn"
+      },
+      "description": "Autumn's mushrooms all year",
+      "sql": "INSERT OR REPLACE INTO master_mushroom_gen (id, msrid, freq) SELECT id, msrid, freq FROM master_mushroom_gen_odds WHERE odds_id = 'MUSHROOM_AUTUMN' AND msrid IN ('MSR_309', 'MSR_310', 'MSR_311');\nINSERT OR REPLACE INTO master_mushroom_gen_odds (odds_id, id, msrid, freq) SELECT o.odds_id, m.id, m.msrid, m.freq FROM master_mushroom_gen_odds m JOIN (SELECT DISTINCT odds_id FROM master_mushroom_gen_odds WHERE odds_id IN ('MUSHROOM_SPRING', 'MUSHROOM_SUMMER', 'MUSHROOM_WINTER')) o WHERE m.odds_id = 'MUSHROOM_AUTUMN' AND m.msrid IN ('MSR_309', 'MSR_310', 'MSR_311');\nUPDATE master_mushroom_gen_odds SET freq = 0 WHERE odds_id <> 'MUSHROOM_AUTUMN' AND msrid IN ('MSR_200', 'MSR_201', 'MSR_202', 'MSR_306', 'MSR_307', 'MSR_308', 'MSR_312', 'MSR_313', 'MSR_314');"
+    },
+    {
+      "type": "raw_sql",
+      "id": "seasons-winter",
+      "when": {
+        "seasons": "winter"
+      },
+      "description": "Winter's mushrooms all year",
+      "sql": "INSERT OR REPLACE INTO master_mushroom_gen (id, msrid, freq) SELECT id, msrid, freq FROM master_mushroom_gen_odds WHERE odds_id = 'MUSHROOM_WINTER' AND msrid IN ('MSR_312', 'MSR_313', 'MSR_314');\nINSERT OR REPLACE INTO master_mushroom_gen_odds (odds_id, id, msrid, freq) SELECT o.odds_id, m.id, m.msrid, m.freq FROM master_mushroom_gen_odds m JOIN (SELECT DISTINCT odds_id FROM master_mushroom_gen_odds WHERE odds_id IN ('MUSHROOM_SPRING', 'MUSHROOM_SUMMER', 'MUSHROOM_AUTUMN')) o WHERE m.odds_id = 'MUSHROOM_WINTER' AND m.msrid IN ('MSR_312', 'MSR_313', 'MSR_314');\nUPDATE master_mushroom_gen_odds SET freq = 0 WHERE odds_id <> 'MUSHROOM_WINTER' AND msrid IN ('MSR_200', 'MSR_201', 'MSR_202', 'MSR_306', 'MSR_307', 'MSR_308', 'MSR_309', 'MSR_310', 'MSR_311');"
+    },
+    {
+      "type": "raw_sql",
+      "id": "collab-travis",
+      "when": {
+        "collab": "travis"
+      },
+      "description": "Travis Imposters on the floors",
+      "sql": "UPDATE master_model_schedule SET pattern = 'D';"
+    },
+    {
+      "type": "raw_sql",
+      "id": "collab-wardogs",
+      "when": {
+        "collab": "wardogs"
+      },
+      "description": "WarDogs on the floors",
+      "sql": "UPDATE master_model_schedule SET pattern = 'D';\nINSERT INTO master_model_group (group_id, model_hater_id, freq) SELECT group_id, CASE model_hater_id WHEN 'MODEL_09' THEN 'MODEL_07' WHEN 'MODEL_091' THEN 'MODEL_071' WHEN 'MODEL_10' THEN 'MODEL_072' WHEN 'MODEL_101' THEN 'MODEL_073' WHEN 'MODEL_11' THEN 'MODEL_08' WHEN 'MODEL_111' THEN 'MODEL_081' WHEN 'MODEL_12' THEN 'MODEL_082' WHEN 'MODEL_121' THEN 'MODEL_083' END, freq FROM master_model_group WHERE group_id GLOB 'MH_0*[DEF]' AND model_hater_id IN ('MODEL_09', 'MODEL_091', 'MODEL_10', 'MODEL_101', 'MODEL_11', 'MODEL_111', 'MODEL_12', 'MODEL_121');\nUPDATE master_model_group SET freq = 0 WHERE group_id GLOB 'MH_0*[DEF]' AND model_hater_id IN ('MODEL_09', 'MODEL_091', 'MODEL_10', 'MODEL_101', 'MODEL_11', 'MODEL_111', 'MODEL_12', 'MODEL_121');"
+    },
+    {
+      "type": "raw_sql",
+      "id": "collab-both",
+      "when": {
+        "collab": "both"
+      },
+      "description": "Travis Imposters and WarDogs on the floors",
+      "sql": "UPDATE master_model_schedule SET pattern = 'D';\nINSERT INTO master_model_group (group_id, model_hater_id, freq) SELECT group_id, CASE model_hater_id WHEN 'MODEL_09' THEN 'MODEL_07' WHEN 'MODEL_091' THEN 'MODEL_071' WHEN 'MODEL_10' THEN 'MODEL_072' WHEN 'MODEL_101' THEN 'MODEL_073' WHEN 'MODEL_11' THEN 'MODEL_08' WHEN 'MODEL_111' THEN 'MODEL_081' WHEN 'MODEL_12' THEN 'MODEL_082' WHEN 'MODEL_121' THEN 'MODEL_083' END, freq - freq / 2 FROM master_model_group WHERE group_id GLOB 'MH_0*[DEF]' AND model_hater_id IN ('MODEL_09', 'MODEL_091', 'MODEL_10', 'MODEL_101', 'MODEL_11', 'MODEL_111', 'MODEL_12', 'MODEL_121');\nUPDATE master_model_group SET freq = freq / 2 WHERE group_id GLOB 'MH_0*[DEF]' AND model_hater_id IN ('MODEL_09', 'MODEL_091', 'MODEL_10', 'MODEL_101', 'MODEL_11', 'MODEL_111', 'MODEL_12', 'MODEL_121');"
+    },
+    {
+      "type": "raw_sql",
+      "id": "quests-online",
+      "when": {
+        "quest_mode": "online"
+      },
+      "description": "The weekly and season quests on the online calendar, to 2033",
+      "sql": "UPDATE master_quest SET start_date = start_date + 220752000, end_date = end_date + 220752000, old_flg = 0 WHERE event_type IN ('QUESTEVENT_WEEK', 'QUESTEVENT_SEASON') AND start_date < 1767607200 AND EXISTS (SELECT 1 FROM master_quest t WHERE t.qid IN ({{quest_pick}}) AND t.event_type IS master_quest.event_type AND t.type IS master_quest.type AND t.name IS master_quest.name AND t.\"desc\" IS master_quest.\"desc\" AND t.cond_flr IS master_quest.cond_flr AND t.first_rwd IS master_quest.first_rwd AND t.rwd IS master_quest.rwd AND t.prgmax IS master_quest.prgmax);"
+    },
+    {
+      "type": "raw_sql",
+      "id": "quests-rotate",
+      "when": {
+        "quest_mode": "rotate"
+      },
+      "description": "A fresh draw of quests every few days",
+      "sql": "DELETE FROM master_quest WHERE substr(qid, 1, 6) = 'LID_Q_';\nDELETE FROM master_quest_param_str WHERE substr(qid, 1, 6) = 'LID_Q_';\nDELETE FROM master_quest_param_int WHERE substr(qid, 1, 6) = 'LID_Q_';\nDELETE FROM master_quest_param_text WHERE substr(qid, 1, 6) = 'LID_Q_';\nDELETE FROM master_quest_param_desc_text WHERE substr(qid, 1, 6) = 'LID_Q_';\nWITH RECURSIVE base(g0) AS (SELECT MAX(0, (CAST(strftime('%s', 'now') AS INTEGER) - 1767607200) / ({{quest_days}} * 86400))), per(g) AS (SELECT g0 FROM base UNION ALL SELECT g + 1 FROM per, base WHERE g + 1 <= g0 + MIN((365 + {{quest_days}} - 1) / {{quest_days}}, 6000 / {{quest_count}})), pool(qid, idx) AS (SELECT column1, column2 FROM (VALUES ('SEASON_20190107_1', 1), ('SEASON_20190107_10', 2), ('SEASON_20190107_11', 3), ('SEASON_20190107_12', 4), ('SEASON_20190107_13', 5), ('SEASON_20190107_14', 6), ('SEASON_20190107_15', 7), ('SEASON_20190107_16', 8), ('SEASON_20190107_17', 9), ('SEASON_20190107_18', 10), ('SEASON_20190107_19', 11), ('SEASON_20190107_2', 12), ('SEASON_20190107_20', 13), ('SEASON_20190107_21', 14), ('SEASON_20190107_3', 15), ('SEASON_20190107_4', 16), ('SEASON_20190107_5', 17), ('SEASON_20190107_6', 18), ('SEASON_20190107_7', 19), ('SEASON_20190107_8', 20), ('SEASON_20190107_9', 21), ('SEASON_20190114_10', 22), ('SEASON_20190114_11', 23), ('SEASON_20190114_12', 24), ('SEASON_20190114_4', 25), ('SEASON_20190114_5', 26), ('SEASON_20190114_6', 27), ('SEASON_20190114_9', 28), ('SEASON_20190121_10', 29), ('SEASON_20190121_11', 30), ('SEASON_20190121_12', 31), ('SEASON_20190121_4', 32), ('SEASON_20190121_5', 33), ('SEASON_20190121_6', 34), ('SEASON_20190121_9', 35), ('SEASON_20190128_10', 36), ('SEASON_20190128_11', 37), ('SEASON_20190128_12', 38), ('SEASON_20190128_4', 39), ('SEASON_20190128_5', 40), ('SEASON_20190128_6', 41), ('SEASON_20190128_9', 42), ('SEASON_20190701_22', 43)) WHERE column1 IN ({{quest_pick}})), mix(g, qid, x) AS (SELECT g, qid, ((g + 1) * 2654435 + idx * 40503 + 12345) % 2147483647 FROM per, pool), draw(g, qid, slot) AS (SELECT g, qid, ROW_NUMBER() OVER (PARTITION BY g ORDER BY (x * x) % 2147483629, qid) FROM mix) INSERT INTO master_quest (qid, no, name, \"desc\", img, cat, type, event_type, cond_flr, cond_quest_id, cond, lvl, first_rwd, rwd, prgmax, start_date, end_date, old_flg) SELECT 'LID_Q_' || draw.g || '_' || draw.qid, q.no, q.name, q.\"desc\", q.img, q.cat, q.type, q.event_type, q.cond_flr, q.cond_quest_id, q.cond, q.lvl, q.first_rwd, q.rwd, q.prgmax, 1767607200 + draw.g * ({{quest_days}} * 86400), 1767607200 + (draw.g + 1) * ({{quest_days}} * 86400), 0 FROM draw JOIN master_quest q ON q.qid = draw.qid WHERE draw.slot <= {{quest_count}};\nWITH RECURSIVE base(g0) AS (SELECT MAX(0, (CAST(strftime('%s', 'now') AS INTEGER) - 1767607200) / ({{quest_days}} * 86400))), per(g) AS (SELECT g0 FROM base UNION ALL SELECT g + 1 FROM per, base WHERE g + 1 <= g0 + MIN((365 + {{quest_days}} - 1) / {{quest_days}}, 6000 / {{quest_count}})), pool(qid, idx) AS (SELECT column1, column2 FROM (VALUES ('SEASON_20190107_1', 1), ('SEASON_20190107_10', 2), ('SEASON_20190107_11', 3), ('SEASON_20190107_12', 4), ('SEASON_20190107_13', 5), ('SEASON_20190107_14', 6), ('SEASON_20190107_15', 7), ('SEASON_20190107_16', 8), ('SEASON_20190107_17', 9), ('SEASON_20190107_18', 10), ('SEASON_20190107_19', 11), ('SEASON_20190107_2', 12), ('SEASON_20190107_20', 13), ('SEASON_20190107_21', 14), ('SEASON_20190107_3', 15), ('SEASON_20190107_4', 16), ('SEASON_20190107_5', 17), ('SEASON_20190107_6', 18), ('SEASON_20190107_7', 19), ('SEASON_20190107_8', 20), ('SEASON_20190107_9', 21), ('SEASON_20190114_10', 22), ('SEASON_20190114_11', 23), ('SEASON_20190114_12', 24), ('SEASON_20190114_4', 25), ('SEASON_20190114_5', 26), ('SEASON_20190114_6', 27), ('SEASON_20190114_9', 28), ('SEASON_20190121_10', 29), ('SEASON_20190121_11', 30), ('SEASON_20190121_12', 31), ('SEASON_20190121_4', 32), ('SEASON_20190121_5', 33), ('SEASON_20190121_6', 34), ('SEASON_20190121_9', 35), ('SEASON_20190128_10', 36), ('SEASON_20190128_11', 37), ('SEASON_20190128_12', 38), ('SEASON_20190128_4', 39), ('SEASON_20190128_5', 40), ('SEASON_20190128_6', 41), ('SEASON_20190128_9', 42), ('SEASON_20190701_22', 43)) WHERE column1 IN ({{quest_pick}})), mix(g, qid, x) AS (SELECT g, qid, ((g + 1) * 2654435 + idx * 40503 + 12345) % 2147483647 FROM per, pool), draw(g, qid, slot) AS (SELECT g, qid, ROW_NUMBER() OVER (PARTITION BY g ORDER BY (x * x) % 2147483629, qid) FROM mix) INSERT INTO master_quest_param_str (qid, no, val) SELECT 'LID_Q_' || draw.g || '_' || draw.qid, p.no, p.val FROM draw JOIN master_quest_param_str p ON p.qid = draw.qid WHERE draw.slot <= {{quest_count}};\nWITH RECURSIVE base(g0) AS (SELECT MAX(0, (CAST(strftime('%s', 'now') AS INTEGER) - 1767607200) / ({{quest_days}} * 86400))), per(g) AS (SELECT g0 FROM base UNION ALL SELECT g + 1 FROM per, base WHERE g + 1 <= g0 + MIN((365 + {{quest_days}} - 1) / {{quest_days}}, 6000 / {{quest_count}})), pool(qid, idx) AS (SELECT column1, column2 FROM (VALUES ('SEASON_20190107_1', 1), ('SEASON_20190107_10', 2), ('SEASON_20190107_11', 3), ('SEASON_20190107_12', 4), ('SEASON_20190107_13', 5), ('SEASON_20190107_14', 6), ('SEASON_20190107_15', 7), ('SEASON_20190107_16', 8), ('SEASON_20190107_17', 9), ('SEASON_20190107_18', 10), ('SEASON_20190107_19', 11), ('SEASON_20190107_2', 12), ('SEASON_20190107_20', 13), ('SEASON_20190107_21', 14), ('SEASON_20190107_3', 15), ('SEASON_20190107_4', 16), ('SEASON_20190107_5', 17), ('SEASON_20190107_6', 18), ('SEASON_20190107_7', 19), ('SEASON_20190107_8', 20), ('SEASON_20190107_9', 21), ('SEASON_20190114_10', 22), ('SEASON_20190114_11', 23), ('SEASON_20190114_12', 24), ('SEASON_20190114_4', 25), ('SEASON_20190114_5', 26), ('SEASON_20190114_6', 27), ('SEASON_20190114_9', 28), ('SEASON_20190121_10', 29), ('SEASON_20190121_11', 30), ('SEASON_20190121_12', 31), ('SEASON_20190121_4', 32), ('SEASON_20190121_5', 33), ('SEASON_20190121_6', 34), ('SEASON_20190121_9', 35), ('SEASON_20190128_10', 36), ('SEASON_20190128_11', 37), ('SEASON_20190128_12', 38), ('SEASON_20190128_4', 39), ('SEASON_20190128_5', 40), ('SEASON_20190128_6', 41), ('SEASON_20190128_9', 42), ('SEASON_20190701_22', 43)) WHERE column1 IN ({{quest_pick}})), mix(g, qid, x) AS (SELECT g, qid, ((g + 1) * 2654435 + idx * 40503 + 12345) % 2147483647 FROM per, pool), draw(g, qid, slot) AS (SELECT g, qid, ROW_NUMBER() OVER (PARTITION BY g ORDER BY (x * x) % 2147483629, qid) FROM mix) INSERT INTO master_quest_param_int (qid, no, val) SELECT 'LID_Q_' || draw.g || '_' || draw.qid, p.no, p.val FROM draw JOIN master_quest_param_int p ON p.qid = draw.qid WHERE draw.slot <= {{quest_count}};\nWITH RECURSIVE base(g0) AS (SELECT MAX(0, (CAST(strftime('%s', 'now') AS INTEGER) - 1767607200) / ({{quest_days}} * 86400))), per(g) AS (SELECT g0 FROM base UNION ALL SELECT g + 1 FROM per, base WHERE g + 1 <= g0 + MIN((365 + {{quest_days}} - 1) / {{quest_days}}, 6000 / {{quest_count}})), pool(qid, idx) AS (SELECT column1, column2 FROM (VALUES ('SEASON_20190107_1', 1), ('SEASON_20190107_10', 2), ('SEASON_20190107_11', 3), ('SEASON_20190107_12', 4), ('SEASON_20190107_13', 5), ('SEASON_20190107_14', 6), ('SEASON_20190107_15', 7), ('SEASON_20190107_16', 8), ('SEASON_20190107_17', 9), ('SEASON_20190107_18', 10), ('SEASON_20190107_19', 11), ('SEASON_20190107_2', 12), ('SEASON_20190107_20', 13), ('SEASON_20190107_21', 14), ('SEASON_20190107_3', 15), ('SEASON_20190107_4', 16), ('SEASON_20190107_5', 17), ('SEASON_20190107_6', 18), ('SEASON_20190107_7', 19), ('SEASON_20190107_8', 20), ('SEASON_20190107_9', 21), ('SEASON_20190114_10', 22), ('SEASON_20190114_11', 23), ('SEASON_20190114_12', 24), ('SEASON_20190114_4', 25), ('SEASON_20190114_5', 26), ('SEASON_20190114_6', 27), ('SEASON_20190114_9', 28), ('SEASON_20190121_10', 29), ('SEASON_20190121_11', 30), ('SEASON_20190121_12', 31), ('SEASON_20190121_4', 32), ('SEASON_20190121_5', 33), ('SEASON_20190121_6', 34), ('SEASON_20190121_9', 35), ('SEASON_20190128_10', 36), ('SEASON_20190128_11', 37), ('SEASON_20190128_12', 38), ('SEASON_20190128_4', 39), ('SEASON_20190128_5', 40), ('SEASON_20190128_6', 41), ('SEASON_20190128_9', 42), ('SEASON_20190701_22', 43)) WHERE column1 IN ({{quest_pick}})), mix(g, qid, x) AS (SELECT g, qid, ((g + 1) * 2654435 + idx * 40503 + 12345) % 2147483647 FROM per, pool), draw(g, qid, slot) AS (SELECT g, qid, ROW_NUMBER() OVER (PARTITION BY g ORDER BY (x * x) % 2147483629, qid) FROM mix) INSERT INTO master_quest_param_text (qid, no, val) SELECT 'LID_Q_' || draw.g || '_' || draw.qid, p.no, p.val FROM draw JOIN master_quest_param_text p ON p.qid = draw.qid WHERE draw.slot <= {{quest_count}};\nWITH RECURSIVE base(g0) AS (SELECT MAX(0, (CAST(strftime('%s', 'now') AS INTEGER) - 1767607200) / ({{quest_days}} * 86400))), per(g) AS (SELECT g0 FROM base UNION ALL SELECT g + 1 FROM per, base WHERE g + 1 <= g0 + MIN((365 + {{quest_days}} - 1) / {{quest_days}}, 6000 / {{quest_count}})), pool(qid, idx) AS (SELECT column1, column2 FROM (VALUES ('SEASON_20190107_1', 1), ('SEASON_20190107_10', 2), ('SEASON_20190107_11', 3), ('SEASON_20190107_12', 4), ('SEASON_20190107_13', 5), ('SEASON_20190107_14', 6), ('SEASON_20190107_15', 7), ('SEASON_20190107_16', 8), ('SEASON_20190107_17', 9), ('SEASON_20190107_18', 10), ('SEASON_20190107_19', 11), ('SEASON_20190107_2', 12), ('SEASON_20190107_20', 13), ('SEASON_20190107_21', 14), ('SEASON_20190107_3', 15), ('SEASON_20190107_4', 16), ('SEASON_20190107_5', 17), ('SEASON_20190107_6', 18), ('SEASON_20190107_7', 19), ('SEASON_20190107_8', 20), ('SEASON_20190107_9', 21), ('SEASON_20190114_10', 22), ('SEASON_20190114_11', 23), ('SEASON_20190114_12', 24), ('SEASON_20190114_4', 25), ('SEASON_20190114_5', 26), ('SEASON_20190114_6', 27), ('SEASON_20190114_9', 28), ('SEASON_20190121_10', 29), ('SEASON_20190121_11', 30), ('SEASON_20190121_12', 31), ('SEASON_20190121_4', 32), ('SEASON_20190121_5', 33), ('SEASON_20190121_6', 34), ('SEASON_20190121_9', 35), ('SEASON_20190128_10', 36), ('SEASON_20190128_11', 37), ('SEASON_20190128_12', 38), ('SEASON_20190128_4', 39), ('SEASON_20190128_5', 40), ('SEASON_20190128_6', 41), ('SEASON_20190128_9', 42), ('SEASON_20190701_22', 43)) WHERE column1 IN ({{quest_pick}})), mix(g, qid, x) AS (SELECT g, qid, ((g + 1) * 2654435 + idx * 40503 + 12345) % 2147483647 FROM per, pool), draw(g, qid, slot) AS (SELECT g, qid, ROW_NUMBER() OVER (PARTITION BY g ORDER BY (x * x) % 2147483629, qid) FROM mix) INSERT INTO master_quest_param_desc_text (qid, no, val) SELECT 'LID_Q_' || draw.g || '_' || draw.qid, p.no, p.val FROM draw JOIN master_quest_param_desc_text p ON p.qid = draw.qid WHERE draw.slot <= {{quest_count}};"
+    },
+    {
+      "type": "raw_sql",
+      "id": "quests-all",
+      "when": {
+        "quest_mode": "all"
+      },
+      "description": "Every picked quest, always on",
+      "sql": "DELETE FROM master_quest WHERE substr(qid, 1, 6) = 'LID_Q_';\nDELETE FROM master_quest_param_str WHERE substr(qid, 1, 6) = 'LID_Q_';\nDELETE FROM master_quest_param_int WHERE substr(qid, 1, 6) = 'LID_Q_';\nDELETE FROM master_quest_param_text WHERE substr(qid, 1, 6) = 'LID_Q_';\nDELETE FROM master_quest_param_desc_text WHERE substr(qid, 1, 6) = 'LID_Q_';\nINSERT INTO master_quest (qid, no, name, \"desc\", img, cat, type, event_type, cond_flr, cond_quest_id, cond, lvl, first_rwd, rwd, prgmax, start_date, end_date, old_flg) SELECT 'LID_Q_ALL_' || qid, no, name, \"desc\", img, cat, type, event_type, cond_flr, cond_quest_id, cond, lvl, first_rwd, rwd, prgmax, -1, -1, 0 FROM master_quest WHERE qid IN ({{quest_pick}});\nINSERT INTO master_quest_param_str (qid, no, val) SELECT 'LID_Q_ALL_' || qid, no, val FROM master_quest_param_str WHERE qid IN ({{quest_pick}});\nINSERT INTO master_quest_param_int (qid, no, val) SELECT 'LID_Q_ALL_' || qid, no, val FROM master_quest_param_int WHERE qid IN ({{quest_pick}});\nINSERT INTO master_quest_param_text (qid, no, val) SELECT 'LID_Q_ALL_' || qid, no, val FROM master_quest_param_text WHERE qid IN ({{quest_pick}});\nINSERT INTO master_quest_param_desc_text (qid, no, val) SELECT 'LID_Q_ALL_' || qid, no, val FROM master_quest_param_desc_text WHERE qid IN ({{quest_pick}});"
+    }
+  ]
+}

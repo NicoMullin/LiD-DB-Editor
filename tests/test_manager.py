@@ -418,12 +418,15 @@ class ShippedModTests(unittest.TestCase):
         "decal-draw-price",
         "tdm-rewards",
         "LET IT DIE Crossover Content v3.79",
-        "Colored PlayStation Buttons v1.4",
+        "Colored PlayStation Buttons v1.5",
         "Tower Static Radio",
         "instant-drops",
         "reward-pickup",
         "fall-damage",
-        "Stew Multi Pull",
+        "Enemies Left",
+        "Events and Seasons",
+        "Vending Machine",
+        "Golden Beasts",
     }
 
     # By S3er0i9ng, shipped with their permission. Named exactly as a drop of
@@ -431,12 +434,13 @@ class ShippedModTests(unittest.TestCase):
     # in gets the same folder rather than a second copy.
     BUNDLED = {
         "LET IT DIE Crossover Content v3.79",
-        "Colored PlayStation Buttons v1.4",
+        "Colored PlayStation Buttons v1.5",
         "Tower Static Radio",
     }
     # Mods that write columns the small test schema does not have, so they are
     # validated against a real vanilla database instead.
-    REAL_SCHEMA = BUNDLED | {"fighter-passives"}
+    REAL_SCHEMA = BUNDLED | {"fighter-passives", "Enemies Left", "Events and Seasons", "Vending Machine",
+                               "Golden Beasts"}
     VANILLA_DB = PROJECT_ROOT / "LiD Vanilla DB" / "5.0.4.0" / "masters.db"
 
     # Pairs that are the same change at two strengths. They are meant to
@@ -560,10 +564,15 @@ class ShippedModTests(unittest.TestCase):
         measured against vanilla each time."""
         from lid_db_manager.mod import APPLY_DIFF
 
+        # Events and Seasons' "x" multiplies the normal stew's odds into its
+        # own stew's, never its own result, and must see the decals other mods
+        # add, which a vanilla run would not; test_events_and_seasons checks a
+        # re-save does not compound it.
         multipliers = [
-            m for m in self._real_mods() if any(s.unit.lower() == "x" for s in m.settings)
+            m for m in self._real_mods()
+            if any(s.unit.lower() == "x" for s in m.settings) and m.id != "Events and Seasons"
         ]
-        self.assertEqual(len(multipliers), 6)
+        self.assertEqual(len(multipliers), 7)
         for mod in multipliers:
             with self.subTest(mod=mod.id):
                 self.assertEqual(mod.apply_mode, APPLY_DIFF)

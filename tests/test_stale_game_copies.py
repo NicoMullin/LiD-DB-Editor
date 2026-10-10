@@ -104,5 +104,71 @@ class StaleCopyTests(unittest.TestCase):
         self.assertEqual((self.store / "a.original").read_bytes(), b"new icon")
 
 
+class AddsAMark:
+    """A package patch reduced to what the rebuild asks of it."""
+
+    def to_pristine(self, raw: bytes) -> bytes:
+        return raw[:-5] if raw.endswith(b" mark") else raw
+
+    def transform(self, raw: bytes) -> bytes:
+        return raw + b" mark"
+
+
+class StalePackageRebuildTests(unittest.TestCase):
+    """A package a mod rebuilds is rebuilt from this build's copy.
+
+    Found for real when 1.91 arrived: BrgGame.upk was rebuilt from the copy
+    kept under 1.89, so the new executable ran the old build's scripts.
+    """
+
+    TARGET = f"{COOKED}/BrgGame.upk"
+    setUp = StaleCopyTests.setUp
+    tearDown = StaleCopyTests.tearDown
+    _manifest = StaleCopyTests._manifest
+    _kept = StaleCopyTests._kept
+    _write_exe = StaleCopyTests._write_exe
+
+    def _stage(self) -> tuple[list, dict]:
+        manifest = json.loads((self.store / "manifest.json").read_text(encoding="utf-8"))
+        plan, _stock = asset_runner._stage_transforms(
+            {self.TARGET: (AddsAMark(), "scripts")}, self.game, self.store, manifest,
+            self.root / "staging")
+        return plan, manifest
+
+    def test_an_old_builds_kept_copy_gives_way_to_this_builds_file(self) -> None:
+        self._write_exe([("BrgGame.upk", sha1(b"new scripts"))], code=b"\xcc" * 512)
+        (self.cooked / "BrgGame.upk").write_bytes(b"new scripts")
+        self._manifest(**{self.TARGET: {"backup": self._kept("brg.original", b"old scripts")}})
+        plan, manifest = self._stage()
+        [(_target, staged, _dest)] = plan
+        self.assertEqual(staged.read_bytes(), b"new scripts mark")
+        self.assertNotIn(self.TARGET, manifest)
+        self.assertFalse((self.store / "brg.original").exists())
+
+    def test_with_no_copy_of_this_build_it_says_to_verify(self) -> None:
+        self._write_exe([("BrgGame.upk", sha1(b"new scripts"))], code=b"\xcc" * 512)
+        (self.cooked / "BrgGame.upk").write_bytes(b"old scripts mark")
+        self._manifest(**{self.TARGET: {"backup": self._kept("brg.original", b"old scripts")}})
+        with self.assertRaisesRegex(OSError, "Verify integrity"):
+            self._stage()
+        self.assertTrue((self.store / "brg.original").exists())
+
+    def test_a_kept_copy_of_this_build_is_still_used(self) -> None:
+        self._write_exe([("BrgGame.upk", sha1(b"scripts"))], code=b"\xcc" * 512)
+        (self.cooked / "BrgGame.upk").write_bytes(b"scripts mark")
+        self._manifest(**{self.TARGET: {"backup": self._kept("brg.original", b"scripts")}})
+        plan, manifest = self._stage()
+        self.assertEqual(plan[0][1].read_bytes(), b"scripts mark")
+        self.assertIn(self.TARGET, manifest)
+
+    def test_with_the_file_check_switched_off(self) -> None:
+        # Switched off, the exe lists brggame.upy: the hash beside it still counts.
+        self._write_exe([("BrgGame.upy", sha1(b"new scripts"))], code=b"\xcc" * 512)
+        (self.cooked / "BrgGame.upk").write_bytes(b"new scripts")
+        self._manifest(**{self.TARGET: {"backup": self._kept("brg.original", b"old scripts")}})
+        plan, _manifest = self._stage()
+        self.assertEqual(plan[0][1].read_bytes(), b"new scripts mark")
+
+
 if __name__ == "__main__":
     unittest.main()

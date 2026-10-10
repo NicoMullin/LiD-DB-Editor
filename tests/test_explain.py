@@ -649,22 +649,15 @@ class WhatWeLearnedSince(unittest.TestCase):
 
     # -- the vending machine ---------------------------------------------------
 
-    def test_stock_with_no_months_to_restock_from_is_called_out(self) -> None:
+    def test_new_stock_needs_no_months(self) -> None:
+        """The offline game never reads the schedule, so new goods are not
+        warned about it (an earlier version said they might never restock)."""
         td = TableDelta("master_automaticshop_lineup", ["goods_id"],
                         ["goods_id", "lineup_id", "type_id"])
         td.inserts.append((9001, "COMMON", "ITMT_A"))
         text = sentences(self.explain(DbDelta(tables=[td])))
-        self.assertIn("ends on 2026-08-01", text)
-        self.assertIn("adds no new months", text)
-
-    def test_stock_that_brings_its_own_months_is_fine(self) -> None:
-        lineup = TableDelta("master_automaticshop_lineup", ["goods_id"],
-                            ["goods_id", "lineup_id", "type_id"])
-        lineup.inserts.append((9001, "COMMON", "ITMT_A"))
-        months = TableDelta("master_automaticshop_schedule", ["rowid"], ["expire"])
-        months.inserts.append(("2026-09-01 00:00:00",))
-        text = sentences(self.explain(DbDelta(tables=[lineup, months])))
-        self.assertNotIn("adds no new months", text)
+        self.assertNotIn("ends on 2026-08-01", text)
+        self.assertNotIn("never restock", text)
 
     # -- names ---------------------------------------------------------------
 
@@ -723,7 +716,7 @@ class GameFilesAreExplainedToo(unittest.TestCase):
         self.assertTrue(any("mCoin_" in q for q in files[0].quotes))
 
     def test_copied_files_name_the_folder_they_go_into(self) -> None:
-        files = explain.explain_files(self.load("Colored PlayStation Buttons v1.4"))
+        files = explain.explain_files(self.load("Colored PlayStation Buttons v1.5"))
         self.assertIn("BrgGame/CookedPCConsole", files[0].sentence)
 
     def test_the_file_check_it_needs_is_named(self) -> None:

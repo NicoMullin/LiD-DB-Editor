@@ -78,7 +78,10 @@ RETIRED: dict[str, Retired] = {
         "LET IT DIE Crossover Content v3.79", {}, author="S3er0i9ng"
     ),
     "Colored PlayStation Buttons v1.2": Retired(
-        "Colored PlayStation Buttons v1.4", {}, author="S3er0i9ng"
+        "Colored PlayStation Buttons v1.5", {}, author="S3er0i9ng"
+    ),
+    "Colored PlayStation Buttons v1.4": Retired(
+        "Colored PlayStation Buttons v1.5", {}, author="S3er0i9ng"
     ),
 }
 

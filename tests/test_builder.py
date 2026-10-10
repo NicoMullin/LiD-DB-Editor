@@ -606,8 +606,8 @@ class AddingRows(Base):
 
 
 class TheMachinesLists(Richer):
-    """MON to SUN are not days of the week: they are seven Bloodnium lists the
-    schedule moves through month by month. What a list charges in is its
+    """MON to SUN are the Bloodnium lists for each day of the week (the offline
+    game never reads the schedule). What a list charges in is its
     currency_type, which the game's own script sorts the tabs by."""
 
     EXTRA = """
@@ -628,7 +628,7 @@ class TheMachinesLists(Richer):
             (2,'RE','ITEM','ITMT_A',1,0,0,1,3,1,1,0,0,0,0,0,0,0,0),
             (3,'MON','ITEM','ITMT_A',1,0,0,1,4,1,1,0,0,0,0,0,0,0,0),
             (4,'TUE','ITEM','ITMT_A',1,0,0,1,4,1,1,0,0,0,0,0,0,0,0),
-            (5,'ODD','ITEM','ITMT_A',1,0,0,1,1,1,1,0,0,0,0,0,0,0,0);
+            (5,'ODD','ITEM','ITMT_A',1,0,0,1,2,1,1,0,0,0,0,0,0,0,0);
         CREATE TABLE master_automaticshop_schedule (
             expire DATETIME, purchase_lineup_id TEXT, common_lineup_id TEXT,
             purchase_goods_min INT, purchase_goods_max INT, exchange_lineup_id TEXT,
@@ -664,47 +664,7 @@ class TheMachinesLists(Richer):
 
     def test_lists_are_named_for_what_they_are(self) -> None:
         self.assertEqual(self.builder.lineup_name("COMMON"), "Kill Coin shop")
-        self.assertIn("monthly", self.builder.lineup_name("MON"))
-        self.assertNotIn("Monday", self.builder.lineup_name("MON"))
-
-    def test_making_room_lets_every_item_be_offered(self) -> None:
-        """Stock offers exactly the list's size, so a new item would push
-        another out at random unless the count goes up with it."""
-        self.builder.stock_machine(["ITMT_B"], "RE")
-        self.assertEqual(self.builder.make_room("RE"), 4)   # min and max, two months
-        self.assertEqual(self.cell("SELECT min(exchange_goods_max) FROM "
-                                   "master_automaticshop_schedule"), 2)
-        self.assertEqual(self.cell("SELECT min(exchange_goods_min) FROM "
-                                   "master_automaticshop_schedule"), 2)
-
-    def test_room_is_only_made_where_it_is_short(self) -> None:
-        """MON already offers up to 44; one more item fits without a change."""
-        self.builder.stock_machine(["ITMT_B"], "MON")
-        self.assertEqual(self.builder.make_room("MON"), 0)
-
-    def test_the_schedule_carries_the_rotation_on(self) -> None:
-        added = self.builder.extend_schedule(2026)
-        self.assertEqual(added, 5)                    # September to January 1st
-        con = sqlite3.connect(self.builder.scratch)
-        months = con.execute(
-            "SELECT expire, bloodnium_exchange_lineup_id FROM "
-            "master_automaticshop_schedule ORDER BY expire"
-        ).fetchall()
-        con.close()
-        self.assertEqual(months[2], ("2026-09-01 00:00:00", "MON"))
-        self.assertEqual(months[3][1], "TUE")
-        self.assertEqual(months[-1][0], "2027-01-01 00:00:00")
-        self.assertEqual(self.builder.schedule_end(), "2027-01-01 00:00:00")
-
-    def test_extending_counts_and_discards_like_any_change(self) -> None:
-        self.builder.extend_schedule(2026)
-        self.assertEqual(self.builder.change_count(), 5)
-        self.builder.revert_all()
-        self.assertEqual(self.builder.schedule_end(), "2026-08-01 00:00:00")
-
-    def test_a_silly_year_is_refused(self) -> None:
-        with self.assertRaises(BuildError):
-            self.builder.extend_schedule(9999)
+        self.assertEqual(self.builder.lineup_name("MON"), "Bloodnium exchange - Mondays")
 
 
 class NamingItemsThroughAnotherTable(Richer):
@@ -725,7 +685,7 @@ class NamingItemsThroughAnotherTable(Richer):
     def test_a_blueprint_on_the_machine_is_named_by_what_it_makes(self) -> None:
         label = self.builder.view("master_automaticshop_lineup").rows[0].label
         self.assertIn("Battle Machete", label)
-        self.assertIn("Bloodnium list SAT", label)
+        self.assertIn("Saturday's Bloodnium list", label)
 
 
 class WhatTheBuilderKnows(unittest.TestCase):

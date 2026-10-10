@@ -1,6 +1,6 @@
 -- LET IT DIE Crossover Content Pack v3.79
 -- Database changes only. The artwork comes from the pack itself.
--- Recorded from the pack's own installer on 2026-09-17 by tools/build_crossover_recipe.py - do not edit by hand.
+-- Recorded from the pack's own installer on 2026-10-10 by tools/build_crossover_recipe.py - do not edit by hand.
 
 -- master_asset: 0 updated, 6 added, 0 removed
 INSERT OR REPLACE INTO "master_asset" ("id", "mesh", "stm", "fstm", "pa", "type", "skt", "as", "at", "ef", "gore") VALUES ('ASSET_NF_SPE_HEAD_063', 'CH_Equip_NF_SPE_Head0063.Meshes.SK_CH_Equip_NF_SPE_Head0063', 'CH_Equip_NM_SPE_Head0063.Meshes.SM_CH_Equip_NM_SPE_Head0063', '', 'CH_Equip_NM_SPE_Head0063.physicsassets.PA_CH_Equip_NM_SPE_Head0063', 'ASSETTP_FJ', '', '', '', '', 0);
@@ -526,7 +526,100 @@ INSERT OR REPLACE INTO "master_skillgacha_odds" ("id", "sklid", "odds", "display
 INSERT OR REPLACE INTO "master_skillgacha_odds" ("id", "sklid", "odds", "display_priority") VALUES ('SKLGACH_NORMAL_OFFLINE', 'SKL_MFS_KUN_P', 74, 0);
 INSERT OR REPLACE INTO "master_skillgacha_odds" ("id", "sklid", "odds", "display_priority") VALUES ('SKLGACH_NORMAL_OFFLINE', 'SKL_WDMG_DOWN_02_P', 74, 0);
 
--- master_text: 0 updated, 260 added, 0 removed
+-- master_text: 30 updated, 260 added, 0 removed
+UPDATE "master_text" SET "txt" = '爆擊率提昇#0%，武器／護具的
+耐久度消耗速率降低#1%。
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_CRIUP_DECDUR_DOWN' AND "snd" = '' AND "lang" = 'chn';
+UPDATE "master_text" SET "txt" = 'Erhöht kritische Trefferrate um
+#0 % und verringert Waffen- und
+Rüstung-Abnutzungsgeschwindigkeit
+um #1 %.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_CRIUP_DECDUR_DOWN' AND "snd" = '' AND "lang" = 'deu';
+UPDATE "master_text" SET "txt" = 'Aumenta un #0% la tasa de golpes
+críticos y reduce un #1% el
+desgaste de armas y armaduras.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_CRIUP_DECDUR_DOWN' AND "snd" = '' AND "lang" = 'esn';
+UPDATE "master_text" SET "txt" = 'Augmente le taux de coups critiques
+de #0 % et réduit la vitesse d''usure
+des armes et armures de #1 %.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_CRIUP_DECDUR_DOWN' AND "snd" = '' AND "lang" = 'fra';
+UPDATE "master_text" SET "txt" = 'Boosts critical hit rate by #0% and
+reduces weapon/armor weardown
+speed by #1%.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_CRIUP_DECDUR_DOWN' AND "snd" = '' AND "lang" = 'int';
+UPDATE "master_text" SET "txt" = 'Aumenta del #0% il tasso  di colpi
+critici e riduce del #1%  la velocità
+di usura di armi/armature.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_CRIUP_DECDUR_DOWN' AND "snd" = '' AND "lang" = 'ita';
+UPDATE "master_text" SET "txt" = 'クリティカルの発生確率が#0％アップし、
+武器･防具の耐久度の減少速度が#1％ダウン
+する。
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_CRIUP_DECDUR_DOWN' AND "snd" = '' AND "lang" = 'jpn';
+UPDATE "master_text" SET "txt" = '爆击率提升#0%，武器／护具的
+耐久度消耗速率降低#1%。
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_CRIUP_DECDUR_DOWN' AND "snd" = '' AND "lang" = 'kan';
+UPDATE "master_text" SET "txt" = '치명타 확률이 #0% 증폭되며,
+무기/방어구의 내구도 감소 속도가
+#1% 감소합니다.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_CRIUP_DECDUR_DOWN' AND "snd" = '' AND "lang" = 'kor';
+UPDATE "master_text" SET "txt" = 'Aumenta em #0% a taxa de crítico
+e reduz em #1% a a velocidade de
+desgaste de armas e armaduras.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_CRIUP_DECDUR_DOWN' AND "snd" = '' AND "lang" = 'ptb';
+UPDATE "master_text" SET "txt" = 'HP上限提高#0%。
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_HPUP_WOT' AND "snd" = '' AND "lang" = 'chn';
+UPDATE "master_text" SET "txt" = 'Erhöht max. LP um #0 %.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_HPUP_WOT' AND "snd" = '' AND "lang" = 'deu';
+UPDATE "master_text" SET "txt" = 'Aumenta un #0% los PS máximos.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_HPUP_WOT' AND "snd" = '' AND "lang" = 'esn';
+UPDATE "master_text" SET "txt" = 'Augmente vos PV max. de #0 %.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_HPUP_WOT' AND "snd" = '' AND "lang" = 'fra';
+UPDATE "master_text" SET "txt" = 'Increase max HP by #0%.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_HPUP_WOT' AND "snd" = '' AND "lang" = 'int';
+UPDATE "master_text" SET "txt" = 'Aumenta del #0% la quantità
+massima di PS.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_HPUP_WOT' AND "snd" = '' AND "lang" = 'ita';
+UPDATE "master_text" SET "txt" = 'HP最大量が#0％アップする。
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_HPUP_WOT' AND "snd" = '' AND "lang" = 'jpn';
+UPDATE "master_text" SET "txt" = 'HP上限提高#0%。
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_HPUP_WOT' AND "snd" = '' AND "lang" = 'kan';
+UPDATE "master_text" SET "txt" = '최대 HP가 #0% 증가합니다.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_HPUP_WOT' AND "snd" = '' AND "lang" = 'kor';
+UPDATE "master_text" SET "txt" = 'Aumenta o PV máximo em #0%.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_HPUP_WOT' AND "snd" = '' AND "lang" = 'ptb';
+UPDATE "master_text" SET "txt" = '匿蹤狀態下後擲式背摔的攻擊力
+提昇#0%。
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_LESDMG_STEALTH_03' AND "snd" = '' AND "lang" = 'chn';
+UPDATE "master_text" SET "txt" = 'Erhöht Schaden von Suplessen
+unter Tarnung um #0 %.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_LESDMG_STEALTH_03' AND "snd" = '' AND "lang" = 'deu';
+UPDATE "master_text" SET "txt" = 'Incrementa el daño de los ataques
+súplex un #0% durante el sigilo.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_LESDMG_STEALTH_03' AND "snd" = '' AND "lang" = 'esn';
+UPDATE "master_text" SET "txt" = 'Augmente de #0 % les dégâts des 
+prises lorsque vous êtes en mode 
+furtif.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_LESDMG_STEALTH_03' AND "snd" = '' AND "lang" = 'fra';
+UPDATE "master_text" SET "txt" = 'Increases damage of suplexes
+while stealthed by #0%.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_LESDMG_STEALTH_03' AND "snd" = '' AND "lang" = 'int';
+UPDATE "master_text" SET "txt" = 'Aumenta il danno dei backdrop
+del #0% quando sei in modalità 
+furtiva.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_LESDMG_STEALTH_03' AND "snd" = '' AND "lang" = 'ita';
+UPDATE "master_text" SET "txt" = 'ステルス状態からのバックドロップの
+攻撃力が#0％アップする。
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_LESDMG_STEALTH_03' AND "snd" = '' AND "lang" = 'jpn';
+UPDATE "master_text" SET "txt" = '隐身状态下后掷式背摔的攻击力
+提升#0%。
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_LESDMG_STEALTH_03' AND "snd" = '' AND "lang" = 'kan';
+UPDATE "master_text" SET "txt" = '스텔스 상태일 때 수플렉스의
+대미지가 #0% 증가합니다.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_LESDMG_STEALTH_03' AND "snd" = '' AND "lang" = 'kor';
+UPDATE "master_text" SET "txt" = 'Aumenta em #0% o dano dos
+ataques Suplex realizados
+furtivamente.
+ ' WHERE "sct" = 'SKILL_DESCRIPTION' AND "id" = 'TXT_SKL_LESDMG_STEALTH_03' AND "snd" = '' AND "lang" = 'ptb';
 INSERT OR REPLACE INTO "master_text" ("sct", "id", "snd", "lang", "txt", "type") VALUES ('PT_HEAD', 'TXT_PT_SPE_HEAD_063', '', 'chn', 'White 凱特頭飾 1', 1);
 INSERT OR REPLACE INTO "master_text" ("sct", "id", "snd", "lang", "txt", "type") VALUES ('PT_HEAD', 'TXT_PT_SPE_HEAD_063', '', 'deu', 'White Kat-Kopf 1', 1);
 INSERT OR REPLACE INTO "master_text" ("sct", "id", "snd", "lang", "txt", "type") VALUES ('PT_HEAD', 'TXT_PT_SPE_HEAD_063', '', 'esn', 'White Cabeza de Kat 1', 1);

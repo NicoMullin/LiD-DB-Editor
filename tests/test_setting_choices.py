@@ -256,11 +256,16 @@ class ThroughTheManager(unittest.TestCase):
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 VANILLA_5042 = PROJECT_ROOT / "LiD Vanilla DB" / "5.0.4.2" / "masters.db"
 # Released on its own rather than with the manager, so it may not be here.
-FIGHTER_PASSIVES = PROJECT_ROOT / "mods" / "fighter-passives"
+# Fighter Class Passives needs a plugin, so it lives in its own repository
+# (LiD-Fighter-Class-Passives), not in mods/. Found beside this checkout, or
+# where LID_FIGHTER_PASSIVES says; without it these tests are skipped.
+FIGHTER_PASSIVES = Path(os.environ.get(
+    "LID_FIGHTER_PASSIVES",
+    PROJECT_ROOT.parent / "LiD Fighter Mod" / "LiD Fighter Mod" / "mods" / "fighter-passives"))
 
 
 @unittest.skipUnless(VANILLA_5042.is_file(), f"no vanilla database at {VANILLA_5042}")
-@unittest.skipUnless(FIGHTER_PASSIVES.is_dir(), "Fighter Class Passives is not in mods/")
+@unittest.skipUnless(FIGHTER_PASSIVES.is_dir(), "Fighter Class Passives is not beside this checkout")
 class TheFighterPassivesMod(unittest.TestCase):
     """The shipped mod, on the real game's database."""
 
@@ -271,7 +276,7 @@ class TheFighterPassivesMod(unittest.TestCase):
         self.root = Path(self._tmp.name)
         self.paths = AppPaths(self.root).ensure()
         folder = self.paths.mods_dir / "fighter-passives"
-        shutil.copytree(PROJECT_ROOT / "mods" / "fighter-passives", folder)
+        shutil.copytree(FIGHTER_PASSIVES, folder)
         # The database half only: the BrgGame.upk hook needs a real game folder,
         # and is tested on the real package in test_package_stacking.
         mod_json = json.loads((folder / "mod.json").read_text(encoding="utf-8"))

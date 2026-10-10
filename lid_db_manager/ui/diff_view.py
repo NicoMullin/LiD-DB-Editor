@@ -172,7 +172,8 @@ class DiffView(QWidget):
                     layout.addWidget(heading)
                 group = setting.group or group
                 editor = SettingEditor(
-                    setting, mod.values.get(setting.id, setting.default), dim
+                    setting, mod.values.get(setting.id, setting.default), dim,
+                    db_path=self.manager.db_path,
                 )
                 editor.committed.connect(
                     lambda value, m=mod.id, s=setting.id: self._on_setting_committed(m, s, value)

@@ -28,6 +28,7 @@ from . import vetted
 from . import install as install_module
 from . import migrations
 from . import modedit
+from . import savegame
 from . import snapshot as snapshot_module
 from .conflict import ConflictReport, analyze
 from .errors import ModManagerError
@@ -181,6 +182,29 @@ class Manager:
         self.log.info(
             f"Game folder set to {path}" if path else "Game folder override cleared"
         )
+
+    # -- the save file -----------------------------------------------------
+
+    def saves(self) -> list[Path]:
+        """The game's saves, the most recently played first ([] without a game folder)."""
+        return savegame.find_saves(self.asset_game_root)
+
+    def start_new_game_day(self, save: Path) -> "savegame.NewDay":
+        """Make the game's next start a new game day; the save is backed up first.
+
+        Refused while the game runs: it holds the save and writes it on exit,
+        which would undo the change.
+        """
+        reason = asset_runner.game_lock_reason()
+        if reason:
+            raise savegame.SaveError(reason.replace("applying or reverting mods", "changing the save"))
+        result = savegame.start_new_game_day(save, self.paths.backups_dir)
+        if result.changed:
+            self.log.info(f"New game day: {save} last day {result.before} -> {result.after}; "
+                          f"the save as it was is at {result.backup}")
+        else:
+            self.log.info(f"New game day: {save} already begins a new day at the next start - left alone")
+        return result
 
     # -- the game's own file check ----------------------------------------
 

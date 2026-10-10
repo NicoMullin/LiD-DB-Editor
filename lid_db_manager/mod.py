@@ -8,6 +8,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from . import APP_NAME, __version__
 from .browse import clean_category, clean_tags
 from .errors import ModLoadError
 from .patch import Patch, RawSqlFilePatch
@@ -15,10 +16,12 @@ from .settings import (
     ModSetting,
     check_placeholders,
     parse_settings,
+    parse_when,
     render,
     render_text,
     render_values,
     resolve_values,
+    when_holds,
 )
 
 REQUIRED_FIELDS = ("id", "name", "description", "version", "author")
@@ -171,16 +174,38 @@ class Mod:
 
 
 def _build_patches(
-    patch_data: list, mod_dir: Path, values: dict, settings: list[ModSetting]
+    patch_data: list, mod_dir: Path, values: dict, settings: list[ModSetting],
+    *, every_part: bool = False,
 ) -> list[Patch]:
+    """The mod's parts, filled in with ``values``.
+
+    A part with a ``"when"`` is left out unless the values meet it (see
+    settings.parse_when), so a setting can switch a whole part on or off - a
+    package patch, which has no number to put a placeholder in, included. Each
+    part keeps the number it has in mod.json, whatever is left out before it,
+    so what a player switched off by hand stays attached to the same part.
+    ``every_part`` builds them all regardless, which is how loading checks the
+    parts that are off as well.
+    """
     filled = render_values(settings, values)
-    patches = [
-        Patch.from_dict(render(entry, filled) if values else entry, mod_dir, index)
-        for index, entry in enumerate(patch_data)
-    ]
+    patches = []
+    for index, entry in enumerate(patch_data):
+        if not every_part and isinstance(entry, dict) and "when" in entry:
+            conditions = parse_when(entry["when"], settings, mod_dir.name, f"patch #{index + 1}")
+            if not when_holds(conditions, values):
+                continue
+        patches.append(Patch.from_dict(render(entry, filled) if values else entry, mod_dir, index))
     for patch in patches:
         patch.setting_values = dict(filled)
     return patches
+
+
+def _version_tuple(text: str) -> tuple[int, ...] | None:
+    """"0.12.0" as (0, 12, 0); None if it is not dotted numbers."""
+    parts = text.strip().split(".")
+    if not parts or not all(part.isdigit() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
 
 
 def _filled_in(mod: Mod, values: dict) -> Mod:
@@ -225,6 +250,24 @@ def load_mod_json(mod_dir: Path) -> Mod:
     if not isinstance(patch_data, list) or not patch_data:
         raise ModLoadError(mod_ref, "mod.json needs a non-empty 'patches' array")
 
+    # A mod that relies on something this manager does not have yet says so,
+    # and is refused with that reason instead of being half understood. (A
+    # manager older than this check skips the field, as it skips anything it
+    # does not know - so the mod's readme should say it too.)
+    needed = str(data.get("min_manager_version", "") or "").strip()
+    if needed:
+        wanted, have = _version_tuple(needed), _version_tuple(__version__)
+        if wanted is None:
+            raise ModLoadError(
+                mod_ref, f"'min_manager_version' must be a version like 0.12.0, not {needed!r}"
+            )
+        if have is not None and wanted > have:
+            raise ModLoadError(
+                mod_ref,
+                f"needs {APP_NAME} {needed} or newer - this is {__version__}. "
+                f"Update {APP_NAME} to use this mod.",
+            )
+
     warnings: list[str] = []
     mod_id = str(data["id"]).strip()
     if mod_id != mod_dir.name:
@@ -239,9 +282,20 @@ def load_mod_json(mod_dir: Path) -> Mod:
     settings = parse_settings(data.get("settings"), mod_ref, mod_dir)
     description_template = str(data["description"]).strip()
     defaults = {setting.id: setting.default for setting in settings}
+    used: set[str] = set()
     if settings:
         used = check_placeholders(patch_data, settings, mod_ref, "a patch")
         used |= check_placeholders(description_template, settings, mod_ref, "the description")
+    conditional = False
+    for index, entry in enumerate(patch_data):
+        if isinstance(entry, dict) and "when" in entry:
+            named = parse_when(entry["when"], settings, mod_ref, f"patch #{index + 1}")
+            used |= set(named)
+            conditional = True
+    if conditional:
+        # Every part is built once, so one that is off by default still has
+        # to load - a broken one is found now, not when somebody switches it on.
+        _build_patches(patch_data, mod_dir, defaults, settings, every_part=True)
     patches = _build_patches(patch_data, mod_dir, defaults, settings)
     if settings:
         for patch in patches:

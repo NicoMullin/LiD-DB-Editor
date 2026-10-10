@@ -1,6 +1,9 @@
-"""One value a mod lets the player choose: a number box, an on/off, or a list."""
+"""One value a mod lets the player choose: a number box, an on/off, a list, or
+a set of decals, entries or goods picked in a window of their own."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from PySide6.QtCore import QStringListModel, Qt, Signal
 from PySide6.QtGui import QFont
@@ -10,13 +13,24 @@ from PySide6.QtWidgets import (
     QCompleter,
     QDoubleSpinBox,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QWidget,
 )
 
-from ..settings import KIND_CHOICE, KIND_INTEGER, KIND_TOGGLE, ModSetting
+from ..decals import DecalReadError
+from ..settings import (
+    KIND_CHOICE,
+    KIND_GOODS,
+    KIND_INTEGER,
+    KIND_PICK,
+    KIND_REWARDS,
+    KIND_TOGGLE,
+    ModSetting,
+)
 
 # A list longer than this gets a box to type into, matching anywhere in a name:
 # nobody scrolls through three hundred decals to find "Joker".
@@ -35,7 +49,8 @@ class SettingEditor(QWidget):
     committed = Signal(object)  # the new value
     finished = Signal()  # editing ended, whether or not anything changed
 
-    def __init__(self, setting: ModSetting, value, dim_color: str = "", parent=None):
+    def __init__(self, setting: ModSetting, value, dim_color: str = "", parent=None,
+                 *, db_path: Path | None = None):
         super().__init__(parent)
         self.setting = setting
         self._committed_value = value
@@ -44,6 +59,12 @@ class SettingEditor(QWidget):
         self.combo: QComboBox | None = None
         self.check: QCheckBox | None = None
         self._option_help: QLabel | None = None
+        # A decal or pick setting: the database a decal window lists, and what
+        # it holds.
+        self.db_path = db_path
+        self.decals_button: QPushButton | None = None
+        self._decals_summary: QLabel | None = None
+        self._decals_value = value
 
         # Bold through the stylesheet rather than <b>, and plain text
         # everywhere else. A label built by interpolating a mod's own words into
@@ -60,6 +81,8 @@ class SettingEditor(QWidget):
             self.input = self._build_toggle(value)
         elif setting.kind == KIND_CHOICE:
             self.input = self._build_choice(value)
+        elif setting.is_list:
+            self.input = self._build_decals(value)
         else:
             self.input = self._build_number(value)
 
@@ -178,6 +201,83 @@ class SettingEditor(QWidget):
         self._show_option_help()
         return combo
 
+    def _build_decals(self, value) -> QWidget:
+        box = QWidget()
+        row = QHBoxLayout(box)
+        row.setContentsMargins(0, 0, 0, 0)
+        noun = (self.setting.noun or "item") if self.setting.kind == KIND_PICK else "decal"
+        text = "Edit the list..." if self.setting.kind in (KIND_GOODS, KIND_REWARDS) else f"Choose {noun}s..."
+        button = QPushButton(text)
+        button.clicked.connect(self._choose_decals)
+        summary = QLabel(self.setting.display(value))
+        summary.setTextFormat(Qt.TextFormat.PlainText)
+        row.addWidget(button)
+        row.addWidget(summary)
+        self.decals_button = button
+        self._decals_summary = summary
+        return box
+
+    def _choose_decals(self) -> None:
+        from .decal_picker import DecalPicker   # Qt dialogs: only built when asked for
+        from .list_picker import OptionPicker
+
+        if self.setting.kind == KIND_PICK:
+            picker = OptionPicker(self.setting, self._decals_value, self)
+            if picker.exec():
+                self.set_value(picker.result_value)
+                self._commit()
+            else:
+                self.finished.emit()
+            return
+        if self.db_path is None or not Path(self.db_path).is_file():
+            what = {KIND_GOODS: "goods", KIND_REWARDS: "rewards"}.get(self.setting.kind, "decals")
+            QMessageBox.information(
+                self, self.setting.label,
+                f"Pick your masters.db first (Browse, at the top): the list of {what} "
+                "comes from it.",
+            )
+            return
+        if self.setting.kind == KIND_REWARDS:
+            from ..rewards import RewardsReadError
+            from .rewards_editor import RewardsEditor
+
+            try:
+                editor = RewardsEditor(self.setting, self._decals_value, Path(self.db_path), self)
+            except RewardsReadError as exc:
+                QMessageBox.warning(self, self.setting.label, f"The rewards could not be read: {exc}")
+                return
+            if editor.exec():
+                self.set_value(editor.result_value)
+                self._commit()
+            else:
+                self.finished.emit()
+            return
+        if self.setting.kind == KIND_GOODS:
+            from ..goods import GoodsReadError
+            from .goods_editor import GoodsEditor
+
+            try:
+                editor = GoodsEditor(self.setting, self._decals_value, Path(self.db_path), self)
+            except GoodsReadError as exc:
+                QMessageBox.warning(self, self.setting.label, f"The goods could not be read: {exc}")
+                return
+            if editor.exec():
+                self.set_value(editor.result_value)
+                self._commit()
+            else:
+                self.finished.emit()
+            return
+        try:
+            picker = DecalPicker(self.setting, self._decals_value, Path(self.db_path), self)
+        except DecalReadError as exc:
+            QMessageBox.warning(self, "Choose decals", f"The decals could not be read: {exc}")
+            return
+        if picker.exec():
+            self.set_value(picker.result_value)
+            self._commit()          # says "finished" itself
+        else:
+            self.finished.emit()
+
     # -- the list ------------------------------------------------------------
 
     def _index_of(self, value) -> int:
@@ -211,6 +311,8 @@ class SettingEditor(QWidget):
     # -- what the panel asks of every editor ---------------------------------
 
     def value(self):
+        if self.decals_button is not None:
+            return self._decals_value
         if self.check is not None:
             return int(self.check.isChecked())
         if self.combo is not None:
@@ -220,6 +322,10 @@ class SettingEditor(QWidget):
         return int(number) if self.setting.kind == KIND_INTEGER else float(number)
 
     def set_value(self, value) -> None:
+        if self.decals_button is not None:
+            self._decals_value = value
+            self._decals_summary.setText(self.setting.display(value))
+            return
         if self.check is not None:
             self.check.setChecked(bool(value))
         elif self.combo is not None:
@@ -247,6 +353,9 @@ class SettingEditor(QWidget):
         return self.input.hasFocus()
 
     def focus(self) -> None:
+        if self.decals_button is not None:
+            self.decals_button.setFocus()
+            return
         self.input.setFocus()
         if self.spin is not None:
             self.spin.selectAll()

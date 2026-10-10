@@ -140,7 +140,7 @@ class ShippedButtonsModTests(unittest.TestCase):
 
     def test_it_declares_the_package_and_no_longer_edits_the_executable(self) -> None:
         here = Path(__file__).resolve().parent.parent
-        path = here / "mods" / "Colored PlayStation Buttons v1.4" / "mod.json"
+        path = here / "mods" / "Colored PlayStation Buttons v1.5" / "mod.json"
         data = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual([PACKAGE], data["requires_check_off"])
         kinds = [p["type"] for p in data["patches"]]

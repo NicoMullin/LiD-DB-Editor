@@ -131,6 +131,33 @@ jobs:
           "### SHA-256`n`n``$($env:ZIP_NAME)``  `n``$sha``" |
             Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
+      - name: Send the zip to VirusTotal
+        # Only for a release, and only when the repository has a VT_API_KEY
+        # secret (Settings -> Secrets and variables -> Actions). The key is
+        # never in the repository and never printed. If VirusTotal cannot be
+        # reached the release still goes out; the notes then say so.
+        # The zip is over the 32 MB simple-upload limit, so this asks for a
+        # large-file upload address first, which free keys may use.
+        if: steps.label.outputs.release == 'true'
+        id: virustotal
+        continue-on-error: true
+        shell: pwsh
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        run: |
+          if (-not $env:VT_API_KEY) {
+            Write-Host "No VT_API_KEY secret, so the zip was not sent to VirusTotal."
+            "scan=skipped" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+          $headers = @{ "x-apikey" = $env:VT_API_KEY }
+          $upload = (Invoke-RestMethod -Uri "https://www.virustotal.com/api/v3/files/upload_url" -Headers $headers).data
+          $answer = curl.exe --silent --show-error --fail -X POST -H "x-apikey: $env:VT_API_KEY" -F "file=@$env:ZIP_NAME" $upload
+          if ($LASTEXITCODE -ne 0) { throw "VirusTotal did not take the upload." }
+          $analysis = ($answer | ConvertFrom-Json).data.id
+          Write-Host "Sent to VirusTotal, analysis $analysis"
+          "scan=started" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Attach the zip to this run
         uses: actions/upload-artifact@v6
         with:
@@ -170,7 +197,11 @@ jobs:
             $sha,
             '```',
             "",
-            "VirusTotal report for this exact file (once it has been scanned):",
+            $(if ("${{ steps.virustotal.outputs.scan }}" -eq "started") {
+              "VirusTotal report for this exact file - sent there by this build, results within a few minutes:"
+            } else {
+              "VirusTotal report for this exact file (once it has been scanned):"
+            }),
             "https://www.virustotal.com/gui/file/$sha",
             "",
             "_Some antivirus flags any newly built PyInstaller program. The launcher",

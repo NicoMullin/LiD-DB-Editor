@@ -1573,21 +1573,22 @@ TABLES: dict[str, dict] = {
         "columns": {"freq": ("how likely that level is", "")},
     },
     # -- shops and the vending machine ------------------------------------
-    # MON to SUN are NOT days of the week. They are seven Bloodnium exchange
-    # lists (40 items each) and master_automaticshop_schedule moves to the next
-    # one each month. COMMON is the Kill Coin shop (7) and RE the recycle-point
-    # exchange (28). Which tab a row shows on is its currency_type - the game's
-    # own script sorts them by it.
+    # The offline game restocks once a game day: the Buy tab from COMMON, the
+    # recycle-point exchange from RE, and the Bloodnium exchange from the list
+    # for the day of the week (MON to SUN, 40 items each). It only offers rows
+    # with is_stable 1, and never reads master_automaticshop_schedule. Which tab
+    # a row shows on is its currency_type - the game's own script sorts them by it.
     "master_automaticshop_lineup": {
         "word": "item",
         "title": "Vending machine stock",
-        "about": "What the vending machine offers. COMMON is the Kill Coin shop, "
-                 "RE the recycle-point exchange, and MON to SUN are seven "
-                 "Bloodnium exchange lists that take turns month by month - not "
-                 "days of the week. What is on offer is stored in your save when "
-                 "the machine restocks, so a change shows at the next restock. "
-                 "currency_type is what a row charges in: 0 Kill Coins, 3 recycle "
-                 "points, 4 Bloodnium - the item's own price in that currency.",
+        "about": "What the vending machine offers. COMMON is the Buy tab, RE "
+                 "the recycle-point exchange, and MON to SUN the Bloodnium "
+                 "exchange, one list for each day of the week. What is on offer is "
+                 "stored in your save when the machine restocks, once a game day, "
+                 "so a change shows at the next daily reset. currency_type is what "
+                 "a row charges in: 0 Kill Coins, 1 Death Metals, 3 recycle points, "
+                 "4 Bloodnium - the item's own price for pack_count of them, unless "
+                 "the row sets its own pack price.",
         "row": {"kind": "via", "column": "type_id", "table": "master_item",
                 "other_key": "itemid", "with": ["lineup_id"]},
         "columns": {
@@ -2340,9 +2341,9 @@ TABLES: dict[str, dict] = {
     "master_automaticshop_schedule": {
         "word": "schedule",
         "title": "When the vending machine restocks",
-        "about": "One row per month: which lists the machine draws from until "
-                 "the date in expire, and how many goods from each it offers. "
-                 "The stock schedule's last month ended on 1 August 2026.",
+        "about": "The online machine's monthly schedule. The offline game never "
+                 "reads it - its lists are fixed in the game itself - so changing "
+                 "it does nothing.",
         "row": {"kind": "columns", "columns": ["expire"]},
         "columns": {
             "expire": ("when this schedule runs out", ""),
@@ -2574,11 +2575,11 @@ VALUES: dict[str, str] = {
     "TBAP_FACE_DOWN": "face down", "TBAP_LEAN": "leaning",
     # breakable objects
     "BOX": "a box", "MINE": "a mine", "SHOOT": "a shooting target",
-    # the vending machine's monthly Bloodnium lists - named after weekdays, but
-    # the schedule moves to the next one each MONTH. COMMON is not listed: it
-    # is also a word the game's announcements use, and means something else there.
-    "MON": "Bloodnium list MON", "TUE": "Bloodnium list TUE",
-    "WED": "Bloodnium list WED", "THU": "Bloodnium list THU",
-    "FRI": "Bloodnium list FRI", "SAT": "Bloodnium list SAT",
-    "SUN": "Bloodnium list SUN",
+    # the vending machine's Bloodnium lists, one for each day of the week.
+    # COMMON is not listed: it is also a word the game's announcements use,
+    # and means something else there.
+    "MON": "Monday's Bloodnium list", "TUE": "Tuesday's Bloodnium list",
+    "WED": "Wednesday's Bloodnium list", "THU": "Thursday's Bloodnium list",
+    "FRI": "Friday's Bloodnium list", "SAT": "Saturday's Bloodnium list",
+    "SUN": "Sunday's Bloodnium list",
 }

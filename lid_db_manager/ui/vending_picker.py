@@ -14,9 +14,10 @@ game's own script:
 * **The machine carries no price of its own.** Every `pack_` and discount
   column is zero on all 315 vanilla rows, so what it charges is the item's own
   price - which is what setting a price here changes.
-* **MON to SUN are not days.** They are seven Bloodnium lists the schedule
-  moves through month by month. The list's currency_type decides the tab and
-  the currency: 0 Kill Coins, 3 recycle points, 4 Bloodnium.
+* **MON to SUN are the days of the week.** The offline game restocks the
+  Bloodnium exchange from the day's list, once a game day; its schedule table
+  is never read. The list's currency_type decides the tab and the currency: 0
+  Kill Coins, 1 Death Metals, 3 recycle points, 4 Bloodnium.
 """
 
 from __future__ import annotations
@@ -39,9 +40,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from datetime import datetime
 
-from ..builder import SELLABLE_CATEGORIES, SCHEDULE_DATE, BuildError, ModBuilder
+from ..builder import SELLABLE_CATEGORIES, BuildError, ModBuilder
 from ..icons import IconSource
 from .icon_cache import ThumbnailCache
 
@@ -57,7 +57,6 @@ class VendingPicker(QDialog):
         super().__init__(parent)
         self.builder = builder
         self.added = 0
-        self.room = 0
         self.icons = icons
         self.thumbnails = thumbnails
         self.setWindowTitle("Add things to the vending machine")
@@ -109,17 +108,6 @@ class VendingPicker(QDialog):
         self.price_note.setObjectName("dim")
         self.price_note.setWordWrap(True)
 
-        # Stock sets how many goods a month offers to exactly the list's size,
-        # so without this a new item pushes another one out at random.
-        self.make_room = QCheckBox(
-            "Offer everything on the list, not a random part of it "
-            "(raises how many goods the schedule offers at once)"
-        )
-        self.make_room.setChecked(True)
-        self.schedule_note = QLabel(self._schedule_warning())
-        self.schedule_note.setWordWrap(True)
-        self.schedule_note.setVisible(bool(self.schedule_note.text()))
-
         self.chosen = QLabel("Nothing picked yet")
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -147,8 +135,6 @@ class VendingPicker(QDialog):
         layout.addWidget(self.list, 1)
         layout.addLayout(where)
         layout.addWidget(self.price_note)
-        layout.addWidget(self.make_room)
-        layout.addWidget(self.schedule_note)
         layout.addWidget(self.chosen)
         layout.addWidget(buttons)
 
@@ -159,21 +145,6 @@ class VendingPicker(QDialog):
     def _tab_label(self, name: str) -> str:
         words = self.builder.lineup_name(name)
         return f"{words} ({name})" if words != name else name
-
-    def _schedule_warning(self) -> str:
-        """Say so when the machine has no months left to restock from."""
-        end = self.builder.schedule_end()
-        if not end:
-            return ""
-        try:
-            last = datetime.strptime(str(end), SCHEDULE_DATE)
-        except ValueError:
-            return ""
-        if last > datetime.now():
-            return ""
-        return (f"The machine's schedule ran out on {last:%d %B %Y}, so it may "
-                "never restock with what you add. Use \"Keep the machine "
-                "rotating...\" in the builder to give it more months.")
 
     # -- the list ----------------------------------------------------------
 
@@ -260,8 +231,6 @@ class VendingPicker(QDialog):
             self.added = self.builder.stock_machine(
                 picked, tab, price=self.price.value() if pricing else None,
             )
-            if self.added and self.make_room.isChecked():
-                self.room = self.builder.make_room(tab)
         except BuildError as exc:
             QMessageBox.warning(self, "Could not add that", str(exc))
             return

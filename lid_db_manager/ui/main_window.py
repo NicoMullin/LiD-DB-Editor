@@ -54,6 +54,7 @@ from ..watchdog import STATUS_OK, STATUS_STALE, DbStatus
 from .adopt_dialog import AdoptDialog
 from .diff_view import DiffView
 from .edit_dialog import EditModDialog
+from .get_mods_dialog import GetModsDialog
 from .install_dialog import InstallDialog
 from .log_panel import LogPanel
 from .mod_filter_bar import ModFilterBar
@@ -165,10 +166,18 @@ class MainWindow(QMainWindow):
         self.reapply_button = QPushButton("Re-apply All")
         self.reapply_button.clicked.connect(self.reapply_all)
 
+        get_mods = QPushButton("Get mods...")
+        get_mods.setToolTip(
+            "Mods that need a plugin DLL (Death Metals, Timers, Login Bonus, Fighter Class "
+            "Passives, Offline Fixes), straight from their GitHub pages."
+        )
+        get_mods.clicked.connect(self.get_mods)
+
         top = QHBoxLayout()
         top.addWidget(QLabel("Database:"))
         top.addWidget(self.db_label, 1)
         top.addWidget(browse)
+        top.addWidget(get_mods)
 
         bottom = QHBoxLayout()
         bottom.addWidget(self.status_label, 1)
@@ -356,6 +365,7 @@ class MainWindow(QMainWindow):
         )
         self._add_action(mods_menu, "Add a mod from a file...", self.add_mod_from_file)
         self._add_action(mods_menu, "Add a mod from a folder...", self.add_mod_from_folder)
+        self._add_action(mods_menu, "Get mods that need a plugin...", self.get_mods)
         self._add_action(mods_menu, "Edit mod details...", self.edit_selected_mod, "F2")
         self._add_action(mods_menu, "Delete mod...", self.delete_selected_mod)
 
@@ -376,6 +386,9 @@ class MainWindow(QMainWindow):
         self._add_action(tools, "Set item artwork folder...", self.set_icon_folder)
         self._add_action(tools, "Set game folder...", self.set_game_folder)
         self._add_action(tools, "Hash Patcher...", self.open_file_check)
+
+        tools.addSection("Your save")
+        self._add_action(tools, "Start a new game day...", self.start_new_game_day)
 
         tools.addSection("Putting things back")
         self._add_action(tools, "Restore game files...", self.restore_game_files)
@@ -1221,6 +1234,63 @@ class MainWindow(QMainWindow):
         self.manager.set_game_root_override(path)
         self.refresh()
         QMessageBox.information(self, "Set game folder", f"Game folder set to:\n  {path}")
+
+    def start_new_game_day(self) -> None:
+        """Set the save's last game day back one, so the next start is a new day."""
+        from datetime import datetime, timezone
+
+        from .. import savegame
+
+        title = "Start a new game day"
+        saves = self.manager.saves()
+        if not saves:
+            QMessageBox.information(
+                self, title,
+                "No save was found. It lives in the game folder, under Savedata - set the "
+                "game folder with Tools > Set game folder... if the manager has the wrong one.",
+            )
+            return
+        save = saves[0]
+        if len(saves) > 1:
+            names = [f"{s.parent.name}  (last played {datetime.fromtimestamp(s.stat().st_mtime):%Y-%m-%d %H:%M})"
+                     for s in saves]
+            name, ok = QInputDialog.getItem(self, title, "Which save?", names, 0, False)
+            if not ok:
+                return
+            save = saves[names.index(name)]
+        confirmed = QMessageBox.question(
+            self, title,
+            "The game does its once-a-day things - anything that refills or comes round "
+            "each day - when it starts on a new game day (the day turns at 10:00 UTC).\n\n"
+            "This sets the day your save last began back by one, so the next time the game "
+            "starts it counts as a new day. Nothing else in the save changes.\n\n"
+            f"Your save is backed up first, to:\n  {self.manager.paths.backups_dir / 'saves'}\n\n"
+            "Close the game before you go on.",
+        )
+        if confirmed != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            result = self.manager.start_new_game_day(save)
+        except savegame.SaveError as exc:
+            QMessageBox.warning(self, title, f"The save was not changed: {exc}")
+            return
+
+        def day(t: int) -> str:
+            return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d")
+
+        if not result.changed:
+            QMessageBox.information(
+                self, title,
+                f"Nothing to do: your save last began a game day on {day(result.before)}, so the "
+                "next start is a new game day already.",
+            )
+            return
+        QMessageBox.information(
+            self, title,
+            f"Done. The game day your save last began is now {day(result.after)} (it was "
+            f"{day(result.before)}), so the next start is a new game day.\n\n"
+            f"The save as it was:\n  {result.backup}",
+        )
 
     def open_file_check(self) -> None:
         """Switch the game's own file check off for chosen packages."""
@@ -2070,6 +2140,13 @@ class MainWindow(QMainWindow):
     def _on_update_at_start_toggled(self, enabled: bool) -> None:
         self.manager.state.settings.check_for_updates = enabled
         self.manager.state.save()
+
+    def get_mods(self) -> None:
+        """KSFA's plugin mods, from their GitHub releases (see get_mods.py)."""
+        dialog = GetModsDialog(self.manager, self)
+        dialog.exec()
+        if dialog.changed:
+            self.refresh(rescan=True)
 
     def check_for_updates(self, quiet: bool = False) -> None:
         """Ask the manager's GitHub page whether there is a newer version.

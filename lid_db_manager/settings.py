@@ -32,6 +32,58 @@ player picks can be put between quotes in SQL and never close them. A long list
 can live in a file of its own beside mod.json (``"options_from": "list.json"``)
 and be shared by several settings.
 
+A fourth kind picks any number of decals out of the player's own masters.db -
+including decals another mod added - in a window with a search and sorting:
+
+    {"id": "stew_decals", "type": "decals", "default_label": "Every 3-star decal and up",
+     "default_sql": "SELECT sklid FROM master_skillgacha_odds WHERE ..."}
+
+Its placeholder belongs inside ``IN (...)``: ``WHERE s.id IN ({{stew_decals}})``.
+What the player ticked is written as quoted ids, each held to letters, digits
+and underscores like a choice's value. Until they tick anything it is the mod's
+own ``default_sql``, so the default keeps up with the database (and with any
+mod that adds to it) instead of being a list frozen when the mod was written.
+A decal the player picked that is no longer in masters.db simply matches no row.
+
+A fifth kind picks any number of entries off the mod's own list, in the same
+window - quests to rotate, say:
+
+    {"id": "quests", "type": "pick", "noun": "quest", "default_label": "All of them",
+     "options": [{"value": "Q_1", "label": "Defeat 50 Haters", "group": "Weekly",
+                  "help": "First clear: ..."}, ...]}
+
+Its options are written like a choice's (``options`` or ``options_from``); its
+``default`` is a list of their values, or every one when left out. Like a
+decal list, its placeholder belongs inside ``IN (...)`` and is written as
+quoted values - the player's ticks, or the default's - and only values the mod
+lists ever reach the SQL.
+
+A sixth holds a shop's list - what it sells, how many at once, in which
+currency, for how much, and how many times a day - edited in a window that
+lists every item and mushroom in the player's masters.db:
+
+    {"id": "goods", "type": "goods", "noun": "good", "default_label": "...",
+     "default": "ITMT_WOOD_4/1/k/0/0,MSR_053/5/d/8/1"}
+
+Each entry is ``id/bundle/currency/price/a day``: currency ``k`` (Kill Coins)
+or ``d`` (Death Metals), a price of 0 for the game's own price for that many,
+and 0 a day for no limit. Its placeholder belongs inside ``VALUES``, as rows of
+(place, 'id', bundle, currency 0 or 1, price, a day); an empty list is one row
+with a NULL id, for the mod to skip. Nothing but letters, digits, underscores
+and those separators is accepted, so it carries no SQL either.
+
+A seventh holds a list of rewards to draw from, each with a weight - the daily
+login bonus, say - edited in a window that lists every reward in the player's
+masters.db (master_reward):
+
+    {"id": "rewards", "type": "rewards", "noun": "reward", "default_label": "...",
+     "default": "RWD_MONEY_3000/1,RWD_SKILL_011/3"}
+
+Each entry is ``reward id/weight``: a reward with weight 3 comes up three times
+as often as one with weight 1. Its placeholder belongs inside ``VALUES``, as
+rows of ('id', weight); an empty list is one row with a NULL id, for the mod
+to skip.
+
 A placeholder may ask for a number style, because game text is written the way
 each language writes numbers:
 
@@ -58,7 +110,14 @@ KIND_INTEGER = "integer"
 KIND_NUMBER = "number"
 KIND_CHOICE = "choice"
 KIND_TOGGLE = "toggle"
-KINDS = (KIND_INTEGER, KIND_NUMBER, KIND_CHOICE, KIND_TOGGLE)
+KIND_DECALS = "decals"
+KIND_PICK = "pick"
+KIND_GOODS = "goods"
+KIND_REWARDS = "rewards"
+KINDS = (KIND_INTEGER, KIND_NUMBER, KIND_CHOICE, KIND_TOGGLE, KIND_DECALS, KIND_PICK, KIND_GOODS,
+         KIND_REWARDS)
+# The kinds whose value is a list picked in a window of their own.
+LIST_KINDS = (KIND_DECALS, KIND_PICK, KIND_GOODS, KIND_REWARDS)
 NUMBER_KINDS = (KIND_INTEGER, KIND_NUMBER)
 
 STYLE_PLAIN = ""
@@ -73,6 +132,28 @@ CHOICE_VALUE = re.compile(r"^[A-Za-z0-9_]{0,64}$")
 # More than anyone would scroll through, but a mistake (a whole table pasted
 # into one list) is refused rather than built into a box nobody can use.
 MOST_OPTIONS = 5000
+# A decal setting's value: the ids picked, comma-separated, or "" for the mod's
+# own default. Every id is held to what a choice's value may be.
+DECAL_LIST = re.compile(r"^[A-Za-z0-9_]{1,64}(?:,[A-Za-z0-9_]{1,64})*$")
+MOST_DECALS = MOST_OPTIONS
+# What a mod's default_sql must look like: one SELECT, nothing after it.
+DEFAULT_SQL = re.compile(r"^\s*select\b[^;]*$", re.IGNORECASE)
+# A goods list's value: entries "id/bundle/currency/price/a day", comma-separated.
+# The currency is k (Kill Coins) or d (Death Metals); a price of 0 is the game's
+# own price for that many; "a day" of 0 is no limit. Nothing but letters,
+# digits, underscores and the separators, so it can never carry SQL.
+GOODS_ENTRY = r"[A-Za-z0-9_]{1,64}/[0-9]{1,3}/[kd]/[0-9]{1,10}/[0-9]{1,2}"
+GOODS_LIST = re.compile(rf"^{GOODS_ENTRY}(?:,{GOODS_ENTRY})*$")
+MOST_GOODS = 500
+MOST_IN_A_BUNDLE = 999
+MOST_A_DAY = 20
+CURRENCIES = {"k": 0, "d": 1}
+# A reward list's value: entries "reward id/weight", comma-separated. A weight
+# of 3 comes up three times as often as 1.
+REWARD_ENTRY = r"[A-Za-z0-9_]{1,64}/[0-9]{1,3}"
+REWARD_LIST = re.compile(rf"^{REWARD_ENTRY}(?:,{REWARD_ENTRY})*$")
+MOST_REWARDS = 1000
+MOST_WEIGHT = 100
 
 _TRUE_WORDS = {"1", "on", "true", "yes"}
 _FALSE_WORDS = {"0", "off", "false", "no"}
@@ -99,6 +180,90 @@ class SettingOption:
 
 
 @dataclass(frozen=True)
+class GoodsEntry:
+    """One line of a goods list: what is sold, how many at once, for what."""
+
+    id: str
+    bundle: int = 1         # how many one purchase gives
+    currency: str = "k"     # k Kill Coins, d Death Metals
+    price: int = 0          # for the bundle; 0 is the game's own price for that many
+    a_day: int = 0          # how many times a day it can be bought; 0 is no limit
+
+    def text(self) -> str:
+        return f"{self.id}/{self.bundle}/{self.currency}/{self.price}/{self.a_day}"
+
+
+def parse_goods(value: Any, label: str) -> list[GoodsEntry]:
+    """A goods list's entries, each checked; ValueError (for a player) if not.
+
+    An entry listed twice exactly is kept once. "" is an empty list.
+    """
+    if isinstance(value, (list, tuple)):
+        value = ",".join(e.text() if isinstance(e, GoodsEntry) else str(e) for e in value)
+    if not isinstance(value, str):
+        raise ValueError(f"{label} is a list of goods, not {value!r}")
+    text = ",".join(part.strip() for part in value.split(",")) if value.strip() else ""
+    if not text:
+        return []
+    if not GOODS_LIST.match(text):
+        raise ValueError(f"{label}: that is not a list of goods (id/bundle/k or d/price/a day)")
+    entries: list[GoodsEntry] = []
+    for part in text.split(","):
+        good, bundle, currency, price, a_day = part.split("/")
+        entry = GoodsEntry(good, int(bundle), currency, int(price), int(a_day))
+        if not 1 <= entry.bundle <= MOST_IN_A_BUNDLE:
+            raise ValueError(f"{label}: {good} comes in bundles of 1 to {MOST_IN_A_BUNDLE}")
+        if entry.price > LARGEST_ALLOWED:
+            raise ValueError(f"{label}: {good}'s price is more than the game can hold")
+        if entry.a_day > MOST_A_DAY:
+            raise ValueError(f"{label}: {good} can be bought at most {MOST_A_DAY} times a day")
+        if entry not in entries:
+            entries.append(entry)
+    if len(entries) > MOST_GOODS:
+        raise ValueError(f"{label}: {len(entries):,} goods is more than the {MOST_GOODS:,} allowed")
+    return entries
+
+
+@dataclass(frozen=True)
+class RewardEntry:
+    """One line of a reward list: a reward, and how often it comes up."""
+
+    id: str
+    weight: int = 1         # 3 comes up three times as often as 1
+
+    def text(self) -> str:
+        return f"{self.id}/{self.weight}"
+
+
+def parse_rewards(value: Any, label: str) -> list[RewardEntry]:
+    """A reward list's entries, each checked; ValueError (for a player) if not.
+
+    A reward listed twice is kept once, at its first weight. "" is an empty list.
+    """
+    if isinstance(value, (list, tuple)):
+        value = ",".join(e.text() if isinstance(e, RewardEntry) else str(e) for e in value)
+    if not isinstance(value, str):
+        raise ValueError(f"{label} is a list of rewards, not {value!r}")
+    text = ",".join(part.strip() for part in value.split(",")) if value.strip() else ""
+    if not text:
+        return []
+    if not REWARD_LIST.match(text):
+        raise ValueError(f"{label}: that is not a list of rewards (reward id/weight)")
+    entries: list[RewardEntry] = []
+    seen: set[str] = set()
+    for part in text.split(","):
+        reward, weight = part.split("/")
+        if not 1 <= int(weight) <= MOST_WEIGHT:
+            raise ValueError(f"{label}: {reward}'s weight is 1 to {MOST_WEIGHT}")
+        if reward not in seen:
+            seen.add(reward)
+            entries.append(RewardEntry(reward, int(weight)))
+    if len(entries) > MOST_REWARDS:
+        raise ValueError(f"{label}: {len(entries):,} rewards is more than the {MOST_REWARDS:,} allowed")
+    return entries
+
+
+@dataclass(frozen=True)
 class ModSetting:
     """One value a mod lets the player choose."""
 
@@ -116,10 +281,77 @@ class ModSetting:
     # A heading the Configuration tab puts over this setting and the ones
     # after it in the same group.
     group: str = ""
+    # A decal setting's default: the mod's own query for the decals it means,
+    # and how that reads to a player.
+    default_sql: str = ""
+    default_label: str = ""
+    # A pick setting's default (the values it means until the player ticks
+    # any) and what one entry is called ("quest").
+    default_picks: tuple[str, ...] = ()
+    noun: str = ""
+    # A goods list's default: the entries it means until the player edits it.
+    default_goods: str = ""
+    # A reward list's default, the same way.
+    default_rewards: str = ""
 
     @property
     def is_number(self) -> bool:
         return self.kind in NUMBER_KINDS
+
+    @property
+    def is_list(self) -> bool:
+        return self.kind in LIST_KINDS
+
+    def decal_ids(self, value: str) -> list[str]:
+        """The ids a decal or pick setting's value holds ([] for the default)."""
+        return [part for part in str(value).split(",") if part]
+
+    def picks(self, value: str) -> list[str]:
+        """A pick setting's values in force: the player's ticks, or the default."""
+        return self.decal_ids(value) or list(self.default_picks)
+
+    def goods(self, value: str) -> list[GoodsEntry]:
+        """A goods list's entries in force: the player's list, or the default."""
+        if str(value or "").strip():
+            return parse_goods(value, self.label)
+        return parse_goods(self.default_goods, self.label)
+
+    def rewards(self, value: str) -> list[RewardEntry]:
+        """A reward list's entries in force: the player's list, or the default."""
+        if str(value or "").strip():
+            return parse_rewards(value, self.label)
+        return parse_rewards(self.default_rewards, self.label)
+
+    def sql(self, value: int | float | str) -> str:
+        """What ``{{name}}`` becomes in SQL. Only the list settings differ from
+        render_text's plain value: quoted ids, or the mod's default (its query
+        for decals, its listed values for a pick).
+
+        A goods list becomes rows for ``VALUES``: (place, 'id', bundle,
+        currency 0 or 1, price, a day). An empty one is a single row whose id is
+        NULL, since ``VALUES`` cannot be empty - a mod skips it by its id.
+        A reward list becomes rows of ('id', weight) the same way."""
+        if self.kind == KIND_REWARDS:
+            entries = self.rewards(value)
+            if not entries:
+                return "(NULL, 0)"
+            return ", ".join(f"('{e.id}', {e.weight})" for e in entries)
+        if self.kind == KIND_GOODS:
+            entries = self.goods(value)
+            if not entries:
+                return "(0, NULL, 1, 0, 0, 0)"
+            return ", ".join(
+                f"({n}, '{e.id}', {e.bundle}, {CURRENCIES[e.currency]}, {e.price}, {e.a_day})"
+                for n, e in enumerate(entries, start=1)
+            )
+        if self.kind == KIND_PICK:
+            return ",".join(f"'{pick}'" for pick in self.picks(value))
+        if self.kind != KIND_DECALS:
+            return str(value)
+        ids = self.decal_ids(value)
+        if not ids:
+            return self.default_sql
+        return ",".join(f"'{decal}'" for decal in ids)
 
     def option(self, value: Any) -> SettingOption | None:
         for option in self.options:
@@ -134,6 +366,17 @@ class ModSetting:
         """
         if self.kind == KIND_TOGGLE:
             return _as_toggle(value, self.label)
+        if self.kind == KIND_DECALS:
+            return _as_decals(value, self.label)
+        if self.kind == KIND_GOODS:
+            return ",".join(e.text() for e in parse_goods(value, self.label))
+        if self.kind == KIND_REWARDS:
+            return ",".join(e.text() for e in parse_rewards(value, self.label))
+        if self.kind == KIND_PICK:
+            # Checked like decal ids, then held to the mod's own list: one the
+            # mod no longer lists is dropped (and none left is the default).
+            ids = _as_decals(value, self.label).split(",")
+            return ",".join(i for i in ids if self.option(i) is not None)
         if self.kind == KIND_CHOICE:
             if isinstance(value, str) and self.option(value) is not None:
                 return value
@@ -165,6 +408,29 @@ class ModSetting:
         """How a value reads in the mod list: "x2", "10,000 KC", "On", "Tank"."""
         if self.kind == KIND_TOGGLE:
             return "On" if value else "Off"
+        if self.kind == KIND_DECALS:
+            count = len(self.decal_ids(value))
+            if not count:
+                return self.default_label or "The mod's own choice"
+            return f"{count:,} decal{'s' if count != 1 else ''} picked"
+        if self.kind == KIND_GOODS:
+            if not str(value or "").strip():
+                return self.default_label or "The mod's own list"
+            count = len(parse_goods(value, self.label))
+            noun = self.noun or "good"
+            return f"{count:,} {noun}{'s' if count != 1 else ''}"
+        if self.kind == KIND_REWARDS:
+            if not str(value or "").strip():
+                return self.default_label or "The mod's own list"
+            count = len(parse_rewards(value, self.label))
+            noun = self.noun or "reward"
+            return f"{count:,} {noun}{'s' if count != 1 else ''}"
+        if self.kind == KIND_PICK:
+            count = len(self.decal_ids(value))
+            if not count:
+                return self.default_label or "The mod's own choice"
+            noun = self.noun or "item"
+            return f"{count:,} of {len(self.options):,} {noun}s picked"
         if self.kind == KIND_CHOICE:
             option = self.option(value)
             return option.label if option is not None else str(value)
@@ -185,7 +451,56 @@ def is_setting_value(value: Any) -> bool:
         return False
     if isinstance(value, (int, float)):
         return math.isfinite(value)
-    return isinstance(value, str) and bool(CHOICE_VALUE.match(value))
+    return isinstance(value, str) and bool(
+        CHOICE_VALUE.match(value) or DECAL_LIST.match(value) or GOODS_LIST.match(value)
+        or REWARD_LIST.match(value))
+
+
+def _as_decals(value: Any, label: str) -> str:
+    """Picked decal ids as a decal setting holds them: comma-separated, each
+    one checked, the first of any duplicate kept. "" is the mod's default."""
+    if isinstance(value, str):
+        parts = [part.strip() for part in value.split(",")] if value.strip() else []
+    elif isinstance(value, (list, tuple)):
+        parts = [part.strip() if isinstance(part, str) else part for part in value]
+    else:
+        raise ValueError(f"{label} is a list of decals, not {value!r}")
+    ids: list[str] = []
+    for part in parts:
+        if not isinstance(part, str) or not CHOICE_VALUE.match(part) or not part:
+            raise ValueError(f"{label}: {part!r} is not a decal id")
+        if part not in ids:
+            ids.append(part)
+    if len(ids) > MOST_DECALS:
+        raise ValueError(f"{label}: {len(ids):,} decals is more than the {MOST_DECALS:,} allowed")
+    return ",".join(ids)
+
+
+def _pick_setting(entry: dict, options: tuple[SettingOption, ...], common: dict,
+                  mod_ref: str, setting_id: str) -> ModSetting:
+    """A pick setting: its list, and the values it means until the player ticks any."""
+    listed = [option.value for option in options]
+    if "" in listed:
+        raise ModLoadError(mod_ref, f"setting {setting_id!r}: a pick's options all need a value")
+    raw = entry.get("default", listed)
+    if not isinstance(raw, list) or not raw or not all(isinstance(v, str) for v in raw):
+        raise ModLoadError(
+            mod_ref, f"setting {setting_id!r}: a pick's 'default' is a list of its options' values"
+        )
+    unknown = [v for v in raw if v not in listed]
+    if unknown:
+        raise ModLoadError(
+            mod_ref, f"setting {setting_id!r}: 'default' lists {unknown[0]!r}, which is not one of its options"
+        )
+    noun = str(entry.get("noun") or "item").strip()
+    if not noun.replace(" ", "").isalpha():
+        raise ModLoadError(mod_ref, f"setting {setting_id!r}: 'noun' is one word for an entry, like \"quest\"")
+    return ModSetting(
+        kind=KIND_PICK, default="", minimum=0, maximum=0, options=options,
+        default_picks=tuple(dict.fromkeys(raw)),
+        default_label=str(entry.get("default_label") or "").strip(),
+        noun=noun, **common,
+    )
 
 
 def _as_toggle(value: Any, label: str) -> int:
@@ -329,7 +644,67 @@ def parse_settings(raw: Any, mod_ref: str, mod_dir: Path | None = None) -> list[
             found.append(ModSetting(kind=kind, default=default, minimum=0, maximum=1, **common))
             seen.add(setting_id)
             continue
-        if kind == KIND_CHOICE:
+        if kind == KIND_GOODS:
+            try:
+                default_goods = ",".join(
+                    e.text() for e in parse_goods(entry.get("default", ""), label))
+            except ValueError as exc:
+                raise ModLoadError(mod_ref, f"setting {setting_id!r}: 'default' - {exc}") from None
+            noun = str(entry.get("noun") or "good").strip()
+            if not noun.replace(" ", "").isalpha():
+                raise ModLoadError(
+                    mod_ref, f"setting {setting_id!r}: 'noun' is one word for an entry, like \"good\"")
+            found.append(
+                ModSetting(
+                    kind=kind, default="", minimum=0, maximum=0, default_goods=default_goods,
+                    default_label=str(entry.get("default_label") or "").strip(), noun=noun,
+                    **common,
+                )
+            )
+            seen.add(setting_id)
+            continue
+        if kind == KIND_REWARDS:
+            try:
+                default_rewards = ",".join(
+                    e.text() for e in parse_rewards(entry.get("default", ""), label))
+            except ValueError as exc:
+                raise ModLoadError(mod_ref, f"setting {setting_id!r}: 'default' - {exc}") from None
+            noun = str(entry.get("noun") or "reward").strip()
+            if not noun.replace(" ", "").isalpha():
+                raise ModLoadError(
+                    mod_ref, f"setting {setting_id!r}: 'noun' is one word for an entry, like \"reward\"")
+            found.append(
+                ModSetting(
+                    kind=kind, default="", minimum=0, maximum=0, default_rewards=default_rewards,
+                    default_label=str(entry.get("default_label") or "").strip(), noun=noun,
+                    **common,
+                )
+            )
+            seen.add(setting_id)
+            continue
+        if kind == KIND_DECALS:
+            default_sql = entry.get("default_sql")
+            if not isinstance(default_sql, str) or not DEFAULT_SQL.match(default_sql):
+                raise ModLoadError(
+                    mod_ref,
+                    f"setting {setting_id!r} is a decal list, so it needs a 'default_sql': one "
+                    "SELECT of the decal ids it means before a player picks any",
+                )
+            try:
+                default = _as_decals(entry.get("default", ""), label)
+            except ValueError as exc:
+                raise ModLoadError(mod_ref, f"setting {setting_id!r}: 'default' - {exc}") from None
+            found.append(
+                ModSetting(
+                    kind=kind, default=default, minimum=0, maximum=0,
+                    default_sql=" ".join(default_sql.split()),
+                    default_label=str(entry.get("default_label") or "").strip(),
+                    **common,
+                )
+            )
+            seen.add(setting_id)
+            continue
+        if kind in (KIND_CHOICE, KIND_PICK):
             if "options" in entry and "options_from" in entry:
                 raise ModLoadError(
                     mod_ref, f"setting {setting_id!r}: give 'options' or 'options_from', not both"
@@ -345,6 +720,10 @@ def parse_settings(raw: Any, mod_ref: str, mod_dir: Path | None = None) -> list[
                 options = shared_lists[key]
             else:
                 options = _parse_options(entry.get("options"), mod_ref, setting_id)
+            if kind == KIND_PICK:
+                found.append(_pick_setting(entry, options, common, mod_ref, setting_id))
+                seen.add(setting_id)
+                continue
             default = entry.get("default", options[0].value)
             if not isinstance(default, str) or all(o.value != default for o in options):
                 raise ModLoadError(
@@ -456,6 +835,8 @@ def render_values(settings: list[ModSetting], values: dict) -> dict:
     for setting in settings:
         if not setting.is_number and setting.id in values:
             filled[f"{setting.id}:{STYLE_LABEL}"] = setting.display(values[setting.id])
+        if setting.is_list and setting.id in values:
+            filled[setting.id] = setting.sql(values[setting.id])
     return filled
 
 
@@ -517,3 +898,44 @@ def resolve_values(
             values[setting.id] = setting.default
             problems.append(f"{exc}; using the default, {setting.display(setting.default)}")
     return values, problems
+
+
+def parse_when(
+    raw: Any, settings: list[ModSetting], mod_ref: str, where: str
+) -> dict[str, tuple[int | float | str, ...]]:
+    """A part's ``"when"``: which setting values it applies under.
+
+    ``"when": {"vip": true}`` keeps a part to when the toggle ``vip`` is on;
+    ``{"cost": ["kc5000", "kc10000"]}`` to either of two choices; naming more
+    than one setting needs all of them to match. Every name must be one of the
+    mod's settings and every value one that setting can take - a typo would
+    otherwise leave the part off for good, silently.
+    """
+    if not isinstance(raw, dict) or not raw:
+        raise ModLoadError(
+            mod_ref, f"{where}: 'when' must name at least one setting, like {{\"vip\": true}}"
+        )
+    declared = {setting.id: setting for setting in settings}
+    conditions: dict[str, tuple[int | float | str, ...]] = {}
+    for name, wanted in raw.items():
+        setting = declared.get(name)
+        if setting is None:
+            raise ModLoadError(
+                mod_ref, f"{where}: 'when' names {name!r}, which is not one of this mod's settings"
+            )
+        listed = wanted if isinstance(wanted, list) else [wanted]
+        if not listed:
+            raise ModLoadError(mod_ref, f"{where}: 'when' gives {name!r} no value to match")
+        allowed = []
+        for value in listed:
+            try:
+                allowed.append(setting.coerce(value))
+            except ValueError as exc:
+                raise ModLoadError(mod_ref, f"{where}: 'when' - {exc}") from None
+        conditions[name] = tuple(allowed)
+    return conditions
+
+
+def when_holds(conditions: dict[str, tuple], values: dict) -> bool:
+    """Whether the chosen ``values`` meet every condition of a part's ``when``."""
+    return all(values.get(name) in allowed for name, allowed in conditions.items())

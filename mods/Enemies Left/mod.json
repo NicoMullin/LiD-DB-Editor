@@ -1,0 +1,113 @@
+{
+  "id": "Enemies Left",
+  "name": "Enemies Left",
+  "description": "Shows how many enemies are still alive on the floor on the HUD - \"Enemies left: 12 / 20\" - while you explore. Its place and size are yours to set in Configuration.",
+  "version": "0.2.2",
+  "author": "KSFA",
+  "category": "Quality of life",
+  "tags": [
+    "hud",
+    "enemies",
+    "game-files"
+  ],
+  "game_version": [
+    "5.0.4.1.0 - 1.89",
+    "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)",
+    "5.0.4.4.0 - 1.91"
+  ],
+  "min_manager_version": "0.12.0",
+  "requires": [],
+  "conflicts_with": [],
+  "requires_check_off": [
+    "BrgGame.upk"
+  ],
+  "settings": [
+    {
+      "id": "x",
+      "label": "Across",
+      "type": "integer",
+      "default": 1880,
+      "min": 0,
+      "max": 1920,
+      "step": 10,
+      "group": "Where it goes",
+      "help": "Pixels from the left edge, on the game's 1920 x 1080 screen (it scales to yours)."
+    },
+    {
+      "id": "y",
+      "label": "Down",
+      "type": "integer",
+      "default": 160,
+      "min": 0,
+      "max": 1080,
+      "step": 10,
+      "group": "Where it goes",
+      "help": "Pixels from the top edge, on the game's 1920 x 1080 screen."
+    },
+    {
+      "id": "align",
+      "label": "Line up the text",
+      "type": "choice",
+      "default": "2",
+      "options": [
+        {"value": "0", "label": "Starting at that point"},
+        {"value": "1", "label": "Centred on that point"},
+        {"value": "2", "label": "Ending at that point"}
+      ],
+      "group": "Where it goes"
+    },
+    {
+      "id": "size",
+      "label": "Text size",
+      "type": "integer",
+      "default": 100,
+      "min": 40,
+      "max": 300,
+      "step": 10,
+      "unit": "%",
+      "group": "How it looks",
+      "help": "100% is the size of the game's own HUD text."
+    },
+    {
+      "id": "colour",
+      "label": "Text colour",
+      "type": "choice",
+      "default": "16777215",
+      "options": [
+        {"value": "16777215", "label": "White"},
+        {"value": "16770560", "label": "Yellow"},
+        {"value": "16750080", "label": "Orange"},
+        {"value": "16729670", "label": "Red"},
+        {"value": "16745170", "label": "Pink"},
+        {"value": "12485375", "label": "Purple"},
+        {"value": "8568575", "label": "Light blue"},
+        {"value": "59135", "label": "Cyan"},
+        {"value": "6613860", "label": "Green"}
+      ],
+      "group": "How it looks",
+      "help": "It always has a black shadow, so it shows up on bright and dark floors alike."
+    },
+    {
+      "id": "show_total",
+      "label": "Also show how many the floor started with",
+      "type": "toggle",
+      "default": true,
+      "group": "How it looks",
+      "help": "On: \"Enemies left: 12 / 20\". Off: \"Enemies left: 12\"."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "numbers",
+      "description": "Where the counter goes, its size, and its words in every language",
+      "sql": "INSERT OR REPLACE INTO master_const_float (id, value) VALUES ('LID_ENEMY_HUD_X', {{x}}), ('LID_ENEMY_HUD_Y', {{y}}), ('LID_ENEMY_HUD_SCALE', {{size}} / 100.0), ('LID_ENEMY_HUD_ALIGN', {{align}}), ('LID_ENEMY_HUD_COLOUR', {{colour}});\nINSERT OR REPLACE INTO master_text (sct, id, snd, lang, txt, type) SELECT 'TUB', 'TXT_LID_ENEMIES_LEFT', '', column1, CASE WHEN {{show_total}} = 1 THEN column2 ELSE column3 END, 4 FROM (VALUES\n  ('int', 'Enemies left: #0 / #1', 'Enemies left: #0'),\n  ('esn', 'Enemigos restantes: #0 / #1', 'Enemigos restantes: #0'),\n  ('deu', 'Verbleibende Gegner: #0 / #1', 'Verbleibende Gegner: #0'),\n  ('fra', 'Ennemis restants : #0 / #1', 'Ennemis restants : #0'),\n  ('ita', 'Nemici rimasti: #0 / #1', 'Nemici rimasti: #0'),\n  ('ptb', 'Inimigos restantes: #0 / #1', 'Inimigos restantes: #0'),\n  ('jpn', '残りの敵：#0 / #1', '残りの敵：#0'),\n  ('kor', '남은 적: #0 / #1', '남은 적: #0'),\n  ('chn', '剩餘敵人：#0 / #1', '剩餘敵人：#0'),\n  ('kan', '剩余敌人：#0 / #1', '剩余敌人：#0'));"
+    },
+    {
+      "type": "tfc_installer",
+      "id": "hud",
+      "source": "tfc",
+      "description": "The counter on the HUD (BrgGame.upk)"
+    }
+  ]
+}

@@ -782,17 +782,6 @@ def explain_delta(delta, db_path=None, home=None, vanilla=None) -> Explanation:
                 out.changes.append(Change(
                     sentence=f"Adds {len(td.inserts):,} new {plural(word, len(td.inserts))}."
                 ))
-                if td.table == "master_automaticshop_lineup" and not any(
-                        t.table == "master_automaticshop_schedule" and t.inserts
-                        for t in delta.tables):
-                    end = namer.scalar(
-                        "SELECT max(expire) FROM master_automaticshop_schedule")
-                    if isinstance(end, str) and end[:10] < datetime.now().strftime("%Y-%m-%d"):
-                        out.changes.append(Change(sentence=(
-                            f"The machine's schedule in this database ends on "
-                            f"{end[:10]}, and this mod adds no new months - so the "
-                            "machine may never restock with what it adds."
-                        )))
             if td.deletes:
                 labels = [row_label(namer, td.table, td.key_columns, k, rule) for k in td.deletes]
                 out.changes.append(

@@ -118,6 +118,7 @@ The full form. Everything the mod list shows comes from here:
 | `conflicts_with`             | no       | Mod ids that must not be enabled with yours                                                        |
 | `raw_sql_files_do_not_touch` | no       | Tables your raw SQL leaves alone; see [Conflicts](#conflicts)                                      |
 | `requires_check_off`         | no       | Game files you replace that the game checks; see [Files the game checks](#files-the-game-checks)   |
+| `min_manager_version`        | no       | The oldest manager your mod works with, like `"0.12.0"`; an older one refuses it and says why      |
 | `patches`                    | yes      | One or more, applied in order                                                                      |
 
 ## Layout 4: `mod.json` plus files
@@ -234,18 +235,18 @@ A copy of this lives in `mods/_example-settings/`.
 
 ### The setting
 
-| Field     | Required | Meaning                                                                          |
-|-----------|----------|----------------------------------------------------------------------------------|
-| `id`      | yes      | Lower-case letters, digits and `_`, starting with a letter                       |
-| `label`   | no       | What the box is called. Defaults to the id                                       |
-| `type`    | no       | `integer` (the default), `number` for decimals, `choice` or `toggle` (see below) |
-| `default` | yes      | What the player gets without touching it                                         |
-| `min`     | yes      | The lowest the box allows (numbers only)                                         |
-| `max`     | yes      | The highest the box allows (numbers only)                                        |
-| `step`    | no       | How far one click of the arrows moves it. Defaults to 1                          |
-| `unit`    | no       | `x` shows "x2", `%` shows "40%", anything else follows the number                |
-| `help`    | no       | Shown under the box                                                              |
-| `group`   | no       | A heading over this setting and the ones after it with the same group            |
+| Field     | Required | Meaning                                                                                                                |
+|-----------|----------|------------------------------------------------------------------------------------------------------------------------|
+| `id`      | yes      | Lower-case letters, digits and `_`, starting with a letter                                                             |
+| `label`   | no       | What the box is called. Defaults to the id                                                                             |
+| `type`    | no       | `integer` (the default), `number` for decimals, `choice`, `toggle`, `decals`, `pick`, `goods` or `rewards` (see below) |
+| `default` | yes      | What the player gets without touching it                                                                               |
+| `min`     | yes      | The lowest the box allows (numbers only)                                                                               |
+| `max`     | yes      | The highest the box allows (numbers only)                                                                              |
+| `step`    | no       | How far one click of the arrows moves it. Defaults to 1                                                                |
+| `unit`    | no       | `x` shows "x2", `%` shows "40%", anything else follows the number                                                      |
+| `help`    | no       | Shown under the box                                                                                                    |
+| `group`   | no       | A heading over this setting and the ones after it with the same group                                                  |
 
 ### Using it
 
@@ -307,15 +308,175 @@ and a `toggle` a tick box:
   the manager takes the mod off and puts it back with the new values in the
   same save, so a row the old choice added never lingers.
 
-`mods/fighter-passives` is a full example, built by
-`tools/build_fighter_passives.py`.
+Fighter Class Passives is a full example: `mods/fighter-passives` in
+[its own repository](https://github.com/NicoMullin/LiD-Fighter-Class-Passives),
+built by its `tools/build_fighter_passives.py`.
+
+### A set of decals
+
+A `decals` setting lets the player tick any number of decals in a window of
+their own: every decal in their `masters.db` (any `master_skill` id ending in
+`_P`), including ones another mod added, with a search and columns to sort by
+name, stars and category. Manager 0.12.1 or newer.
+
+```json
+{"id": "stew_decals", "label": "Decals in the stew", "type": "decals",
+ "default_label": "Every 3-star decal and up from the normal stew",
+ "default_sql": "SELECT o.sklid FROM master_skillgacha_odds o JOIN master_skill s ON s.id = o.sklid WHERE o.id = 'SKLGACH_NORMAL_OFFLINE' AND o.odds > 0 AND s.rarity >= 3"}
+```
+
+- Its placeholder goes inside `IN (...)`: `WHERE s.id IN ({{stew_decals}})`.
+  What the player ticked is written as quoted ids (`'SKL_A_P','SKL_B_P'`), each
+  held to letters, digits and `_`.
+- `default_sql` (required) is one `SELECT` of the decal ids you mean before the
+  player picks anything. Until they do, the placeholder is that query, run
+  afresh each time the mod applies, so the default keeps up with the database
+  and with any mod that adds decals. `default_label` says what it is, in the
+  box and in the window.
+- The window starts with your default's decals ticked. Leaving the ticks as
+  they were keeps the setting on the default; the player needs at least one.
+- A decal the player picked that is later gone from `masters.db` (its mod
+  switched off) matches no row, so write the SQL to take only what it finds -
+  `INSERT ... SELECT ... FROM master_skill s WHERE s.id IN (...)` does.
+- `{{stew_decals:label}}` reads "12 decals picked", or your `default_label`.
+
+### Several entries off your own list
+
+A `pick` setting lets the player tick any number of entries off a list the
+mod itself gives, in the same kind of window: sortable, with a search, and a
+panel showing each entry's `help`. Manager 0.12.2 or newer.
+
+```json
+{"id": "quest_pick", "label": "Quests in the pool", "type": "pick", "noun": "quest",
+ "default_label": "All 43 quests",
+ "options": [
+   {"value": "SEASON_20190107_7", "label": "Defeat SCREAMER x50", "group": "Weekly",
+    "help": "Needs floor 1 reached. First clear: 100,000 KC."},
+   ...
+ ]}
+```
+
+- `options` (or `options_from`) are written exactly like a choice's. `group`
+  is shown in a column of its own and can be searched.
+- `default` is a list of the values ticked until the player changes anything;
+  leave it out and every entry is ticked.
+- `noun` names one entry ("quest"): the button reads "Choose quests...".
+- Its placeholder goes inside `IN (...)`: `WHERE qid IN ({{quest_pick}})`. It
+  is the ticked values, quoted, or the default's - only values your list has
+  ever reach the SQL. A value a player ticked that a later version of the mod
+  no longer lists is dropped.
+- `{{quest_pick:label}}` reads "12 of 43 quests picked", or your
+  `default_label`.
+
+### A shop's list of goods
+
+A `goods` setting holds a list of things to sell, each with how many one
+purchase gives, its currency, its price and how many times a day it can be
+bought. The player edits it in a window of its own: "Add goods..." lists every
+item and mushroom in their `masters.db` (consumables, materials, blueprints,
+mushrooms - no weapons or armour), named as the game names them. Manager
+0.12.4 or newer.
+
+```json
+{"id": "custom", "label": "Your list", "type": "goods", "noun": "good",
+ "default": "ITMT_WOOD_4/1/k/0/0,MSR_053/5/d/8/1",
+ "default_label": "Walnut and Golden Skillshrooms"}
+```
+
+- Each entry is `id/bundle/currency/price/a day`: currency `k` (Kill Coins) or
+  `d` (Death Metals); a price of `0` is the game's own price for that many;
+  `0` a day is no limit. Up to 500 entries, bundles of 1 to 999, 0 to 20 a
+  day.
+- `default` is the list until the player changes it. The window has a "Back to
+  the default" button.
+- Its placeholder goes inside `VALUES`: each entry becomes
+  `(place, 'id', bundle, currency, price, a day)`, with currency `0` or `1`
+  and place counting from 1. An empty list is one row `(0, NULL, 1, 0, 0, 0)`,
+  since `VALUES` can't be empty, so skip rows whose id is NULL:
+
+  ```sql
+  WITH wanted(place, type_id, pack_count, currency_type, price, a_day) AS (VALUES {{custom}})
+  INSERT INTO ... SELECT ... FROM wanted WHERE type_id IN (SELECT itemid FROM master_item) ...
+  ```
+
+  Only letters, digits, underscores and the separators get through, so it
+  carries no SQL. The `Vending Machine` mod is the worked example.
+- `{{custom:label}}` reads "12 goods", or your `default_label`.
+
+### A list of rewards to draw from
+
+A `rewards` setting holds a list of rewards (rows of `master_reward`), each
+with a weight: a reward with weight 3 comes up three times as often as one
+with weight 1. The player edits it in a window of its own: "Add rewards..."
+lists every reward in their `masters.db`, described from what it gives ("3,000
+Kill Coins", "D.O.D. ARMS Purple Metal x4", "King Mantis decal"), with how
+many presents it makes in the Rewards Box. The game makes one present per
+item, so a reward of several items makes several. Manager 0.12.5 or newer.
+
+```json
+{"id": "list_1", "label": "1-20F", "type": "rewards", "noun": "reward",
+ "default": "RWD_MONEY_3000/1,RWD_SKILL_011/3",
+ "default_label": "The online 1-20F list, to change"}
+```
+
+- Each entry is `reward id/weight`, weight 1 to 100. Up to 1,000 entries.
+- `default` is the list until the player changes it. The window has a "Back to
+  the default" button.
+- Its placeholder goes inside `VALUES`: each entry becomes `('id', weight)`.
+  An empty list is one row `(NULL, 0)`, so skip rows whose id is NULL:
+
+  ```sql
+  WITH wanted(rwdid, weight) AS (VALUES {{list_1}})
+  INSERT INTO ... SELECT ... FROM wanted WHERE rwdid IN (SELECT rwdid FROM master_reward)
+  ```
+
+  Only letters, digits, underscores and the separators get through, so it
+  carries no SQL. The `Login Bonus` mod in the
+  [LiD Login Bonus](https://github.com/NicoMullin/LiD-Login-Bonus) repository
+  is the worked example.
+- `{{list_1:label}}` reads "12 rewards", or your `default_label`.
+
+### A part that a setting switches on and off
+
+A toggle written into SQL (`WHERE {{x}} = 1`) works for SQL. A part with no
+SQL to put it in - a package patch (`tfc_installer`), say - can instead say
+when it applies at all, with `"when"`:
+
+```json
+"settings": [
+  {"id": "vip", "label": "VIP passes cost Death Metals", "type": "toggle", "default": true},
+  {"id": "vip_price", "label": "VIP pass price", "type": "integer", "default": 33, "min": 1, "max": 999, "unit": "DM"}
+],
+"patches": [
+  {"type": "raw_sql", "when": {"vip": true},
+   "sql": "UPDATE master_shop_product_price SET price = 0, medal = {{vip_price}} WHERE id = 'PRD_VIP_PASS';"},
+  {"type": "tfc_installer", "when": {"vip": true}, "source": "tfc/vip"}
+]
+```
+
+- A part whose `when` does not hold is left out: not applied, not checked for
+  conflicts, and taken away again if it was applied before.
+- `when` names one or more of your settings, each with the value it needs: a
+  toggle `true`/`false`, a choice one of its option values, a number a value in
+  its range. A list - `{"cost": ["dm", "both"]}` - means any of them. Naming
+  several settings needs every one to match.
+- A name that is not one of your settings, or a value it can never have, stops
+  the mod loading, so a typo cannot leave a part off for good.
+- Every part has to load even while it is off, so a broken one is found as soon
+  as the mod is read.
+- A part keeps its number (`#2`) whatever is left out before it, so a part a
+  player switched off by hand stays the same part. Give parts an `id` anyway.
+- **Managers before 0.12.0 know neither `when` nor `min_manager_version`:
+  they ignore both and apply every part.** Set `"min_manager_version":
+  "0.12.0"` anyway, for the versions that do check it, and say in your readme
+  that the mod needs 0.12.0 or newer.
 
 ### The rules
 
 - **Only your own values.** A number is checked against your `min` and `max`
   and turned into digits before it is written into anything; a choice must be
-  one of your options; a toggle is 1 or 0. A player cannot type SQL into a
-  setting.
+  one of your options; a toggle is 1 or 0; a decal is an id of letters,
+  digits and `_`. A player cannot type SQL into a setting.
 - **Pick `integer` for whole-number columns.** Most of `masters.db` is whole
   numbers, and a decimal written into one is a crash waiting to happen.
 - **Multiplying? Use `"apply": "diff"`.** Otherwise saving twice multiplies

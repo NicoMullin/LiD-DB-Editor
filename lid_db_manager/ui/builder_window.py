@@ -29,7 +29,6 @@ which owns the scratch database and the rules about what may be changed.
 
 from __future__ import annotations
 
-from datetime import datetime
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
@@ -60,7 +59,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import builder_data
-from ..builder import LINEUP_TABLE, PAGE, SCHEDULE_TABLE, BuildError, ModBuilder
+from ..builder import LINEUP_TABLE, PAGE, BuildError, ModBuilder
 from ..icons import IconSource
 from .icon_cache import ThumbnailCache
 from .theme import colors
@@ -142,12 +141,6 @@ class BuilderWindow(QDialog):
         self.copy_button.clicked.connect(self._copy_row)
         self.stock_button = QPushButton("Add things to the machine...")
         self.stock_button.clicked.connect(self._stock_machine)
-        self.rotate_button = QPushButton("Keep the machine rotating...")
-        self.rotate_button.setToolTip(
-            "The stock schedule ran out on 1 August 2026. This adds months so "
-            "the machine has something to restock from."
-        )
-        self.rotate_button.clicked.connect(self._extend_schedule)
 
         # -- the list-and-form page
         self.row_list = QListWidget()
@@ -216,7 +209,6 @@ class BuilderWindow(QDialog):
         header.addWidget(self.mode)
         header.addWidget(self.copy_button)
         header.addWidget(self.stock_button)
-        header.addWidget(self.rotate_button)
 
         right = QVBoxLayout()
         right.addWidget(self.title_label)
@@ -338,7 +330,6 @@ class BuilderWindow(QDialog):
             widget.setVisible(visible)
         table = self.table if visible else None
         self.stock_button.setVisible(table == LINEUP_TABLE)
-        self.rotate_button.setVisible(table in (LINEUP_TABLE, SCHEDULE_TABLE))
 
     def _show_links(self, page) -> None:
         """A heading, or a currency: a page of links into the tables."""
@@ -787,49 +778,13 @@ class BuilderWindow(QDialog):
         if picker.exec() and picker.added:
             self._reload()
             self._refresh_changes()
-            room = (f"\n\nThe schedule now offers every item on that list "
-                    f"({picker.room} value(s) raised)." if picker.room else "")
             QMessageBox.information(
                 self, "Added",
                 f"Put {picker.added} thing(s) on the machine. They show up in "
                 "the list, and in the mod when you save. The game stores what is "
                 "on offer in your save, so they appear at the machine's next "
-                f"restock.{room}"
+                "restock, once a game day."
             )
-
-    def _extend_schedule(self) -> None:
-        if not self.builder:
-            return
-        end = self.builder.schedule_end() or "no date"
-        this_year = datetime.now().year
-        year, ok = QInputDialog.getInt(
-            self, "Keep the machine rotating",
-            f"The machine's schedule currently ends on {end}.\n\n"
-            "Add a month for every month up to the end of this year, carrying on "
-            "the Bloodnium list rotation (MON, TUE ... SUN, MON):",
-            this_year + 5, this_year, this_year + 40,
-        )
-        if not ok:
-            return
-        try:
-            added = self.builder.extend_schedule(year)
-        except BuildError as exc:
-            QMessageBox.warning(self, "Could not extend it", str(exc))
-            return
-        self._reload()
-        self._refresh_changes()
-        if not added:
-            QMessageBox.information(
-                self, "Nothing to add",
-                f"The schedule already runs past the end of {year}."
-            )
-            return
-        QMessageBox.information(
-            self, "Schedule extended",
-            f"Added {added} month(s), up to the end of {year}.\n\n"
-            "Not yet tested in game: whether a save that is already past the old "
-            "last month picks these up by itself. Try it before sharing the mod."
-        )
 
     # -- saving ------------------------------------------------------------
 

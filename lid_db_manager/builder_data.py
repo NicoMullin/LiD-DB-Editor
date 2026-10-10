@@ -174,35 +174,29 @@ SKIPPED_ROWS: dict[str, tuple[str, str]] = {
     "master_skill": ("platform = 1 AND no_steam = 0", "PS4 only - skipped on Steam"),
 }
 
-# The vending machine's lists. MON to SUN are NOT days of the week: they are
-# seven Bloodnium exchange lists, and master_automaticshop_schedule moves to the
-# next one each month. The game's own script sorts goods into its three tabs by
-# currency_type, which is how these were confirmed.
+# The vending machine's lists. The offline game fills the Buy tab from COMMON,
+# the recycle-point exchange from RE, and the Bloodnium exchange from the list
+# named for the day of the week (MON on Mondays...), at each daily restock; the
+# schedule table is never read. The game's own script sorts goods into the tabs
+# by currency_type.
 LINEUP_NAMES: dict[str, str] = {
     "COMMON": "Kill Coin shop",
     "RE": "Recycle-point exchange",
-    **{code: f"Bloodnium exchange - monthly list {code}"
-       for code in ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")},
+    **{code: f"Bloodnium exchange - {day}"
+       for code, day in (("MON", "Mondays"), ("TUE", "Tuesdays"), ("WED", "Wednesdays"),
+                         ("THU", "Thursdays"), ("FRI", "Fridays"), ("SAT", "Saturdays"),
+                         ("SUN", "Sundays"))},
 }
 
 # What a lineup row's currency_type means, and the master_item column that holds
-# that price. 3 and 4 are tested by name in the vending machine's script
-# (exchange tab = 3, Bloodnium tab = 4); 0 is the only value on the Kill Coin
-# list, whose items carry only a Kill Coin price. 1 and 2 are never used and are
-# left out rather than guessed.
+# that price - read from the game's own price routine. 3 and 4 are also tested
+# by name in the vending machine's script (exchange tab = 3, Bloodnium tab =
+# 4). 2 has no price at all (the game logs "unknown currencytype").
 CURRENCY_TYPES: dict[int, tuple[str, str]] = {
     0: ("Kill Coins", "buy_money"),
+    1: ("Death Metals", "buy_medal"),
     3: ("recycle points", "buy_recycle_point"),
     4: ("Bloodnium", "buy_bloodnium"),
-}
-
-# Which schedule columns name a list, and the pair that says how many goods from
-# it the machine offers at once.
-SCHEDULE_SLOTS: dict[str, tuple[str, str]] = {
-    "common_lineup_id": ("purchase_goods_min", "purchase_goods_max"),
-    "exchange_lineup_id": ("exchange_goods_min", "exchange_goods_max"),
-    "bloodnium_exchange_lineup_id": ("bloodnium_exchange_goods_min",
-                                     "bloodnium_exchange_goods_max"),
 }
 
 # "Good to know" lines shown above a table. Only things checked against the
@@ -278,24 +272,21 @@ TIPS: dict[str, list[str]] = {
         "the game reads is not recorded, so the builder changes both together.",
     ],
     "master_automaticshop_lineup": [
-        "MON to SUN are not days of the week. They are seven Bloodnium exchange "
-        "lists, and the schedule moves to the next one each month. COMMON is the "
-        "Kill Coin shop and RE the recycle-point exchange.",
-        "The machine charges the item's own price, in the currency of the list.",
-        "What is on offer is stored in your save when the machine restocks, so a "
-        "change here shows at the next restock, not straight away.",
-        "The stock schedule ran out on 1 August 2026. Use \"Keep the machine "
-        "rotating\" so it has months left to restock from.",
+        "COMMON is the Buy tab, RE the recycle-point exchange, and MON to SUN the "
+        "Bloodnium exchange: the offline game uses the list for the day of the week.",
+        "Only rows with is_stable 1 are offered - the offline game has no random "
+        "pick, so a row with is_stable 0 never shows.",
+        "A row charges the item's own price for pack_count of them, in its "
+        "currency, unless its own pack_money, pack_metal, pack_recycle_point or "
+        "pack_bloodnium is set. currency_type: 0 Kill Coins, 1 Death Metals, "
+        "3 recycle points, 4 Bloodnium.",
+        "stock 1 means once a day: bought, it is gone until the next restock.",
+        "What is on offer is stored in your save when the machine restocks, once a "
+        "game day, so a change here shows at the next daily reset.",
     ],
     "master_automaticshop_schedule": [
-        "One row per month: which lists the machine draws from until the date in "
-        "expire. The dates are text (2026-08-01 00:00:00), not numbers.",
-        "The last stock row expired on 1 August 2026.",
-        "The min and max are how many goods from a list are offered at once. A "
-        "list with more rows than the max has some left out (inferred - every "
-        "stock row sets min and max to the list's size).",
-        "Not yet tested in game: whether a save already past the last month picks "
-        "up newly added months by itself.",
+        "The offline game never reads this table: its lists are fixed in the game "
+        "itself (COMMON, RE, and the day's Bloodnium list). Changing it does nothing.",
     ],
     "master_shop_appearance": [
         "The community \"Shop Always Appears\" mod sets every rate here to 100, "

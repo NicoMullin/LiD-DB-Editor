@@ -1,0 +1,798 @@
+{
+  "id": "Vending Machine",
+  "name": "Vending Machine",
+  "description": "Puts the online game's stock back in the Waiting Room vending machine: the faction metals, materials and mushrooms of its daily list and the weekly blueprints, at the online prices, for Kill Coins and Death Metals - or your own list, priced and bundled as you like. Set it in Configuration.",
+  "version": "0.2.0",
+  "author": "KSFA",
+  "category": "Game content",
+  "tags": [
+    "vending-machine",
+    "hernia",
+    "shop",
+    "death-metals",
+    "materials",
+    "blueprints",
+    "mushrooms"
+  ],
+  "game_version": [
+    "5.0.4.1.0 - 1.89",
+    "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)",
+    "5.0.4.4.0 - 1.91"
+  ],
+  "min_manager_version": "0.12.4",
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "mode",
+      "label": "Machine",
+      "type": "choice",
+      "default": "online",
+      "options": [
+        {
+          "value": "online",
+          "label": "As online",
+          "help": "The online machine's goods at its prices, set below under \"As online\"."
+        },
+        {
+          "value": "custom",
+          "label": "Your own list",
+          "help": "Only what you put on your list, at your prices, set below under \"Your own list\"."
+        }
+      ],
+      "help": "Either way the seven things it always sold stay. Switch the mod off for the machine exactly as the game has it."
+    },
+    {
+      "id": "pay",
+      "label": "Pay with",
+      "type": "choice",
+      "default": "online",
+      "group": "As online",
+      "options": [
+        {
+          "value": "online",
+          "label": "Kill Coins and Death Metals, as online",
+          "help": "Each good for Kill Coins, Death Metals or both, as the online machine sold it. Faction metals and blueprints were Death Metals only, and so are the three cosmetic armours."
+        },
+        {
+          "value": "kc",
+          "label": "Kill Coins only",
+          "help": "Everything for Kill Coins. Goods sold only for Death Metals online cost the game's own Kill Coin price (a bundle of 5 costs 4)."
+        },
+        {
+          "value": "dm",
+          "label": "Death Metals only",
+          "help": "Everything for Death Metals, at the online prices, and the three cosmetic armours too."
+        }
+      ],
+      "help": "Death Metal prices need the Death Metals mod, which gives you Death Metals to spend."
+    },
+    {
+      "id": "blueprints",
+      "label": "Weekly blueprints",
+      "type": "toggle",
+      "default": true,
+      "group": "As online",
+      "help": "The 40 blueprints the online machine took turns selling, 8 a week, for Death Metals. Here all of them are on sale at once, one of each a day."
+    },
+    {
+      "id": "stock",
+      "label": "What it sells",
+      "type": "pick",
+      "noun": "good",
+      "group": "As online",
+      "default_label": "All 113 goods",
+      "options": [
+        {
+          "value": "ITMT_STONE_DIY_1",
+          "label": "D.O.D. ARMS Blue Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 4 DM; 5: 16 DM."
+        },
+        {
+          "value": "ITMT_STONE_MIL_1",
+          "label": "War Ensemble Blue Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 4 DM; 5: 16 DM."
+        },
+        {
+          "value": "ITMT_STONE_FAN_1",
+          "label": "Candle Wolf Blue Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 4 DM; 5: 16 DM."
+        },
+        {
+          "value": "ITMT_STONE_SPO_1",
+          "label": "M.I.L.K. Blue Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 4 DM; 5: 16 DM."
+        },
+        {
+          "value": "ITMT_STONE_DIY_2",
+          "label": "D.O.D. ARMS Green Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 6 DM; 5: 24 DM."
+        },
+        {
+          "value": "ITMT_STONE_MIL_2",
+          "label": "War Ensemble Green Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 6 DM; 5: 24 DM."
+        },
+        {
+          "value": "ITMT_STONE_FAN_2",
+          "label": "Candle Wolf Green Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 6 DM; 5: 24 DM."
+        },
+        {
+          "value": "ITMT_STONE_SPO_2",
+          "label": "M.I.L.K. Green Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 6 DM; 5: 24 DM."
+        },
+        {
+          "value": "ITMT_STONE_DIY_3",
+          "label": "D.O.D. ARMS Black Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 8 DM; 5: 32 DM."
+        },
+        {
+          "value": "ITMT_STONE_MIL_3",
+          "label": "War Ensemble Black Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 8 DM; 5: 32 DM."
+        },
+        {
+          "value": "ITMT_STONE_FAN_3",
+          "label": "Candle Wolf Black Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 8 DM; 5: 32 DM."
+        },
+        {
+          "value": "ITMT_STONE_SPO_3",
+          "label": "M.I.L.K. Black Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 8 DM; 5: 32 DM."
+        },
+        {
+          "value": "ITMT_STONE_DIY_4",
+          "label": "D.O.D. ARMS Red Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 10 DM; 5: 40 DM."
+        },
+        {
+          "value": "ITMT_STONE_MIL_4",
+          "label": "War Ensemble Red Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 10 DM; 5: 40 DM."
+        },
+        {
+          "value": "ITMT_STONE_FAN_4",
+          "label": "Candle Wolf Red Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 10 DM; 5: 40 DM."
+        },
+        {
+          "value": "ITMT_STONE_SPO_4",
+          "label": "M.I.L.K. Red Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 10 DM; 5: 40 DM."
+        },
+        {
+          "value": "ITMT_STONE_DIY_6",
+          "label": "D.O.D. ARMS Purple Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 12 DM; 5: 48 DM."
+        },
+        {
+          "value": "ITMT_STONE_MIL_6",
+          "label": "War Ensemble Purple Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 12 DM; 5: 48 DM."
+        },
+        {
+          "value": "ITMT_STONE_FAN_6",
+          "label": "Candle Wolf Purple Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 12 DM; 5: 48 DM."
+        },
+        {
+          "value": "ITMT_STONE_SPO_6",
+          "label": "M.I.L.K. Purple Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 12 DM; 5: 48 DM."
+        },
+        {
+          "value": "ITMT_STONE_DIY_7",
+          "label": "D.O.D. ARMS Orange Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 14 DM; 5: 56 DM."
+        },
+        {
+          "value": "ITMT_STONE_MIL_7",
+          "label": "War Ensemble Orange Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 14 DM; 5: 56 DM."
+        },
+        {
+          "value": "ITMT_STONE_FAN_7",
+          "label": "Candle Wolf Orange Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 14 DM; 5: 56 DM."
+        },
+        {
+          "value": "ITMT_STONE_SPO_7",
+          "label": "M.I.L.K. Orange Metal",
+          "group": "Faction metals",
+          "help": "Online: one: 14 DM; 5: 56 DM."
+        },
+        {
+          "value": "ITMT_WOOD_1",
+          "label": "Veneer Plank",
+          "group": "Materials",
+          "help": "Online: 5: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "ITMT_WOOD_2",
+          "label": "MDF",
+          "group": "Materials",
+          "help": "Online: 5: 15,000 KC or 3 DM."
+        },
+        {
+          "value": "ITMT_WOOD_3",
+          "label": "Rosewood",
+          "group": "Materials",
+          "help": "Online: 5: 20,000 KC or 4 DM."
+        },
+        {
+          "value": "ITMT_IRON_1",
+          "label": "Iron Scraps",
+          "group": "Materials",
+          "help": "Online: 5: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "ITMT_IRON_2",
+          "label": "Wire Mountain",
+          "group": "Materials",
+          "help": "Online: 5: 15,000 KC or 3 DM."
+        },
+        {
+          "value": "ITMT_IRON_3",
+          "label": "Mass of Iron Bolts",
+          "group": "Materials",
+          "help": "Online: 5: 20,000 KC or 4 DM."
+        },
+        {
+          "value": "ITMT_ALUMI_1",
+          "label": "Aluminum Scraps",
+          "group": "Materials",
+          "help": "Online: 5: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "ITMT_ALUMI_2",
+          "label": "Aluminum Can",
+          "group": "Materials",
+          "help": "Online: 5: 15,000 KC or 3 DM."
+        },
+        {
+          "value": "ITMT_ALUMI_3",
+          "label": "Aluminum Engine Part",
+          "group": "Materials",
+          "help": "Online: 5: 20,000 KC or 4 DM."
+        },
+        {
+          "value": "ITMT_OIL_1",
+          "label": "Waste Oil",
+          "group": "Materials",
+          "help": "Online: 5: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "ITMT_OIL_2",
+          "label": "Vegetable Oil",
+          "group": "Materials",
+          "help": "Online: 5: 15,000 KC or 3 DM."
+        },
+        {
+          "value": "ITMT_OIL_3",
+          "label": "Crude Oil",
+          "group": "Materials",
+          "help": "Online: 5: 20,000 KC or 4 DM."
+        },
+        {
+          "value": "ITMT_COPPER_1",
+          "label": "Clump of Copper Scraps",
+          "group": "Materials",
+          "help": "Online: 5: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "ITMT_COPPER_2",
+          "label": "Piece of Broken Copperware",
+          "group": "Materials",
+          "help": "Online: 5: 15,000 KC or 3 DM."
+        },
+        {
+          "value": "ITMT_COPPER_3",
+          "label": "Copper Wire Mountain",
+          "group": "Materials",
+          "help": "Online: 5: 20,000 KC or 4 DM."
+        },
+        {
+          "value": "ITMT_WOOD_4",
+          "label": "Walnut",
+          "group": "Materials",
+          "help": "Online: one: 5,000 KC or 1 DM; 5: 20,000 KC or 4 DM."
+        },
+        {
+          "value": "ITMT_WOOD_5",
+          "label": "Mahogany",
+          "group": "Materials",
+          "help": "Online: one: 10,000 KC or 2 DM; 5: 40,000 KC or 8 DM."
+        },
+        {
+          "value": "ITMT_WOOD_6",
+          "label": "Snake Wood",
+          "group": "Materials",
+          "help": "Online: one: 15,000 KC or 3 DM; 5: 60,000 KC or 12 DM."
+        },
+        {
+          "value": "ITMT_WOOD_7",
+          "label": "Black Coal",
+          "group": "Materials",
+          "help": "Online: one: 20,000 KC or 4 DM; 5: 80,000 KC or 16 DM."
+        },
+        {
+          "value": "ITMT_IRON_4",
+          "label": "Steel",
+          "group": "Materials",
+          "help": "Online: one: 5,000 KC or 1 DM; 5: 20,000 KC or 4 DM."
+        },
+        {
+          "value": "ITMT_IRON_5",
+          "label": "Ultra-pure Iron",
+          "group": "Materials",
+          "help": "Online: one: 10,000 KC or 2 DM; 5: 40,000 KC or 8 DM."
+        },
+        {
+          "value": "ITMT_IRON_6",
+          "label": "Special Steel",
+          "group": "Materials",
+          "help": "Online: one: 15,000 KC or 3 DM; 5: 60,000 KC or 12 DM."
+        },
+        {
+          "value": "ITMT_IRON_7",
+          "label": "Chrome-Moly",
+          "group": "Materials",
+          "help": "Online: one: 20,000 KC or 4 DM; 5: 80,000 KC or 16 DM."
+        },
+        {
+          "value": "ITMT_ALUMI_4",
+          "label": "Pure Aluminum",
+          "group": "Materials",
+          "help": "Online: one: 5,000 KC or 1 DM; 5: 20,000 KC or 4 DM."
+        },
+        {
+          "value": "ITMT_ALUMI_5",
+          "label": "Aluminum Alloy 7075",
+          "group": "Materials",
+          "help": "Online: one: 10,000 KC or 2 DM; 5: 40,000 KC or 8 DM."
+        },
+        {
+          "value": "ITMT_ALUMI_6",
+          "label": "Aluminum Alloy 9048",
+          "group": "Materials",
+          "help": "Online: one: 15,000 KC or 3 DM; 5: 60,000 KC or 12 DM."
+        },
+        {
+          "value": "ITMT_ALUMI_7",
+          "label": "Aluminum Alloy 9050",
+          "group": "Materials",
+          "help": "Online: one: 20,000 KC or 4 DM; 5: 80,000 KC or 16 DM."
+        },
+        {
+          "value": "ITMT_OIL_4",
+          "label": "Mineral Oil",
+          "group": "Materials",
+          "help": "Online: one: 5,000 KC or 1 DM; 5: 20,000 KC or 4 DM."
+        },
+        {
+          "value": "ITMT_OIL_5",
+          "label": "Chemo-synthesized Oil",
+          "group": "Materials",
+          "help": "Online: one: 10,000 KC or 2 DM; 5: 40,000 KC or 8 DM."
+        },
+        {
+          "value": "ITMT_OIL_6",
+          "label": "Biofuel",
+          "group": "Materials",
+          "help": "Online: one: 15,000 KC or 3 DM; 5: 60,000 KC or 12 DM."
+        },
+        {
+          "value": "ITMT_OIL_7",
+          "label": "Tiger Grease",
+          "group": "Materials",
+          "help": "Online: one: 20,000 KC or 4 DM; 5: 80,000 KC or 16 DM."
+        },
+        {
+          "value": "ITMT_COPPER_4",
+          "label": "Pure Copper",
+          "group": "Materials",
+          "help": "Online: one: 5,000 KC or 1 DM; 5: 20,000 KC or 4 DM."
+        },
+        {
+          "value": "ITMT_COPPER_5",
+          "label": "Oxygen-free Copper",
+          "group": "Materials",
+          "help": "Online: one: 10,000 KC or 2 DM; 5: 40,000 KC or 8 DM."
+        },
+        {
+          "value": "ITMT_COPPER_6",
+          "label": "Beryllium Copper",
+          "group": "Materials",
+          "help": "Online: one: 15,000 KC or 3 DM; 5: 60,000 KC or 12 DM."
+        },
+        {
+          "value": "ITMT_COPPER_7",
+          "label": "Corinthian Bronze",
+          "group": "Materials",
+          "help": "Online: one: 20,000 KC or 4 DM; 5: 80,000 KC or 16 DM."
+        },
+        {
+          "value": "ITMT_FIBER_6",
+          "label": "Carbon Fiber",
+          "group": "Materials",
+          "help": "Online: one: 15,000 KC or 3 DM; 5: 60,000 KC or 12 DM."
+        },
+        {
+          "value": "ITMT_FIBER_7",
+          "label": "Aramid Fiber",
+          "group": "Materials",
+          "help": "Online: one: 20,000 KC or 4 DM; 5: 80,000 KC or 16 DM."
+        },
+        {
+          "value": "MSR_052",
+          "label": "Silver Skillshroom",
+          "group": "Mushrooms",
+          "help": "Online: one: 5,000 KC or 1 DM; 5: 20,000 KC or 4 DM."
+        },
+        {
+          "value": "MSR_034",
+          "label": "Golden Mouseshroom",
+          "group": "Mushrooms",
+          "help": "Online: one: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "MSR_032",
+          "label": "Croakstool",
+          "group": "Mushrooms",
+          "help": "Online: one: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "MSR_044",
+          "label": "Golden Lifeshroom",
+          "group": "Mushrooms",
+          "help": "Online: one: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "MSR_046",
+          "label": "Golden Vampire Fungus",
+          "group": "Mushrooms",
+          "help": "Online: one: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "MSR_036",
+          "label": "Golden Stingshroom",
+          "group": "Mushrooms",
+          "help": "Online: one: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "MSR_050",
+          "label": "Golden Oakshroom",
+          "group": "Mushrooms",
+          "help": "Online: one: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "MSR_053",
+          "label": "Golden Skillshroom",
+          "group": "Mushrooms",
+          "help": "Online: one: 10,000 KC or 2 DM; 5: 40,000 KC or 8 DM."
+        },
+        {
+          "value": "MSR_048",
+          "label": "Golden Evershroom",
+          "group": "Mushrooms",
+          "help": "Online: one: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "MSR_040",
+          "label": "Golden Snailshroom",
+          "group": "Mushrooms",
+          "help": "Online: one: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "MSR_038",
+          "label": "Golden Fishy Fungus",
+          "group": "Mushrooms",
+          "help": "Online: one: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "MSR_042",
+          "label": "Golden Dragonshroom",
+          "group": "Mushrooms",
+          "help": "Online: one: 10,000 KC or 2 DM."
+        },
+        {
+          "value": "ITMP_ARM_WP038_001",
+          "label": "Tactical Shovel Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_FAN_HEAD_005",
+          "label": "Fencing Helmet Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_FAN_TOPS_005",
+          "label": "Fencing Armor Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_FAN_BTM_005",
+          "label": "Fencing Leggings Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_ARM_WP030_001",
+          "label": "Loaded Glove Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 12 DM."
+        },
+        {
+          "value": "ITMP_SPO_HEAD_015",
+          "label": "Cycle Madness Head Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_SPO_TOPS_015",
+          "label": "Cycle Madness Body Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_SPO_BTM_015",
+          "label": "Cycle Madness Pants Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_ARM_WP007_001",
+          "label": "FFWF-103 Flamethrower Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_SPO_HEAD_017",
+          "label": "Swimming Master Head Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_SPO_TOPS_017",
+          "label": "Swimming Master Body Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_SPO_BTM_017",
+          "label": "Swimming Master Pants Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_ARM_WP039_001",
+          "label": "Cyclone Shuriken Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_FAN_HEAD_013",
+          "label": "Evil Wizard Cowl Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 12 DM."
+        },
+        {
+          "value": "ITMP_FAN_TOPS_013",
+          "label": "Evil Wizard Coat Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 12 DM."
+        },
+        {
+          "value": "ITMP_FAN_BTM_013",
+          "label": "Evil Wizard Leggings Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 12 DM."
+        },
+        {
+          "value": "ITMP_ARM_WP024_001",
+          "label": "Striker Flail Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_SPO_HEAD_007",
+          "label": "Kendo Mask Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 12 DM."
+        },
+        {
+          "value": "ITMP_SPO_TOPS_007",
+          "label": "Kendo Body Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 12 DM."
+        },
+        {
+          "value": "ITMP_SPO_BTM_007",
+          "label": "Kendo Pants Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 12 DM."
+        },
+        {
+          "value": "ITMP_ARM_WP046_001",
+          "label": "Hunting Bow Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_MIL_HEAD_017",
+          "label": "Combat Diver Head Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_MIL_TOPS_017",
+          "label": "Combat Diver Body Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_MIL_BTM_017",
+          "label": "Combat Diver Pants Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_ARM_WP064_001",
+          "label": "Timber Rebellion Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_DIY_HEAD_031",
+          "label": "Violent Grinder Head Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_DIY_TOPS_031",
+          "label": "Violent Grinder Body Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_DIY_BTM_031",
+          "label": "Violent Grinder Pants Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_ARM_WP063_001",
+          "label": "Pulse Stun Gun Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_MIL_HEAD_031",
+          "label": "Exo-armor Head Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_MIL_TOPS_031",
+          "label": "Exo-armor Body Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_MIL_BTM_031",
+          "label": "Exo-armor Pants Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_ARM_WP033_001",
+          "label": "Brutal Yo-Yo Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_SPO_HEAD_031",
+          "label": "Hard Target Head Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_SPO_TOPS_031",
+          "label": "Hard Target Body Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_SPO_BTM_031",
+          "label": "Hard Target Pants Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_ARM_WP062_001",
+          "label": "Lion Dance Knuckles Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_FAN_HEAD_031",
+          "label": "Sword Dancer Head Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_FAN_TOPS_031",
+          "label": "Sword Dancer Armor Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        },
+        {
+          "value": "ITMP_FAN_BTM_031",
+          "label": "Sword Dancer Leggings Blueprint",
+          "group": "Blueprints",
+          "help": "Online: one: 24 DM."
+        }
+      ],
+      "help": "Every good the online machine sold. Untick any you don't want on the Buy tab."
+    },
+    {
+      "id": "custom",
+      "label": "Your list",
+      "type": "goods",
+      "noun": "good",
+      "group": "Your own list",
+      "default": "ITMT_STONE_DIY_1/1/d/0/0,ITMT_STONE_DIY_1/5/d/16/0,ITMT_STONE_MIL_1/1/d/0/0,ITMT_STONE_MIL_1/5/d/16/0,ITMT_STONE_FAN_1/1/d/0/0,ITMT_STONE_FAN_1/5/d/16/0,ITMT_STONE_SPO_1/1/d/0/0,ITMT_STONE_SPO_1/5/d/16/0,ITMT_STONE_DIY_2/1/d/0/0,ITMT_STONE_DIY_2/5/d/24/0,ITMT_STONE_MIL_2/1/d/0/0,ITMT_STONE_MIL_2/5/d/24/0,ITMT_STONE_FAN_2/1/d/0/0,ITMT_STONE_FAN_2/5/d/24/0,ITMT_STONE_SPO_2/1/d/0/0,ITMT_STONE_SPO_2/5/d/24/0,ITMT_STONE_DIY_3/1/d/0/0,ITMT_STONE_DIY_3/5/d/32/0,ITMT_STONE_MIL_3/1/d/0/0,ITMT_STONE_MIL_3/5/d/32/0,ITMT_STONE_FAN_3/1/d/0/0,ITMT_STONE_FAN_3/5/d/32/0,ITMT_STONE_SPO_3/1/d/0/0,ITMT_STONE_SPO_3/5/d/32/0,ITMT_STONE_DIY_4/1/d/0/0,ITMT_STONE_DIY_4/5/d/40/0,ITMT_STONE_MIL_4/1/d/0/0,ITMT_STONE_MIL_4/5/d/40/0,ITMT_STONE_FAN_4/1/d/0/0,ITMT_STONE_FAN_4/5/d/40/0,ITMT_STONE_SPO_4/1/d/0/0,ITMT_STONE_SPO_4/5/d/40/0,ITMT_STONE_DIY_6/1/d/0/0,ITMT_STONE_DIY_6/5/d/48/0,ITMT_STONE_MIL_6/1/d/0/0,ITMT_STONE_MIL_6/5/d/48/0,ITMT_STONE_FAN_6/1/d/0/0,ITMT_STONE_FAN_6/5/d/48/0,ITMT_STONE_SPO_6/1/d/0/0,ITMT_STONE_SPO_6/5/d/48/0,ITMT_STONE_DIY_7/1/d/0/0,ITMT_STONE_DIY_7/5/d/56/0,ITMT_STONE_MIL_7/1/d/0/0,ITMT_STONE_MIL_7/5/d/56/0,ITMT_STONE_FAN_7/1/d/0/0,ITMT_STONE_FAN_7/5/d/56/0,ITMT_STONE_SPO_7/1/d/0/0,ITMT_STONE_SPO_7/5/d/56/0,ITMT_WOOD_1/5/k/10000/0,ITMT_WOOD_1/5/d/2/0,ITMT_WOOD_2/5/k/15000/0,ITMT_WOOD_2/5/d/3/0,ITMT_WOOD_3/5/k/20000/0,ITMT_WOOD_3/5/d/4/0,ITMT_IRON_1/5/k/10000/0,ITMT_IRON_1/5/d/2/0,ITMT_IRON_2/5/k/15000/0,ITMT_IRON_2/5/d/3/0,ITMT_IRON_3/5/k/20000/0,ITMT_IRON_3/5/d/4/0,ITMT_ALUMI_1/5/k/10000/0,ITMT_ALUMI_1/5/d/2/0,ITMT_ALUMI_2/5/k/15000/0,ITMT_ALUMI_2/5/d/3/0,ITMT_ALUMI_3/5/k/20000/0,ITMT_ALUMI_3/5/d/4/0,ITMT_OIL_1/5/k/10000/0,ITMT_OIL_1/5/d/2/0,ITMT_OIL_2/5/k/15000/0,ITMT_OIL_2/5/d/3/0,ITMT_OIL_3/5/k/20000/0,ITMT_OIL_3/5/d/4/0,ITMT_COPPER_1/5/k/10000/0,ITMT_COPPER_1/5/d/2/0,ITMT_COPPER_2/5/k/15000/0,ITMT_COPPER_2/5/d/3/0,ITMT_COPPER_3/5/k/20000/0,ITMT_COPPER_3/5/d/4/0,ITMT_WOOD_4/1/k/0/0,ITMT_WOOD_4/1/d/0/0,ITMT_WOOD_4/5/k/20000/0,ITMT_WOOD_4/5/d/4/0,ITMT_WOOD_5/1/k/0/0,ITMT_WOOD_5/1/d/0/0,ITMT_WOOD_5/5/k/40000/0,ITMT_WOOD_5/5/d/8/0,ITMT_WOOD_6/1/k/0/0,ITMT_WOOD_6/1/d/0/0,ITMT_WOOD_6/5/k/60000/0,ITMT_WOOD_6/5/d/12/0,ITMT_WOOD_7/1/k/0/0,ITMT_WOOD_7/1/d/0/0,ITMT_WOOD_7/5/k/80000/0,ITMT_WOOD_7/5/d/16/0,ITMT_IRON_4/1/k/0/0,ITMT_IRON_4/1/d/0/0,ITMT_IRON_4/5/k/20000/0,ITMT_IRON_4/5/d/4/0,ITMT_IRON_5/1/k/0/0,ITMT_IRON_5/1/d/0/0,ITMT_IRON_5/5/k/40000/0,ITMT_IRON_5/5/d/8/0,ITMT_IRON_6/1/k/0/0,ITMT_IRON_6/1/d/0/0,ITMT_IRON_6/5/k/60000/0,ITMT_IRON_6/5/d/12/0,ITMT_IRON_7/1/k/0/0,ITMT_IRON_7/1/d/0/0,ITMT_IRON_7/5/k/80000/0,ITMT_IRON_7/5/d/16/0,ITMT_ALUMI_4/1/k/0/0,ITMT_ALUMI_4/1/d/0/0,ITMT_ALUMI_4/5/k/20000/0,ITMT_ALUMI_4/5/d/4/0,ITMT_ALUMI_5/1/k/0/0,ITMT_ALUMI_5/1/d/0/0,ITMT_ALUMI_5/5/k/40000/0,ITMT_ALUMI_5/5/d/8/0,ITMT_ALUMI_6/1/k/0/0,ITMT_ALUMI_6/1/d/0/0,ITMT_ALUMI_6/5/k/60000/0,ITMT_ALUMI_6/5/d/12/0,ITMT_ALUMI_7/1/k/0/0,ITMT_ALUMI_7/1/d/0/0,ITMT_ALUMI_7/5/k/80000/0,ITMT_ALUMI_7/5/d/16/0,ITMT_OIL_4/1/k/0/0,ITMT_OIL_4/1/d/0/0,ITMT_OIL_4/5/k/20000/0,ITMT_OIL_4/5/d/4/0,ITMT_OIL_5/1/k/0/0,ITMT_OIL_5/1/d/0/0,ITMT_OIL_5/5/k/40000/0,ITMT_OIL_5/5/d/8/0,ITMT_OIL_6/1/k/0/0,ITMT_OIL_6/1/d/0/0,ITMT_OIL_6/5/k/60000/0,ITMT_OIL_6/5/d/12/0,ITMT_OIL_7/1/k/0/0,ITMT_OIL_7/1/d/0/0,ITMT_OIL_7/5/k/80000/0,ITMT_OIL_7/5/d/16/0,ITMT_COPPER_4/1/k/0/0,ITMT_COPPER_4/1/d/0/0,ITMT_COPPER_4/5/k/20000/0,ITMT_COPPER_4/5/d/4/0,ITMT_COPPER_5/1/k/0/0,ITMT_COPPER_5/1/d/0/0,ITMT_COPPER_5/5/k/40000/0,ITMT_COPPER_5/5/d/8/0,ITMT_COPPER_6/1/k/0/0,ITMT_COPPER_6/1/d/0/0,ITMT_COPPER_6/5/k/60000/0,ITMT_COPPER_6/5/d/12/0,ITMT_COPPER_7/1/k/0/0,ITMT_COPPER_7/1/d/0/0,ITMT_COPPER_7/5/k/80000/0,ITMT_COPPER_7/5/d/16/0,ITMT_FIBER_6/1/k/0/0,ITMT_FIBER_6/1/d/0/0,ITMT_FIBER_6/5/k/60000/0,ITMT_FIBER_6/5/d/12/0,ITMT_FIBER_7/1/k/0/0,ITMT_FIBER_7/1/d/0/0,ITMT_FIBER_7/5/k/80000/0,ITMT_FIBER_7/5/d/16/0,MSR_052/1/k/0/0,MSR_052/1/d/0/0,MSR_052/5/k/20000/0,MSR_052/5/d/4/0,MSR_034/1/k/0/0,MSR_034/1/d/0/0,MSR_032/1/k/0/0,MSR_032/1/d/0/0,MSR_044/1/k/0/0,MSR_044/1/d/0/0,MSR_046/1/k/0/0,MSR_046/1/d/0/0,MSR_036/1/k/0/0,MSR_036/1/d/0/0,MSR_050/1/k/0/0,MSR_050/1/d/0/0,MSR_053/1/k/0/0,MSR_053/1/d/0/0,MSR_053/5/k/40000/0,MSR_053/5/d/8/0,MSR_048/1/k/0/0,MSR_048/1/d/0/0,MSR_040/1/k/0/0,MSR_040/1/d/0/0,MSR_038/1/k/0/0,MSR_038/1/d/0/0,MSR_042/1/k/0/0,MSR_042/1/d/0/0,ITMP_ARM_WP038_001/1/d/0/1,ITMP_FAN_HEAD_005/1/d/0/1,ITMP_FAN_TOPS_005/1/d/0/1,ITMP_FAN_BTM_005/1/d/0/1,ITMP_ARM_WP030_001/1/d/0/1,ITMP_SPO_HEAD_015/1/d/0/1,ITMP_SPO_TOPS_015/1/d/0/1,ITMP_SPO_BTM_015/1/d/0/1,ITMP_ARM_WP007_001/1/d/0/1,ITMP_SPO_HEAD_017/1/d/0/1,ITMP_SPO_TOPS_017/1/d/0/1,ITMP_SPO_BTM_017/1/d/0/1,ITMP_ARM_WP039_001/1/d/0/1,ITMP_FAN_HEAD_013/1/d/0/1,ITMP_FAN_TOPS_013/1/d/0/1,ITMP_FAN_BTM_013/1/d/0/1,ITMP_ARM_WP024_001/1/d/0/1,ITMP_SPO_HEAD_007/1/d/0/1,ITMP_SPO_TOPS_007/1/d/0/1,ITMP_SPO_BTM_007/1/d/0/1,ITMP_ARM_WP046_001/1/d/0/1,ITMP_MIL_HEAD_017/1/d/0/1,ITMP_MIL_TOPS_017/1/d/0/1,ITMP_MIL_BTM_017/1/d/0/1,ITMP_ARM_WP064_001/1/d/0/1,ITMP_DIY_HEAD_031/1/d/0/1,ITMP_DIY_TOPS_031/1/d/0/1,ITMP_DIY_BTM_031/1/d/0/1,ITMP_ARM_WP063_001/1/d/0/1,ITMP_MIL_HEAD_031/1/d/0/1,ITMP_MIL_TOPS_031/1/d/0/1,ITMP_MIL_BTM_031/1/d/0/1,ITMP_ARM_WP033_001/1/d/0/1,ITMP_SPO_HEAD_031/1/d/0/1,ITMP_SPO_TOPS_031/1/d/0/1,ITMP_SPO_BTM_031/1/d/0/1,ITMP_ARM_WP062_001/1/d/0/1,ITMP_FAN_HEAD_031/1/d/0/1,ITMP_FAN_TOPS_031/1/d/0/1,ITMP_FAN_BTM_031/1/d/0/1",
+      "default_label": "The online stock, to change",
+      "help": "Anything the game has but weapons and armour: consumables, materials, blueprints and mushrooms. Each with how many one purchase gives, Kill Coins or Death Metals, its price, and how many times a day it can be bought. It starts as the online stock."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "online-stock",
+      "when": {
+        "mode": "online"
+      },
+      "description": "The online vending machine's goods on the Buy tab",
+      "sql": "DELETE FROM master_automaticshop_lineup WHERE goods_id BETWEEN 90001 AND 199999;\nWITH offer(goods_id, entity_type, type_id, display_priority, currency_type, stock, pack_count, pack_money, pack_metal, online, blueprint) AS (VALUES (90001, 'ITEM', 'ITMT_STONE_DIY_1', 100, 0, 0, 1, 0, 0, 0, 0), (90002, 'ITEM', 'ITMT_STONE_DIY_1', 101, 1, 0, 1, 0, 0, 1, 0), (90003, 'ITEM', 'ITMT_STONE_DIY_1', 102, 0, 0, 5, 80000, 0, 0, 0), (90004, 'ITEM', 'ITMT_STONE_DIY_1', 103, 1, 0, 5, 0, 16, 1, 0), (90005, 'ITEM', 'ITMT_STONE_MIL_1', 104, 0, 0, 1, 0, 0, 0, 0), (90006, 'ITEM', 'ITMT_STONE_MIL_1', 105, 1, 0, 1, 0, 0, 1, 0), (90007, 'ITEM', 'ITMT_STONE_MIL_1', 106, 0, 0, 5, 80000, 0, 0, 0), (90008, 'ITEM', 'ITMT_STONE_MIL_1', 107, 1, 0, 5, 0, 16, 1, 0), (90009, 'ITEM', 'ITMT_STONE_FAN_1', 108, 0, 0, 1, 0, 0, 0, 0), (90010, 'ITEM', 'ITMT_STONE_FAN_1', 109, 1, 0, 1, 0, 0, 1, 0), (90011, 'ITEM', 'ITMT_STONE_FAN_1', 110, 0, 0, 5, 80000, 0, 0, 0), (90012, 'ITEM', 'ITMT_STONE_FAN_1', 111, 1, 0, 5, 0, 16, 1, 0), (90013, 'ITEM', 'ITMT_STONE_SPO_1', 112, 0, 0, 1, 0, 0, 0, 0), (90014, 'ITEM', 'ITMT_STONE_SPO_1', 113, 1, 0, 1, 0, 0, 1, 0), (90015, 'ITEM', 'ITMT_STONE_SPO_1', 114, 0, 0, 5, 80000, 0, 0, 0), (90016, 'ITEM', 'ITMT_STONE_SPO_1', 115, 1, 0, 5, 0, 16, 1, 0), (90017, 'ITEM', 'ITMT_STONE_DIY_2', 116, 0, 0, 1, 0, 0, 0, 0), (90018, 'ITEM', 'ITMT_STONE_DIY_2', 117, 1, 0, 1, 0, 0, 1, 0), (90019, 'ITEM', 'ITMT_STONE_DIY_2', 118, 0, 0, 5, 120000, 0, 0, 0), (90020, 'ITEM', 'ITMT_STONE_DIY_2', 119, 1, 0, 5, 0, 24, 1, 0), (90021, 'ITEM', 'ITMT_STONE_MIL_2', 120, 0, 0, 1, 0, 0, 0, 0), (90022, 'ITEM', 'ITMT_STONE_MIL_2', 121, 1, 0, 1, 0, 0, 1, 0), (90023, 'ITEM', 'ITMT_STONE_MIL_2', 122, 0, 0, 5, 120000, 0, 0, 0), (90024, 'ITEM', 'ITMT_STONE_MIL_2', 123, 1, 0, 5, 0, 24, 1, 0), (90025, 'ITEM', 'ITMT_STONE_FAN_2', 124, 0, 0, 1, 0, 0, 0, 0), (90026, 'ITEM', 'ITMT_STONE_FAN_2', 125, 1, 0, 1, 0, 0, 1, 0), (90027, 'ITEM', 'ITMT_STONE_FAN_2', 126, 0, 0, 5, 120000, 0, 0, 0), (90028, 'ITEM', 'ITMT_STONE_FAN_2', 127, 1, 0, 5, 0, 24, 1, 0), (90029, 'ITEM', 'ITMT_STONE_SPO_2', 128, 0, 0, 1, 0, 0, 0, 0), (90030, 'ITEM', 'ITMT_STONE_SPO_2', 129, 1, 0, 1, 0, 0, 1, 0), (90031, 'ITEM', 'ITMT_STONE_SPO_2', 130, 0, 0, 5, 120000, 0, 0, 0), (90032, 'ITEM', 'ITMT_STONE_SPO_2', 131, 1, 0, 5, 0, 24, 1, 0), (90033, 'ITEM', 'ITMT_STONE_DIY_3', 132, 0, 0, 1, 0, 0, 0, 0), (90034, 'ITEM', 'ITMT_STONE_DIY_3', 133, 1, 0, 1, 0, 0, 1, 0), (90035, 'ITEM', 'ITMT_STONE_DIY_3', 134, 0, 0, 5, 160000, 0, 0, 0), (90036, 'ITEM', 'ITMT_STONE_DIY_3', 135, 1, 0, 5, 0, 32, 1, 0), (90037, 'ITEM', 'ITMT_STONE_MIL_3', 136, 0, 0, 1, 0, 0, 0, 0), (90038, 'ITEM', 'ITMT_STONE_MIL_3', 137, 1, 0, 1, 0, 0, 1, 0), (90039, 'ITEM', 'ITMT_STONE_MIL_3', 138, 0, 0, 5, 160000, 0, 0, 0), (90040, 'ITEM', 'ITMT_STONE_MIL_3', 139, 1, 0, 5, 0, 32, 1, 0), (90041, 'ITEM', 'ITMT_STONE_FAN_3', 140, 0, 0, 1, 0, 0, 0, 0), (90042, 'ITEM', 'ITMT_STONE_FAN_3', 141, 1, 0, 1, 0, 0, 1, 0), (90043, 'ITEM', 'ITMT_STONE_FAN_3', 142, 0, 0, 5, 160000, 0, 0, 0), (90044, 'ITEM', 'ITMT_STONE_FAN_3', 143, 1, 0, 5, 0, 32, 1, 0), (90045, 'ITEM', 'ITMT_STONE_SPO_3', 144, 0, 0, 1, 0, 0, 0, 0), (90046, 'ITEM', 'ITMT_STONE_SPO_3', 145, 1, 0, 1, 0, 0, 1, 0), (90047, 'ITEM', 'ITMT_STONE_SPO_3', 146, 0, 0, 5, 160000, 0, 0, 0), (90048, 'ITEM', 'ITMT_STONE_SPO_3', 147, 1, 0, 5, 0, 32, 1, 0), (90049, 'ITEM', 'ITMT_STONE_DIY_4', 148, 0, 0, 1, 0, 0, 0, 0), (90050, 'ITEM', 'ITMT_STONE_DIY_4', 149, 1, 0, 1, 0, 0, 1, 0), (90051, 'ITEM', 'ITMT_STONE_DIY_4', 150, 0, 0, 5, 200000, 0, 0, 0), (90052, 'ITEM', 'ITMT_STONE_DIY_4', 151, 1, 0, 5, 0, 40, 1, 0), (90053, 'ITEM', 'ITMT_STONE_MIL_4', 152, 0, 0, 1, 0, 0, 0, 0), (90054, 'ITEM', 'ITMT_STONE_MIL_4', 153, 1, 0, 1, 0, 0, 1, 0), (90055, 'ITEM', 'ITMT_STONE_MIL_4', 154, 0, 0, 5, 200000, 0, 0, 0), (90056, 'ITEM', 'ITMT_STONE_MIL_4', 155, 1, 0, 5, 0, 40, 1, 0), (90057, 'ITEM', 'ITMT_STONE_FAN_4', 156, 0, 0, 1, 0, 0, 0, 0), (90058, 'ITEM', 'ITMT_STONE_FAN_4', 157, 1, 0, 1, 0, 0, 1, 0), (90059, 'ITEM', 'ITMT_STONE_FAN_4', 158, 0, 0, 5, 200000, 0, 0, 0), (90060, 'ITEM', 'ITMT_STONE_FAN_4', 159, 1, 0, 5, 0, 40, 1, 0), (90061, 'ITEM', 'ITMT_STONE_SPO_4', 160, 0, 0, 1, 0, 0, 0, 0), (90062, 'ITEM', 'ITMT_STONE_SPO_4', 161, 1, 0, 1, 0, 0, 1, 0), (90063, 'ITEM', 'ITMT_STONE_SPO_4', 162, 0, 0, 5, 200000, 0, 0, 0), (90064, 'ITEM', 'ITMT_STONE_SPO_4', 163, 1, 0, 5, 0, 40, 1, 0), (90065, 'ITEM', 'ITMT_STONE_DIY_6', 164, 0, 0, 1, 0, 0, 0, 0), (90066, 'ITEM', 'ITMT_STONE_DIY_6', 165, 1, 0, 1, 0, 0, 1, 0), (90067, 'ITEM', 'ITMT_STONE_DIY_6', 166, 0, 0, 5, 240000, 0, 0, 0), (90068, 'ITEM', 'ITMT_STONE_DIY_6', 167, 1, 0, 5, 0, 48, 1, 0), (90069, 'ITEM', 'ITMT_STONE_MIL_6', 168, 0, 0, 1, 0, 0, 0, 0), (90070, 'ITEM', 'ITMT_STONE_MIL_6', 169, 1, 0, 1, 0, 0, 1, 0), (90071, 'ITEM', 'ITMT_STONE_MIL_6', 170, 0, 0, 5, 240000, 0, 0, 0), (90072, 'ITEM', 'ITMT_STONE_MIL_6', 171, 1, 0, 5, 0, 48, 1, 0), (90073, 'ITEM', 'ITMT_STONE_FAN_6', 172, 0, 0, 1, 0, 0, 0, 0), (90074, 'ITEM', 'ITMT_STONE_FAN_6', 173, 1, 0, 1, 0, 0, 1, 0), (90075, 'ITEM', 'ITMT_STONE_FAN_6', 174, 0, 0, 5, 240000, 0, 0, 0), (90076, 'ITEM', 'ITMT_STONE_FAN_6', 175, 1, 0, 5, 0, 48, 1, 0), (90077, 'ITEM', 'ITMT_STONE_SPO_6', 176, 0, 0, 1, 0, 0, 0, 0), (90078, 'ITEM', 'ITMT_STONE_SPO_6', 177, 1, 0, 1, 0, 0, 1, 0), (90079, 'ITEM', 'ITMT_STONE_SPO_6', 178, 0, 0, 5, 240000, 0, 0, 0), (90080, 'ITEM', 'ITMT_STONE_SPO_6', 179, 1, 0, 5, 0, 48, 1, 0), (90081, 'ITEM', 'ITMT_STONE_DIY_7', 180, 0, 0, 1, 0, 0, 0, 0), (90082, 'ITEM', 'ITMT_STONE_DIY_7', 181, 1, 0, 1, 0, 0, 1, 0), (90083, 'ITEM', 'ITMT_STONE_DIY_7', 182, 0, 0, 5, 280000, 0, 0, 0), (90084, 'ITEM', 'ITMT_STONE_DIY_7', 183, 1, 0, 5, 0, 56, 1, 0), (90085, 'ITEM', 'ITMT_STONE_MIL_7', 184, 0, 0, 1, 0, 0, 0, 0), (90086, 'ITEM', 'ITMT_STONE_MIL_7', 185, 1, 0, 1, 0, 0, 1, 0), (90087, 'ITEM', 'ITMT_STONE_MIL_7', 186, 0, 0, 5, 280000, 0, 0, 0), (90088, 'ITEM', 'ITMT_STONE_MIL_7', 187, 1, 0, 5, 0, 56, 1, 0), (90089, 'ITEM', 'ITMT_STONE_FAN_7', 188, 0, 0, 1, 0, 0, 0, 0), (90090, 'ITEM', 'ITMT_STONE_FAN_7', 189, 1, 0, 1, 0, 0, 1, 0), (90091, 'ITEM', 'ITMT_STONE_FAN_7', 190, 0, 0, 5, 280000, 0, 0, 0), (90092, 'ITEM', 'ITMT_STONE_FAN_7', 191, 1, 0, 5, 0, 56, 1, 0), (90093, 'ITEM', 'ITMT_STONE_SPO_7', 192, 0, 0, 1, 0, 0, 0, 0), (90094, 'ITEM', 'ITMT_STONE_SPO_7', 193, 1, 0, 1, 0, 0, 1, 0), (90095, 'ITEM', 'ITMT_STONE_SPO_7', 194, 0, 0, 5, 280000, 0, 0, 0), (90096, 'ITEM', 'ITMT_STONE_SPO_7', 195, 1, 0, 5, 0, 56, 1, 0), (90097, 'ITEM', 'ITMT_WOOD_1', 196, 0, 0, 5, 10000, 0, 1, 0), (90098, 'ITEM', 'ITMT_WOOD_1', 197, 1, 0, 5, 0, 2, 1, 0), (90099, 'ITEM', 'ITMT_WOOD_2', 198, 0, 0, 5, 15000, 0, 1, 0), (90100, 'ITEM', 'ITMT_WOOD_2', 199, 1, 0, 5, 0, 3, 1, 0), (90101, 'ITEM', 'ITMT_WOOD_3', 200, 0, 0, 5, 20000, 0, 1, 0), (90102, 'ITEM', 'ITMT_WOOD_3', 201, 1, 0, 5, 0, 4, 1, 0), (90103, 'ITEM', 'ITMT_IRON_1', 202, 0, 0, 5, 10000, 0, 1, 0), (90104, 'ITEM', 'ITMT_IRON_1', 203, 1, 0, 5, 0, 2, 1, 0), (90105, 'ITEM', 'ITMT_IRON_2', 204, 0, 0, 5, 15000, 0, 1, 0), (90106, 'ITEM', 'ITMT_IRON_2', 205, 1, 0, 5, 0, 3, 1, 0), (90107, 'ITEM', 'ITMT_IRON_3', 206, 0, 0, 5, 20000, 0, 1, 0), (90108, 'ITEM', 'ITMT_IRON_3', 207, 1, 0, 5, 0, 4, 1, 0), (90109, 'ITEM', 'ITMT_ALUMI_1', 208, 0, 0, 5, 10000, 0, 1, 0), (90110, 'ITEM', 'ITMT_ALUMI_1', 209, 1, 0, 5, 0, 2, 1, 0), (90111, 'ITEM', 'ITMT_ALUMI_2', 210, 0, 0, 5, 15000, 0, 1, 0), (90112, 'ITEM', 'ITMT_ALUMI_2', 211, 1, 0, 5, 0, 3, 1, 0), (90113, 'ITEM', 'ITMT_ALUMI_3', 212, 0, 0, 5, 20000, 0, 1, 0), (90114, 'ITEM', 'ITMT_ALUMI_3', 213, 1, 0, 5, 0, 4, 1, 0), (90115, 'ITEM', 'ITMT_OIL_1', 214, 0, 0, 5, 10000, 0, 1, 0), (90116, 'ITEM', 'ITMT_OIL_1', 215, 1, 0, 5, 0, 2, 1, 0), (90117, 'ITEM', 'ITMT_OIL_2', 216, 0, 0, 5, 15000, 0, 1, 0), (90118, 'ITEM', 'ITMT_OIL_2', 217, 1, 0, 5, 0, 3, 1, 0), (90119, 'ITEM', 'ITMT_OIL_3', 218, 0, 0, 5, 20000, 0, 1, 0), (90120, 'ITEM', 'ITMT_OIL_3', 219, 1, 0, 5, 0, 4, 1, 0), (90121, 'ITEM', 'ITMT_COPPER_1', 220, 0, 0, 5, 10000, 0, 1, 0), (90122, 'ITEM', 'ITMT_COPPER_1', 221, 1, 0, 5, 0, 2, 1, 0), (90123, 'ITEM', 'ITMT_COPPER_2', 222, 0, 0, 5, 15000, 0, 1, 0), (90124, 'ITEM', 'ITMT_COPPER_2', 223, 1, 0, 5, 0, 3, 1, 0), (90125, 'ITEM', 'ITMT_COPPER_3', 224, 0, 0, 5, 20000, 0, 1, 0), (90126, 'ITEM', 'ITMT_COPPER_3', 225, 1, 0, 5, 0, 4, 1, 0), (90127, 'ITEM', 'ITMT_WOOD_4', 226, 0, 0, 1, 0, 0, 1, 0), (90128, 'ITEM', 'ITMT_WOOD_4', 227, 1, 0, 1, 0, 0, 1, 0), (90129, 'ITEM', 'ITMT_WOOD_4', 228, 0, 0, 5, 20000, 0, 1, 0), (90130, 'ITEM', 'ITMT_WOOD_4', 229, 1, 0, 5, 0, 4, 1, 0), (90131, 'ITEM', 'ITMT_WOOD_5', 230, 0, 0, 1, 0, 0, 1, 0), (90132, 'ITEM', 'ITMT_WOOD_5', 231, 1, 0, 1, 0, 0, 1, 0), (90133, 'ITEM', 'ITMT_WOOD_5', 232, 0, 0, 5, 40000, 0, 1, 0), (90134, 'ITEM', 'ITMT_WOOD_5', 233, 1, 0, 5, 0, 8, 1, 0), (90135, 'ITEM', 'ITMT_WOOD_6', 234, 0, 0, 1, 0, 0, 1, 0), (90136, 'ITEM', 'ITMT_WOOD_6', 235, 1, 0, 1, 0, 0, 1, 0), (90137, 'ITEM', 'ITMT_WOOD_6', 236, 0, 0, 5, 60000, 0, 1, 0), (90138, 'ITEM', 'ITMT_WOOD_6', 237, 1, 0, 5, 0, 12, 1, 0), (90139, 'ITEM', 'ITMT_WOOD_7', 238, 0, 0, 1, 0, 0, 1, 0), (90140, 'ITEM', 'ITMT_WOOD_7', 239, 1, 0, 1, 0, 0, 1, 0), (90141, 'ITEM', 'ITMT_WOOD_7', 240, 0, 0, 5, 80000, 0, 1, 0), (90142, 'ITEM', 'ITMT_WOOD_7', 241, 1, 0, 5, 0, 16, 1, 0), (90143, 'ITEM', 'ITMT_IRON_4', 242, 0, 0, 1, 0, 0, 1, 0), (90144, 'ITEM', 'ITMT_IRON_4', 243, 1, 0, 1, 0, 0, 1, 0), (90145, 'ITEM', 'ITMT_IRON_4', 244, 0, 0, 5, 20000, 0, 1, 0), (90146, 'ITEM', 'ITMT_IRON_4', 245, 1, 0, 5, 0, 4, 1, 0), (90147, 'ITEM', 'ITMT_IRON_5', 246, 0, 0, 1, 0, 0, 1, 0), (90148, 'ITEM', 'ITMT_IRON_5', 247, 1, 0, 1, 0, 0, 1, 0), (90149, 'ITEM', 'ITMT_IRON_5', 248, 0, 0, 5, 40000, 0, 1, 0), (90150, 'ITEM', 'ITMT_IRON_5', 249, 1, 0, 5, 0, 8, 1, 0), (90151, 'ITEM', 'ITMT_IRON_6', 250, 0, 0, 1, 0, 0, 1, 0), (90152, 'ITEM', 'ITMT_IRON_6', 251, 1, 0, 1, 0, 0, 1, 0), (90153, 'ITEM', 'ITMT_IRON_6', 252, 0, 0, 5, 60000, 0, 1, 0), (90154, 'ITEM', 'ITMT_IRON_6', 253, 1, 0, 5, 0, 12, 1, 0), (90155, 'ITEM', 'ITMT_IRON_7', 254, 0, 0, 1, 0, 0, 1, 0), (90156, 'ITEM', 'ITMT_IRON_7', 255, 1, 0, 1, 0, 0, 1, 0), (90157, 'ITEM', 'ITMT_IRON_7', 256, 0, 0, 5, 80000, 0, 1, 0), (90158, 'ITEM', 'ITMT_IRON_7', 257, 1, 0, 5, 0, 16, 1, 0), (90159, 'ITEM', 'ITMT_ALUMI_4', 258, 0, 0, 1, 0, 0, 1, 0), (90160, 'ITEM', 'ITMT_ALUMI_4', 259, 1, 0, 1, 0, 0, 1, 0), (90161, 'ITEM', 'ITMT_ALUMI_4', 260, 0, 0, 5, 20000, 0, 1, 0), (90162, 'ITEM', 'ITMT_ALUMI_4', 261, 1, 0, 5, 0, 4, 1, 0), (90163, 'ITEM', 'ITMT_ALUMI_5', 262, 0, 0, 1, 0, 0, 1, 0), (90164, 'ITEM', 'ITMT_ALUMI_5', 263, 1, 0, 1, 0, 0, 1, 0), (90165, 'ITEM', 'ITMT_ALUMI_5', 264, 0, 0, 5, 40000, 0, 1, 0), (90166, 'ITEM', 'ITMT_ALUMI_5', 265, 1, 0, 5, 0, 8, 1, 0), (90167, 'ITEM', 'ITMT_ALUMI_6', 266, 0, 0, 1, 0, 0, 1, 0), (90168, 'ITEM', 'ITMT_ALUMI_6', 267, 1, 0, 1, 0, 0, 1, 0), (90169, 'ITEM', 'ITMT_ALUMI_6', 268, 0, 0, 5, 60000, 0, 1, 0), (90170, 'ITEM', 'ITMT_ALUMI_6', 269, 1, 0, 5, 0, 12, 1, 0), (90171, 'ITEM', 'ITMT_ALUMI_7', 270, 0, 0, 1, 0, 0, 1, 0), (90172, 'ITEM', 'ITMT_ALUMI_7', 271, 1, 0, 1, 0, 0, 1, 0), (90173, 'ITEM', 'ITMT_ALUMI_7', 272, 0, 0, 5, 80000, 0, 1, 0), (90174, 'ITEM', 'ITMT_ALUMI_7', 273, 1, 0, 5, 0, 16, 1, 0), (90175, 'ITEM', 'ITMT_OIL_4', 274, 0, 0, 1, 0, 0, 1, 0), (90176, 'ITEM', 'ITMT_OIL_4', 275, 1, 0, 1, 0, 0, 1, 0), (90177, 'ITEM', 'ITMT_OIL_4', 276, 0, 0, 5, 20000, 0, 1, 0), (90178, 'ITEM', 'ITMT_OIL_4', 277, 1, 0, 5, 0, 4, 1, 0), (90179, 'ITEM', 'ITMT_OIL_5', 278, 0, 0, 1, 0, 0, 1, 0), (90180, 'ITEM', 'ITMT_OIL_5', 279, 1, 0, 1, 0, 0, 1, 0), (90181, 'ITEM', 'ITMT_OIL_5', 280, 0, 0, 5, 40000, 0, 1, 0), (90182, 'ITEM', 'ITMT_OIL_5', 281, 1, 0, 5, 0, 8, 1, 0), (90183, 'ITEM', 'ITMT_OIL_6', 282, 0, 0, 1, 0, 0, 1, 0), (90184, 'ITEM', 'ITMT_OIL_6', 283, 1, 0, 1, 0, 0, 1, 0), (90185, 'ITEM', 'ITMT_OIL_6', 284, 0, 0, 5, 60000, 0, 1, 0), (90186, 'ITEM', 'ITMT_OIL_6', 285, 1, 0, 5, 0, 12, 1, 0), (90187, 'ITEM', 'ITMT_OIL_7', 286, 0, 0, 1, 0, 0, 1, 0), (90188, 'ITEM', 'ITMT_OIL_7', 287, 1, 0, 1, 0, 0, 1, 0), (90189, 'ITEM', 'ITMT_OIL_7', 288, 0, 0, 5, 80000, 0, 1, 0), (90190, 'ITEM', 'ITMT_OIL_7', 289, 1, 0, 5, 0, 16, 1, 0), (90191, 'ITEM', 'ITMT_COPPER_4', 290, 0, 0, 1, 0, 0, 1, 0), (90192, 'ITEM', 'ITMT_COPPER_4', 291, 1, 0, 1, 0, 0, 1, 0), (90193, 'ITEM', 'ITMT_COPPER_4', 292, 0, 0, 5, 20000, 0, 1, 0), (90194, 'ITEM', 'ITMT_COPPER_4', 293, 1, 0, 5, 0, 4, 1, 0), (90195, 'ITEM', 'ITMT_COPPER_5', 294, 0, 0, 1, 0, 0, 1, 0), (90196, 'ITEM', 'ITMT_COPPER_5', 295, 1, 0, 1, 0, 0, 1, 0), (90197, 'ITEM', 'ITMT_COPPER_5', 296, 0, 0, 5, 40000, 0, 1, 0), (90198, 'ITEM', 'ITMT_COPPER_5', 297, 1, 0, 5, 0, 8, 1, 0), (90199, 'ITEM', 'ITMT_COPPER_6', 298, 0, 0, 1, 0, 0, 1, 0), (90200, 'ITEM', 'ITMT_COPPER_6', 299, 1, 0, 1, 0, 0, 1, 0), (90201, 'ITEM', 'ITMT_COPPER_6', 300, 0, 0, 5, 60000, 0, 1, 0), (90202, 'ITEM', 'ITMT_COPPER_6', 301, 1, 0, 5, 0, 12, 1, 0), (90203, 'ITEM', 'ITMT_COPPER_7', 302, 0, 0, 1, 0, 0, 1, 0), (90204, 'ITEM', 'ITMT_COPPER_7', 303, 1, 0, 1, 0, 0, 1, 0), (90205, 'ITEM', 'ITMT_COPPER_7', 304, 0, 0, 5, 80000, 0, 1, 0), (90206, 'ITEM', 'ITMT_COPPER_7', 305, 1, 0, 5, 0, 16, 1, 0), (90207, 'ITEM', 'ITMT_FIBER_6', 306, 0, 0, 1, 0, 0, 1, 0), (90208, 'ITEM', 'ITMT_FIBER_6', 307, 1, 0, 1, 0, 0, 1, 0), (90209, 'ITEM', 'ITMT_FIBER_6', 308, 0, 0, 5, 60000, 0, 1, 0), (90210, 'ITEM', 'ITMT_FIBER_6', 309, 1, 0, 5, 0, 12, 1, 0), (90211, 'ITEM', 'ITMT_FIBER_7', 310, 0, 0, 1, 0, 0, 1, 0), (90212, 'ITEM', 'ITMT_FIBER_7', 311, 1, 0, 1, 0, 0, 1, 0), (90213, 'ITEM', 'ITMT_FIBER_7', 312, 0, 0, 5, 80000, 0, 1, 0), (90214, 'ITEM', 'ITMT_FIBER_7', 313, 1, 0, 5, 0, 16, 1, 0), (90215, 'MUSHROOM', 'MSR_052', 314, 0, 0, 1, 0, 0, 1, 0), (90216, 'MUSHROOM', 'MSR_052', 315, 1, 0, 1, 0, 0, 1, 0), (90217, 'MUSHROOM', 'MSR_052', 316, 0, 0, 5, 20000, 0, 1, 0), (90218, 'MUSHROOM', 'MSR_052', 317, 1, 0, 5, 0, 4, 1, 0), (90219, 'MUSHROOM', 'MSR_034', 318, 0, 0, 1, 0, 0, 1, 0), (90220, 'MUSHROOM', 'MSR_034', 319, 1, 0, 1, 0, 0, 1, 0), (90221, 'MUSHROOM', 'MSR_032', 320, 0, 0, 1, 0, 0, 1, 0), (90222, 'MUSHROOM', 'MSR_032', 321, 1, 0, 1, 0, 0, 1, 0), (90223, 'MUSHROOM', 'MSR_044', 322, 0, 0, 1, 0, 0, 1, 0), (90224, 'MUSHROOM', 'MSR_044', 323, 1, 0, 1, 0, 0, 1, 0), (90225, 'MUSHROOM', 'MSR_046', 324, 0, 0, 1, 0, 0, 1, 0), (90226, 'MUSHROOM', 'MSR_046', 325, 1, 0, 1, 0, 0, 1, 0), (90227, 'MUSHROOM', 'MSR_036', 326, 0, 0, 1, 0, 0, 1, 0), (90228, 'MUSHROOM', 'MSR_036', 327, 1, 0, 1, 0, 0, 1, 0), (90229, 'MUSHROOM', 'MSR_050', 328, 0, 0, 1, 0, 0, 1, 0), (90230, 'MUSHROOM', 'MSR_050', 329, 1, 0, 1, 0, 0, 1, 0), (90231, 'MUSHROOM', 'MSR_053', 330, 0, 0, 1, 0, 0, 1, 0), (90232, 'MUSHROOM', 'MSR_053', 331, 1, 0, 1, 0, 0, 1, 0), (90233, 'MUSHROOM', 'MSR_053', 332, 0, 0, 5, 40000, 0, 1, 0), (90234, 'MUSHROOM', 'MSR_053', 333, 1, 0, 5, 0, 8, 1, 0), (90235, 'MUSHROOM', 'MSR_048', 334, 0, 0, 1, 0, 0, 1, 0), (90236, 'MUSHROOM', 'MSR_048', 335, 1, 0, 1, 0, 0, 1, 0), (90237, 'MUSHROOM', 'MSR_040', 336, 0, 0, 1, 0, 0, 1, 0), (90238, 'MUSHROOM', 'MSR_040', 337, 1, 0, 1, 0, 0, 1, 0), (90239, 'MUSHROOM', 'MSR_038', 338, 0, 0, 1, 0, 0, 1, 0), (90240, 'MUSHROOM', 'MSR_038', 339, 1, 0, 1, 0, 0, 1, 0), (90241, 'MUSHROOM', 'MSR_042', 340, 0, 0, 1, 0, 0, 1, 0), (90242, 'MUSHROOM', 'MSR_042', 341, 1, 0, 1, 0, 0, 1, 0), (90243, 'ITEM', 'ITMP_ARM_WP038_001', 342, 0, 1, 1, 0, 0, 0, 1), (90244, 'ITEM', 'ITMP_ARM_WP038_001', 343, 1, 1, 1, 0, 0, 1, 1), (90245, 'ITEM', 'ITMP_FAN_HEAD_005', 344, 0, 1, 1, 0, 0, 0, 1), (90246, 'ITEM', 'ITMP_FAN_HEAD_005', 345, 1, 1, 1, 0, 0, 1, 1), (90247, 'ITEM', 'ITMP_FAN_TOPS_005', 346, 0, 1, 1, 0, 0, 0, 1), (90248, 'ITEM', 'ITMP_FAN_TOPS_005', 347, 1, 1, 1, 0, 0, 1, 1), (90249, 'ITEM', 'ITMP_FAN_BTM_005', 348, 0, 1, 1, 0, 0, 0, 1), (90250, 'ITEM', 'ITMP_FAN_BTM_005', 349, 1, 1, 1, 0, 0, 1, 1), (90251, 'ITEM', 'ITMP_ARM_WP030_001', 350, 0, 1, 1, 0, 0, 0, 1), (90252, 'ITEM', 'ITMP_ARM_WP030_001', 351, 1, 1, 1, 0, 0, 1, 1), (90253, 'ITEM', 'ITMP_SPO_HEAD_015', 352, 0, 1, 1, 0, 0, 0, 1), (90254, 'ITEM', 'ITMP_SPO_HEAD_015', 353, 1, 1, 1, 0, 0, 1, 1), (90255, 'ITEM', 'ITMP_SPO_TOPS_015', 354, 0, 1, 1, 0, 0, 0, 1), (90256, 'ITEM', 'ITMP_SPO_TOPS_015', 355, 1, 1, 1, 0, 0, 1, 1), (90257, 'ITEM', 'ITMP_SPO_BTM_015', 356, 0, 1, 1, 0, 0, 0, 1), (90258, 'ITEM', 'ITMP_SPO_BTM_015', 357, 1, 1, 1, 0, 0, 1, 1), (90259, 'ITEM', 'ITMP_ARM_WP007_001', 358, 0, 1, 1, 0, 0, 0, 1), (90260, 'ITEM', 'ITMP_ARM_WP007_001', 359, 1, 1, 1, 0, 0, 1, 1), (90261, 'ITEM', 'ITMP_SPO_HEAD_017', 360, 0, 1, 1, 0, 0, 0, 1), (90262, 'ITEM', 'ITMP_SPO_HEAD_017', 361, 1, 1, 1, 0, 0, 1, 1), (90263, 'ITEM', 'ITMP_SPO_TOPS_017', 362, 0, 1, 1, 0, 0, 0, 1), (90264, 'ITEM', 'ITMP_SPO_TOPS_017', 363, 1, 1, 1, 0, 0, 1, 1), (90265, 'ITEM', 'ITMP_SPO_BTM_017', 364, 0, 1, 1, 0, 0, 0, 1), (90266, 'ITEM', 'ITMP_SPO_BTM_017', 365, 1, 1, 1, 0, 0, 1, 1), (90267, 'ITEM', 'ITMP_ARM_WP039_001', 366, 0, 1, 1, 0, 0, 0, 1), (90268, 'ITEM', 'ITMP_ARM_WP039_001', 367, 1, 1, 1, 0, 0, 1, 1), (90269, 'ITEM', 'ITMP_FAN_HEAD_013', 368, 0, 1, 1, 0, 0, 0, 1), (90270, 'ITEM', 'ITMP_FAN_HEAD_013', 369, 1, 1, 1, 0, 0, 1, 1), (90271, 'ITEM', 'ITMP_FAN_TOPS_013', 370, 0, 1, 1, 0, 0, 0, 1), (90272, 'ITEM', 'ITMP_FAN_TOPS_013', 371, 1, 1, 1, 0, 0, 1, 1), (90273, 'ITEM', 'ITMP_FAN_BTM_013', 372, 0, 1, 1, 0, 0, 0, 1), (90274, 'ITEM', 'ITMP_FAN_BTM_013', 373, 1, 1, 1, 0, 0, 1, 1), (90275, 'ITEM', 'ITMP_ARM_WP024_001', 374, 0, 1, 1, 0, 0, 0, 1), (90276, 'ITEM', 'ITMP_ARM_WP024_001', 375, 1, 1, 1, 0, 0, 1, 1), (90277, 'ITEM', 'ITMP_SPO_HEAD_007', 376, 0, 1, 1, 0, 0, 0, 1), (90278, 'ITEM', 'ITMP_SPO_HEAD_007', 377, 1, 1, 1, 0, 0, 1, 1), (90279, 'ITEM', 'ITMP_SPO_TOPS_007', 378, 0, 1, 1, 0, 0, 0, 1), (90280, 'ITEM', 'ITMP_SPO_TOPS_007', 379, 1, 1, 1, 0, 0, 1, 1), (90281, 'ITEM', 'ITMP_SPO_BTM_007', 380, 0, 1, 1, 0, 0, 0, 1), (90282, 'ITEM', 'ITMP_SPO_BTM_007', 381, 1, 1, 1, 0, 0, 1, 1), (90283, 'ITEM', 'ITMP_ARM_WP046_001', 382, 0, 1, 1, 0, 0, 0, 1), (90284, 'ITEM', 'ITMP_ARM_WP046_001', 383, 1, 1, 1, 0, 0, 1, 1), (90285, 'ITEM', 'ITMP_MIL_HEAD_017', 384, 0, 1, 1, 0, 0, 0, 1), (90286, 'ITEM', 'ITMP_MIL_HEAD_017', 385, 1, 1, 1, 0, 0, 1, 1), (90287, 'ITEM', 'ITMP_MIL_TOPS_017', 386, 0, 1, 1, 0, 0, 0, 1), (90288, 'ITEM', 'ITMP_MIL_TOPS_017', 387, 1, 1, 1, 0, 0, 1, 1), (90289, 'ITEM', 'ITMP_MIL_BTM_017', 388, 0, 1, 1, 0, 0, 0, 1), (90290, 'ITEM', 'ITMP_MIL_BTM_017', 389, 1, 1, 1, 0, 0, 1, 1), (90291, 'ITEM', 'ITMP_ARM_WP064_001', 390, 0, 1, 1, 0, 0, 0, 1), (90292, 'ITEM', 'ITMP_ARM_WP064_001', 391, 1, 1, 1, 0, 0, 1, 1), (90293, 'ITEM', 'ITMP_DIY_HEAD_031', 392, 0, 1, 1, 0, 0, 0, 1), (90294, 'ITEM', 'ITMP_DIY_HEAD_031', 393, 1, 1, 1, 0, 0, 1, 1), (90295, 'ITEM', 'ITMP_DIY_TOPS_031', 394, 0, 1, 1, 0, 0, 0, 1), (90296, 'ITEM', 'ITMP_DIY_TOPS_031', 395, 1, 1, 1, 0, 0, 1, 1), (90297, 'ITEM', 'ITMP_DIY_BTM_031', 396, 0, 1, 1, 0, 0, 0, 1), (90298, 'ITEM', 'ITMP_DIY_BTM_031', 397, 1, 1, 1, 0, 0, 1, 1), (90299, 'ITEM', 'ITMP_ARM_WP063_001', 398, 0, 1, 1, 0, 0, 0, 1), (90300, 'ITEM', 'ITMP_ARM_WP063_001', 399, 1, 1, 1, 0, 0, 1, 1), (90301, 'ITEM', 'ITMP_MIL_HEAD_031', 400, 0, 1, 1, 0, 0, 0, 1), (90302, 'ITEM', 'ITMP_MIL_HEAD_031', 401, 1, 1, 1, 0, 0, 1, 1), (90303, 'ITEM', 'ITMP_MIL_TOPS_031', 402, 0, 1, 1, 0, 0, 0, 1), (90304, 'ITEM', 'ITMP_MIL_TOPS_031', 403, 1, 1, 1, 0, 0, 1, 1), (90305, 'ITEM', 'ITMP_MIL_BTM_031', 404, 0, 1, 1, 0, 0, 0, 1), (90306, 'ITEM', 'ITMP_MIL_BTM_031', 405, 1, 1, 1, 0, 0, 1, 1), (90307, 'ITEM', 'ITMP_ARM_WP033_001', 406, 0, 1, 1, 0, 0, 0, 1), (90308, 'ITEM', 'ITMP_ARM_WP033_001', 407, 1, 1, 1, 0, 0, 1, 1), (90309, 'ITEM', 'ITMP_SPO_HEAD_031', 408, 0, 1, 1, 0, 0, 0, 1), (90310, 'ITEM', 'ITMP_SPO_HEAD_031', 409, 1, 1, 1, 0, 0, 1, 1), (90311, 'ITEM', 'ITMP_SPO_TOPS_031', 410, 0, 1, 1, 0, 0, 0, 1), (90312, 'ITEM', 'ITMP_SPO_TOPS_031', 411, 1, 1, 1, 0, 0, 1, 1), (90313, 'ITEM', 'ITMP_SPO_BTM_031', 412, 0, 1, 1, 0, 0, 0, 1), (90314, 'ITEM', 'ITMP_SPO_BTM_031', 413, 1, 1, 1, 0, 0, 1, 1), (90315, 'ITEM', 'ITMP_ARM_WP062_001', 414, 0, 1, 1, 0, 0, 0, 1), (90316, 'ITEM', 'ITMP_ARM_WP062_001', 415, 1, 1, 1, 0, 0, 1, 1), (90317, 'ITEM', 'ITMP_FAN_HEAD_031', 416, 0, 1, 1, 0, 0, 0, 1), (90318, 'ITEM', 'ITMP_FAN_HEAD_031', 417, 1, 1, 1, 0, 0, 1, 1), (90319, 'ITEM', 'ITMP_FAN_TOPS_031', 418, 0, 1, 1, 0, 0, 0, 1), (90320, 'ITEM', 'ITMP_FAN_TOPS_031', 419, 1, 1, 1, 0, 0, 1, 1), (90321, 'ITEM', 'ITMP_FAN_BTM_031', 420, 0, 1, 1, 0, 0, 0, 1), (90322, 'ITEM', 'ITMP_FAN_BTM_031', 421, 1, 1, 1, 0, 0, 1, 1)) INSERT INTO master_automaticshop_lineup (goods_id, lineup_id, entity_type, type_id, is_stable, freq, is_special, display_priority, currency_type, stock, pack_count, pack_money, pack_metal, pack_recycle_point, pack_bloodnium, money_discount_rate, metal_discount_rate, recycle_point_discount_rate, bloodnium_discount_rate) SELECT goods_id, 'COMMON', entity_type, type_id, 1, 0, 0, display_priority, currency_type, stock, pack_count, pack_money, pack_metal, 0, 0, 0, 0, 0, 0 FROM offer WHERE type_id IN ({{stock}}) AND (blueprint = 0 OR {{blueprints}} = 1) AND (('{{pay}}' = 'online' AND online = 1) OR ('{{pay}}' = 'kc' AND currency_type = 0) OR ('{{pay}}' = 'dm' AND currency_type = 1));\nUPDATE master_automaticshop_lineup SET currency_type = CASE '{{pay}}' WHEN 'kc' THEN 0 ELSE 1 END WHERE goods_id IN (26702, 26703, 26704);"
+    },
+    {
+      "type": "raw_sql",
+      "id": "own-list",
+      "when": {
+        "mode": "custom"
+      },
+      "description": "Your own list of goods on the Buy tab",
+      "sql": "DELETE FROM master_automaticshop_lineup WHERE goods_id BETWEEN 90001 AND 199999;\nWITH RECURSIVE wanted(place, type_id, pack_count, currency_type, price, a_day) AS (VALUES {{custom}}), sold AS (SELECT * FROM wanted WHERE type_id IN (SELECT itemid FROM master_item) OR type_id IN (SELECT id FROM master_mushroom)), copy(place, n) AS (SELECT place, 1 FROM sold UNION ALL SELECT copy.place, copy.n + 1 FROM copy JOIN sold ON sold.place = copy.place WHERE copy.n < sold.a_day) INSERT INTO master_automaticshop_lineup (goods_id, lineup_id, entity_type, type_id, is_stable, freq, is_special, display_priority, currency_type, stock, pack_count, pack_money, pack_metal, pack_recycle_point, pack_bloodnium, money_discount_rate, metal_discount_rate, recycle_point_discount_rate, bloodnium_discount_rate) SELECT 100000 + sold.place * 32 + copy.n, 'COMMON', CASE WHEN sold.type_id IN (SELECT id FROM master_mushroom) THEN 'MUSHROOM' ELSE 'ITEM' END, sold.type_id, 1, 0, 0, 100 + sold.place, sold.currency_type, CASE WHEN sold.a_day > 0 THEN 1 ELSE 0 END, sold.pack_count, CASE WHEN sold.currency_type = 0 THEN sold.price ELSE 0 END, CASE WHEN sold.currency_type = 1 THEN sold.price ELSE 0 END, 0, 0, 0, 0, 0, 0 FROM sold JOIN copy ON copy.place = sold.place;"
+    }
+  ]
+}
