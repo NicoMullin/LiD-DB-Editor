@@ -1,4 +1,4 @@
-## VirusTotal scan of the current code of BETA V0.10.1
+## VirusTotal scan of the current code (you can just click rescan, as this is a permanite link to this repo)
 https://www.virustotal.com/gui/url/63368c8eb96033d99a7a4bc4788535a4810c7ddc300b740e84036b356da2371e
 
 ## Interactive Readme Site
