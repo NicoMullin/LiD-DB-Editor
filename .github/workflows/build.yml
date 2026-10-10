@@ -97,9 +97,11 @@ jobs:
 
       - name: Run the tests
         # The GUI tests create real Qt widgets, so give Qt a headless platform.
+        # run_tests.py takes its exit code from the test result: Qt's shutdown
+        # here sometimes ended the process with code 1 after every test passed.
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m unittest discover -s tests -t tests -v
+        run: python tools/run_tests.py
 
       - name: Build the executable
         run: python build.py
