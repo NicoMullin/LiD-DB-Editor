@@ -10,7 +10,9 @@ commit passes one run and fails the next.
 
 The result is known before that shutdown starts, so this sets the exit code
 from the result and leaves at once: 0 when every test passed, 1 otherwise. A
-real failure still fails the build.
+real failure still fails the build. On Windows it ends with TerminateProcess,
+which skips even the unloading of Qt's DLLs (os._exit still runs that, and
+the windows the tests opened leave Qt threads behind).
 """
 from __future__ import annotations
 
@@ -25,7 +27,15 @@ if __name__ == "__main__":
     suite = unittest.defaultTestLoader.discover(str(TESTS), top_level_dir=str(TESTS))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     passed = result.wasSuccessful() and result.testsRun > 0
-    print(f"exit code {0 if passed else 1}", file=sys.stderr)
+    code = 0 if passed else 1
+    print(f"exit code {code}", file=sys.stderr)
     sys.stdout.flush()
     sys.stderr.flush()
-    os._exit(0 if passed else 1)
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel32.TerminateProcess.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+        kernel32.TerminateProcess(kernel32.GetCurrentProcess(), code)
+    os._exit(code)

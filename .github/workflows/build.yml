@@ -97,11 +97,14 @@ jobs:
 
       - name: Run the tests
         # The GUI tests create real Qt widgets, so give Qt a headless platform.
-        # run_tests.py takes its exit code from the test result: Qt's shutdown
-        # here sometimes ended the process with code 1 after every test passed.
+        # run_tests.py takes its exit code from the test result: the step here
+        # sometimes ended with code 1 after every test passed. bash, not pwsh,
+        # and the code Python really returned is printed if it is not 0.
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python tools/run_tests.py
+        shell: bash
+        run: |
+          python tools/run_tests.py || { code=$?; echo "python tools/run_tests.py ended with exit code $code"; exit $code; }
 
       - name: Build the executable
         run: python build.py
