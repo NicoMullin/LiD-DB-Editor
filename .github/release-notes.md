@@ -11,11 +11,11 @@ these notes, so you can check the file you got is the one built here.
 Keep the whole folder together: the `.exe` needs `_internal\` beside it, and
 `mods\` is where your mods live.
 
-### Updating from 0.11.0
+### Updating from 0.11.0 or newer
 
 Close the game, then **Help → Check for updates...** and **Update now**. It
 downloads this version, checks it against the SHA-256 GitHub lists for it, and
-restarts as 0.12.6. Your mods, settings, snapshots and backups stay where they
+restarts as the new version. Your mods, settings, snapshots and backups stay where they
 are, and the folder keeps its name. Then click **Save Mod List** once, so the
 mods updated in this release are applied again.
 
@@ -36,9 +36,20 @@ compares it with a clean copy of the same game build, says which mods it can
 already see in there, and offers to take them over. The moment you pick a
 database it also keeps a permanent `masters.db.original` copy.
 
+### What's new in Beta V0.12.7
+
+**HUD, a new plugin mod in Get mods.** Durability numbers on the weapon bars
+("45/60", "45" or "75%"), and the **Enemies Left** counter ("Enemies left:
+12 / 20"), drawn by its plugin, `lid-hud.dll`. More HUD parts will follow,
+each one switchable and movable.
+
+**Enemies Left has moved into HUD.** It came with 0.12.6. If you have it, it
+keeps working as before; when you get HUD, switch the old Enemies Left off
+(the manager reports the two as a conflict while both are on).
+
 ### What's new in Beta V0.12.6
 
-Everything since 0.11.0.
+Everything from 0.11.0 to 0.12.6.
 
 **Game update 1.91.** The clean database for game 1.91 can be downloaded from
 **Tools → Download a clean database...**, and every mod that ships with the
@@ -79,8 +90,7 @@ keeps your setting.
 **New mods that come with the manager:**
 
 - **Enemies Left**: "Enemies left: 12 / 20" on the HUD while you explore, so you
-  know when a floor is cleared. You set where it sits, its size and colour, and
-  whether it shows the total. It hides in the Waiting Room.
+  know when a floor is cleared. (Part of HUD since 0.12.7: see above.)
 - **Events and Seasons**: the online game's events, each switched on in the
   mod's settings. You get the hub's festival looks, the Super Stew Festival (for
   Kill Coins or Death Metals, with its own decals), the fighter recovery

@@ -423,7 +423,6 @@ class ShippedModTests(unittest.TestCase):
         "instant-drops",
         "reward-pickup",
         "fall-damage",
-        "Enemies Left",
         "Events and Seasons",
         "Vending Machine",
         "Golden Beasts",
@@ -439,7 +438,7 @@ class ShippedModTests(unittest.TestCase):
     }
     # Mods that write columns the small test schema does not have, so they are
     # validated against a real vanilla database instead.
-    REAL_SCHEMA = BUNDLED | {"fighter-passives", "Enemies Left", "Events and Seasons", "Vending Machine",
+    REAL_SCHEMA = BUNDLED | {"fighter-passives", "Events and Seasons", "Vending Machine",
                                "Golden Beasts"}
     VANILLA_DB = PROJECT_ROOT / "LiD Vanilla DB" / "5.0.4.0" / "masters.db"
 

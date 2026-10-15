@@ -114,6 +114,10 @@ CATALOG: tuple[Offer, ...] = (
           "A skill decal for each fighter class, always on without taking a slot, and the "
           "pause-map reveals.",
           mods=("fighter-passives",), plugin="lid-classpassives.dll"),
+    Offer("hud", "HUD", "LiD-HUD",
+          "Durability numbers on the weapon bars and the Enemies Left counter (\"Enemies left: 12 / 20\"), "
+          "each set in lid-hud.ini. Switch off the old Enemies Left mod if you have it.",
+          mods=("HUD",), plugin="lid-hud.dll"),
     Offer("offlinefixes", "Offline Fixes", "LiD-Offline-Fixes",
           "Fixes the game's own offline mode: no more closing on the spot when a Hater dies as "
           "you take the stairs.",

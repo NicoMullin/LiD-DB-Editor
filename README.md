@@ -586,16 +586,11 @@ GitHub page now, with its plugin: see
 
 ### The HUD
 
-| Mod            | What it does                                               | Default          | You can choose                        |
-|----------------|------------------------------------------------------------|------------------|---------------------------------------|
-| `Enemies Left` | Shows "Enemies left: 12 / 20" on the HUD while you explore | Top right, white | Where, size, colour, lining up, total |
-
-The numbers are the game's own: the living Haters and monsters it counts to
-decide a floor is cleared, and how many the floor started with. It shows only
-while the game shows its HUD, and never in the Waiting Room. Its place, size and
-colour are numbers in `masters.db` that the patch reads each frame, so changing them
-in Configuration needs no new patch. It changes one function, `BrgHUD.PostRender`,
-in `BrgGame.upk`, so it needs the game's file check off for that package.
+**Enemies Left** ("Enemies left: 12 / 20" while you explore) is now part of
+**HUD**, which has its own GitHub page and plugin, together with durability
+numbers on the weapon bars: see [Mods that need a plugin](#mods-that-need-a-plugin).
+The Enemies Left mod that came with 0.12.6 and older still works on its own;
+switch it off when you get HUD, or you will see two counters.
 
 ### Events and seasons
 
@@ -690,6 +685,7 @@ its own GitHub page, where GitHub builds and tests every release:
 | Login Bonus            | [LiD-Login-Bonus](https://github.com/NicoMullin/LiD-Login-Bonus)                       | A random daily login bonus, from the online rewards for your floor or your own lists      |
 | Fighter Class Passives | [LiD-Fighter-Class-Passives](https://github.com/NicoMullin/LiD-Fighter-Class-Passives) | A skill decal for each fighter class, always on, and the pause-map reveals                |
 | Offline Fixes          | [LiD-Offline-Fixes](https://github.com/NicoMullin/LiD-Offline-Fixes)                   | Bugs in the game's own offline mode, such as closing when a Hater dies as you take stairs |
+| HUD                    | [LiD-HUD](https://github.com/NicoMullin/LiD-HUD)                                       | Durability numbers on the weapon bars and the Enemies Left counter, more to come          |
 
 **Get mods...** (top right, or Mods > Get mods that need a plugin) lists them,
 shows which you have, and gets one with a click:
