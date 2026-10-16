@@ -36,6 +36,42 @@ compares it with a clean copy of the same game build, says which mods it can
 already see in there, and offers to take them over. The moment you pick a
 database it also keeps a permanent `masters.db.original` copy.
 
+### What's new in Beta V0.12.8
+
+**Plugins are switched in the mod list.** A mod can now name the plugin it
+goes with, and **Save Mod List** switches that plugin with it: on while the
+mod is ticked, off when it is not. Off means renamed to `.dll.off`, which the
+Plugin Loader skips; nothing is deleted. A plugin with nothing else to change
+gets a small mod of its own that is just its switch. Close the game first.
+
+Every plugin mod in **Get mods** now names its plugin: Timers 0.3.2, HUD 0.2.1,
+Death Metals 0.6.2, Login Bonus 0.1.1, Fighter Class Passives 0.2.2 and Stew
+Multi Pull 0.5.1, and **Offline Fixes** gets a small mod that is just its
+switch. Death Metals names Stew Multi Pull's plugin too, because its Death
+Metal stew needs it; that plugin stays on while either mod is ticked.
+
+**After getting these, tick the mods whose plugins you use**, then save. A
+plugin you used without ticking its mod - HUD's or Login Bonus's, say - is
+switched off on the next save until its mod is ticked. Updating a
+switched-off plugin through Get mods keeps it switched off.
+
+**HUD has grown** (Get mods): on top of durability numbers and the Enemies
+Left counter, it now shows floor info, rage, bag space, mushroom timers and
+run totals, with a minimap, the bow arc and low-durability colours. Press F8
+in the game to move, size and set every part.
+
+**Five new mods, no plugin needed:**
+
+- **Bloodnium Multiplier.** Every kill's Bloodnium x2 up to x100. You see it
+  at the end of a Tengoku run, where the total is added up.
+- **Quest Limit.** Accept up to 99 quests at once instead of 10.
+- **Faster Floor Results.** The route replay after an escalator runs faster,
+  so you can carry on about as soon as the next floor is loaded.
+- **Skip Intro.** Straight to the title screen, past the logo videos and the
+  GungHo, Supertrick and Unreal logos.
+- **Mushroom Timers.** How long mushroom effects last: one percentage for all
+  of them, or seconds for each mushroom.
+
 ### What's new in Beta V0.12.7
 
 **HUD, a new plugin mod in Get mods.** Durability numbers on the weapon bars

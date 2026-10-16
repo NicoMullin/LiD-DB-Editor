@@ -1,0 +1,33 @@
+{
+  "id": "Bloodnium Multiplier",
+  "name": "Bloodnium Multiplier",
+  "description": "Everything you kill in the Tower gives x{{times}} the Bloodnium. Set it in Configuration.",
+  "version": "0.1.0",
+  "author": "KSFA",
+  "category": "Quality of life",
+  "tags": ["bloodnium", "multiplier", "farming", "constants"],
+  "game_version": ["5.0.4.1.0 - 1.89", "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)", "5.0.4.4.0 - 1.91"],
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "times",
+      "label": "Bloodnium",
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 100,
+      "unit": "x",
+      "help": "x1 is the game's own amount. Covers enemies, Haters, Screamers, Treasure Tubers, mid-bosses and bosses. The game's own kill-streak, floor-travel and VIP bonuses still go on top."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "bloodnium",
+      "description": "Bloodnium points x{{times}}",
+      "sql": "UPDATE master_const_int SET value = value * {{times}} WHERE id IN ('ENEMY_BLOODNIUM_POINT', 'HARD_HATER_BLOODNIUM_POINT', 'SCREAMER_BLOODNIUM_POINT', 'TREASURE_TUBER_BLOODNIUM_POINT', 'MBOSS_BLOODNIUM_POINT', 'BOSS_BLOODNIUM_POINT');"
+    }
+  ]
+}

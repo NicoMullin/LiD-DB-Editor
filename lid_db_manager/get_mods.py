@@ -49,6 +49,7 @@ DOWNLOADS = "https://github.com/{owner}/{repo}/releases/download/"
 PACKAGE_FILE = "lid-package.json"
 LOADER = "dinput8.dll"
 PLUGINS = "lid-plugins"
+OFF = ".off"                     # a plugin the loader skips: <name>.dll.off
 WIN64 = ("Binaries", "Win64")
 MAX_PACKAGE = 256 << 20          # a package is a few MB at most
 MAX_UNPACKED = 512 << 20
@@ -115,13 +116,14 @@ CATALOG: tuple[Offer, ...] = (
           "pause-map reveals.",
           mods=("fighter-passives",), plugin="lid-classpassives.dll"),
     Offer("hud", "HUD", "LiD-HUD",
-          "Durability numbers on the weapon bars and the Enemies Left counter (\"Enemies left: 12 / 20\"), "
-          "each set in lid-hud.ini. Switch off the old Enemies Left mod if you have it.",
+          "More on the HUD: durability numbers, the Enemies Left counter, floor info, rage, bag space, "
+          "mushroom timers, run totals, a minimap and the bow arc - each moved and set in the game "
+          "with F8. Switch off the old Enemies Left mod if you have it.",
           mods=("HUD",), plugin="lid-hud.dll"),
     Offer("offlinefixes", "Offline Fixes", "LiD-Offline-Fixes",
           "Fixes the game's own offline mode: no more closing on the spot when a Hater dies as "
           "you take the stairs.",
-          plugin="lid-offlinefixes.dll"),
+          mods=("Offline Fixes",), plugin="lid-offlinefixes.dll"),
 )
 
 
@@ -340,7 +342,9 @@ def installed(entry: Offer, mods_dir: Path, game_root: Path | None) -> Installed
         except (OSError, ValueError):
             pass
         versions[mod] = version
-    plugin = bool(game_root and entry.plugin and (win64(game_root) / PLUGINS / entry.plugin).is_file())
+    plugin = bool(game_root and entry.plugin and (
+        (win64(game_root) / PLUGINS / entry.plugin).is_file()
+        or (win64(game_root) / PLUGINS / (entry.plugin + OFF)).is_file()))   # switched off
     state = loader_state(game_root) if game_root else ""
     if entry.is_loader:
         plugin = state == "ours"
@@ -427,8 +431,16 @@ def install(package: Package, mods_dir: Path, game_root: Path | None,
     for dll in package.plugins:
         folder = win64(game_root) / PLUGINS
         folder.mkdir(exist_ok=True)
-        _put_file(package.folder / PLUGINS / dll, folder / dll)
-        done.append(f"put {dll} in {folder}")
+        parked = folder / (dll + OFF)
+        if parked.is_file() and not (folder / dll).is_file():
+            # switched off in the Plugins window: the update stays off
+            _put_file(package.folder / PLUGINS / dll, parked)
+            done.append(f"put {dll} in {folder}, still switched off ({parked.name})")
+        else:
+            _put_file(package.folder / PLUGINS / dll, folder / dll)
+            if parked.is_file():
+                _retry(lambda: parked.unlink())     # an old switched-off copy
+            done.append(f"put {dll} in {folder}")
         for old in package.replaces:
             if (folder / old).is_file():
                 _retry(lambda: (folder / old).unlink())

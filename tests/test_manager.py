@@ -426,6 +426,11 @@ class ShippedModTests(unittest.TestCase):
         "Events and Seasons",
         "Vending Machine",
         "Golden Beasts",
+        "Bloodnium Multiplier",
+        "Quest Limit",
+        "Faster Floor Results",
+        "Skip Intro",
+        "Mushroom Timers",
     }
 
     # By S3er0i9ng, shipped with their permission. Named exactly as a drop of
@@ -439,7 +444,8 @@ class ShippedModTests(unittest.TestCase):
     # Mods that write columns the small test schema does not have, so they are
     # validated against a real vanilla database instead.
     REAL_SCHEMA = BUNDLED | {"fighter-passives", "Events and Seasons", "Vending Machine",
-                               "Golden Beasts"}
+                               "Golden Beasts", "Bloodnium Multiplier",
+                               "Mushroom Timers"}
     VANILLA_DB = PROJECT_ROOT / "LiD Vanilla DB" / "5.0.4.0" / "masters.db"
 
     # Pairs that are the same change at two strengths. They are meant to
@@ -571,7 +577,7 @@ class ShippedModTests(unittest.TestCase):
             m for m in self._real_mods()
             if any(s.unit.lower() == "x" for s in m.settings) and m.id != "Events and Seasons"
         ]
-        self.assertEqual(len(multipliers), 7)
+        self.assertEqual(len(multipliers), 8)
         for mod in multipliers:
             with self.subTest(mod=mod.id):
                 self.assertEqual(mod.apply_mode, APPLY_DIFF)

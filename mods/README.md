@@ -119,6 +119,7 @@ The full form. Everything the mod list shows comes from here:
 | `raw_sql_files_do_not_touch` | no       | Tables your raw SQL leaves alone; see [Conflicts](#conflicts)                                      |
 | `requires_check_off`         | no       | Game files you replace that the game checks; see [Files the game checks](#files-the-game-checks)   |
 | `min_manager_version`        | no       | The oldest manager your mod works with, like `"0.12.0"`; an older one refuses it and says why      |
+| `plugin`                     | no       | Plugin DLL(s) it goes with (a name or a list), switched with the mod; then no patches needed       |
 | `patches`                    | yes      | One or more, applied in order                                                                      |
 
 ## Layout 4: `mod.json` plus files

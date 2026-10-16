@@ -67,6 +67,10 @@ class Mod:
     # startup with an error naming it. A mod that names its files here is
     # refused with an explanation instead, before anything is written.
     requires_check_off: list[str] = field(default_factory=list)
+    # The plugin DLL(s) this mod goes with ("lid-timers.dll"): switched on and
+    # off with the mod on every save (see plugins.follow_mods). A mod may be
+    # nothing else - a plugin's own entry in the mod list.
+    plugins: list[str] = field(default_factory=list)
     raw_sql_files_do_not_touch: list[str] = field(default_factory=list)
     # What kind of mod this is, for finding it again: one category and any
     # number of tags. Both are optional and both are free text - see browse.py.
@@ -170,7 +174,28 @@ class Mod:
             names = [a.rsplit("/", 1)[-1] for a in assets]
             shown = ", ".join(names[:4]) + (f" and {len(names) - 4} more" if len(names) > 4 else "")
             parts.append(f"game file(s): {shown}")
+        if self.plugins:
+            parts.append("plugin: " + ", ".join(self.plugins))
         return "; ".join(parts) or "(nothing detected)"
+
+
+def _plugin_names(raw, mod_ref: str) -> list[str]:
+    """mod.json's "plugin": one DLL name or a list of them."""
+    if raw is None or raw == "":
+        return []
+    names = [raw] if isinstance(raw, str) else raw
+    if not isinstance(names, list):
+        raise ModLoadError(mod_ref, "'plugin' must be a DLL name or a list of them")
+    found: list[str] = []
+    for name in names:
+        name = str(name or "").strip()
+        if not re.match(r"^[A-Za-z0-9_.-]+\.dll$", name, re.IGNORECASE):
+            raise ModLoadError(
+                mod_ref, f"'plugin' must name a DLL in lid-plugins, like lid-timers.dll, not {name!r}"
+            )
+        if name.lower() not in (f.lower() for f in found):
+            found.append(name)
+    return found
 
 
 def _build_patches(
@@ -246,9 +271,12 @@ def load_mod_json(mod_dir: Path) -> Mod:
     if missing:
         raise ModLoadError(mod_ref, f"mod.json is missing required field(s): {', '.join(missing)}")
 
+    plugins = _plugin_names(data.get("plugin"), mod_ref)
     patch_data = data.get("patches")
-    if not isinstance(patch_data, list) or not patch_data:
-        raise ModLoadError(mod_ref, "mod.json needs a non-empty 'patches' array")
+    if patch_data is None and plugins:
+        patch_data = []                 # a plugin's own entry: nothing to apply
+    if not isinstance(patch_data, list) or not (patch_data or plugins):
+        raise ModLoadError(mod_ref, "mod.json needs a non-empty 'patches' array (or a 'plugin')")
 
     # A mod that relies on something this manager does not have yet says so,
     # and is refused with that reason instead of being half understood. (A
@@ -344,6 +372,7 @@ def load_mod_json(mod_dir: Path) -> Mod:
         requires_check_off=_as_string_list(
             data.get("requires_check_off"), mod_ref, "requires_check_off"
         ),
+        plugins=plugins,
         raw_sql_files_do_not_touch=_as_string_list(
             data.get("raw_sql_files_do_not_touch"), mod_ref, "raw_sql_files_do_not_touch"
         ),

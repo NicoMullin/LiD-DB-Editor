@@ -1,0 +1,48 @@
+{
+  "id": "Faster Floor Results",
+  "name": "Faster Floor Results",
+  "description": "The floor results screen after an escalator replays your route at {{speed}} instead of 30, so you can move on as soon as the next floor is ready.",
+  "version": "0.1.0",
+  "author": "KSFA",
+  "category": "Quality of life",
+  "tags": ["loading", "floor-results", "waiting", "game-files"],
+  "game_version": ["5.0.4.4.0 - 1.91"],
+  "requires": [],
+  "conflicts_with": [],
+  "requires_check_off": ["SteamPCRelease-BrgUI.ini"],
+  "settings": [
+    {
+      "id": "speed",
+      "label": "Replay speed",
+      "type": "integer",
+      "default": 600,
+      "min": 30,
+      "max": 6000,
+      "step": 30,
+      "help": "How fast the map replays your time on the floor. The game's own is 30; 600 is 20 times that. The Next prompt waits for the replay to finish."
+    }
+  ],
+  "patches": [
+    {
+      "type": "config_ini",
+      "id": "replay",
+      "description": "Route replay at {{speed}}",
+      "target": "BrgGame/Config/SteamPCRelease-BrgUI.ini",
+      "section": "BrgGame.BrgUIMenu_FloorResult",
+      "values": {
+        "mPlayRate": "{{speed}}"
+      }
+    },
+    {
+      "type": "config_ini",
+      "id": "map",
+      "description": "Shorter map open and close (0.1 s instead of 0.6 s)",
+      "target": "BrgGame/Config/SteamPCRelease-BrgUI.ini",
+      "section": "BrgGame.BrgUIMenu_FloorResult_Map",
+      "values": {
+        "mStartAnimationSeconds": "0.1",
+        "mEndAnimationSeconds": "0.1"
+      }
+    }
+  ]
+}

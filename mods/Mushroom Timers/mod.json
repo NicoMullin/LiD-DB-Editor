@@ -1,0 +1,444 @@
+{
+  "id": "Mushroom Timers",
+  "name": "Mushroom Timers",
+  "description": "Choose how long mushroom effects last: one percentage for all of them, or seconds for each mushroom. Set it in Configuration.",
+  "version": "0.1.0",
+  "author": "KSFA",
+  "category": "Game content",
+  "tags": [
+    "mushrooms",
+    "effects",
+    "duration",
+    "timers"
+  ],
+  "game_version": [
+    "5.0.4.1.0 - 1.89",
+    "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)",
+    "5.0.4.4.0 - 1.91"
+  ],
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "mode",
+      "label": "Set the times",
+      "type": "choice",
+      "default": "all",
+      "options": [
+        {
+          "value": "all",
+          "label": "Same for every mushroom",
+          "help": "One percentage for every mushroom's effect."
+        },
+        {
+          "value": "each",
+          "label": "Each mushroom on its own",
+          "help": "A number of seconds for each mushroom."
+        }
+      ]
+    },
+    {
+      "id": "percent",
+      "label": "How long",
+      "type": "integer",
+      "default": 200,
+      "min": 10,
+      "max": 1000,
+      "step": 10,
+      "unit": "%",
+      "group": "Same for every mushroom",
+      "help": "100% is the game's own times. 200% makes every effect last twice as long; 50% half as long. This includes the mushrooms that hurt you when eaten (sleep, poison, confusion...)."
+    },
+    {
+      "id": "thrown",
+      "label": "Thrown mushrooms too",
+      "type": "toggle",
+      "default": 1,
+      "help": "Also change how long a thrown mushroom's effect lasts on an enemy (sleep, poison, confusion, decoy, fire, smoke, dizziness), by the same amount."
+    },
+    {
+      "id": "msr_305",
+      "label": "Boleoshroom",
+      "type": "integer",
+      "default": 15,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 15 s eaten, 25 s grilled, 15 s thrown. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_014",
+      "label": "Brainshroom",
+      "type": "integer",
+      "default": 5,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 5 s eaten, 10 s grilled, 5 s thrown. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_304",
+      "label": "Cateye Shroom",
+      "type": "integer",
+      "default": 7,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 7 s eaten, 11 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_032",
+      "label": "Croakstool",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 30 s eaten, 30 s thrown. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_024",
+      "label": "Crushroom",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 30 s eaten, 40 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_017",
+      "label": "Decoyshroom",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 30 s eaten, 60 s grilled, 30 s thrown. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_012",
+      "label": "Doomshroom",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 30 s eaten, 60 s grilled, 30 s thrown. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_041",
+      "label": "Dragonshroom",
+      "type": "integer",
+      "default": 10,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 10 s eaten, 20 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_047",
+      "label": "Evershroom",
+      "type": "integer",
+      "default": 20,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 20 s eaten, 30 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_303",
+      "label": "False Brainshroom",
+      "type": "integer",
+      "default": 5,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 5 s eaten, 10 s grilled, 5 s thrown. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_037",
+      "label": "Fishy Fungus",
+      "type": "integer",
+      "default": 15,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 15 s eaten, 25 s grilled, 15 s thrown. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_010",
+      "label": "Fluffy Fungus",
+      "type": "integer",
+      "default": 20,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 20 s eaten, 40 s grilled, 20 s thrown. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_031",
+      "label": "Frongus",
+      "type": "integer",
+      "default": 5,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 5 s eaten, 10 s grilled, 5 s thrown. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_029",
+      "label": "Gambleshroom",
+      "type": "integer",
+      "default": 20,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 20 s eaten, 20 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_042",
+      "label": "Golden Dragonshroom",
+      "type": "integer",
+      "default": 40,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 40 s eaten. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_048",
+      "label": "Golden Evershroom",
+      "type": "integer",
+      "default": 60,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 60 s eaten. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_038",
+      "label": "Golden Fishy Fungus",
+      "type": "integer",
+      "default": 60,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 60 s eaten, 60 s thrown. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_040",
+      "label": "Golden Snailshroom",
+      "type": "integer",
+      "default": 120,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 120 s eaten. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_036",
+      "label": "Golden Stingshroom",
+      "type": "integer",
+      "default": 60,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 60 s eaten. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_046",
+      "label": "Golden Vampire Fungus",
+      "type": "integer",
+      "default": 90,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 90 s eaten. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_025",
+      "label": "Guardshroom",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 30 s eaten, 40 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_301",
+      "label": "Helmetshroom",
+      "type": "integer",
+      "default": 12,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 12 s eaten, 15 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_009",
+      "label": "Lavashroom",
+      "type": "integer",
+      "default": 10,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 10 s eaten, 15 s grilled, 10 s thrown. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_300",
+      "label": "Red Stingshroom",
+      "type": "integer",
+      "default": 25,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 25 s eaten, 35 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_020",
+      "label": "Slowmungus",
+      "type": "integer",
+      "default": 10,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 10 s eaten, 15 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_039",
+      "label": "Snailshroom",
+      "type": "integer",
+      "default": 60,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 60 s eaten, 90 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_016",
+      "label": "Staminungus",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 30 s eaten, 40 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_035",
+      "label": "Stingshroom",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 30 s eaten, 40 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_007",
+      "label": "Toughshroom",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 30 s eaten, 40 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_015",
+      "label": "Transparungus",
+      "type": "integer",
+      "default": 15,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 15 s eaten, 25 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_302",
+      "label": "Umbrella Rib Fungus",
+      "type": "integer",
+      "default": 12,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 12 s eaten, 15 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_045",
+      "label": "Vampire Fungus",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 30 s eaten, 40 s grilled. Grilled and thrown change by the same share."
+    },
+    {
+      "id": "msr_013",
+      "label": "Yogashroom",
+      "type": "integer",
+      "default": 10,
+      "min": 1,
+      "max": 3600,
+      "unit": " s",
+      "group": "Each mushroom on its own",
+      "help": "How long it lasts when eaten. The game's own: 10 s eaten, 30 s grilled. Grilled and thrown change by the same share."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "all",
+      "when": {
+        "mode": "all"
+      },
+      "description": "Every mushroom effect at {{percent}}%",
+      "sql": "UPDATE master_mushroom_efc SET tmmin = MAX(1, tmmin * {{percent}} / 100), tmmax = MAX(1, tmmax * {{percent}} / 100) WHERE tmmax > 0 AND (id IN (SELECT c_pefcid FROM master_mushroom UNION SELECT r_pefcid FROM master_mushroom) OR ({{thrown}} = 1 AND id IN (SELECT c_tefcid FROM master_mushroom UNION SELECT r_tefcid FROM master_mushroom)));"
+    },
+    {
+      "type": "raw_sql",
+      "id": "each",
+      "when": {
+        "mode": "each"
+      },
+      "description": "Each mushroom's own time",
+      "sql": "UPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_305}} * 1.0 / 15) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_305}} * 1.0 / 15) AS INTEGER)) WHERE id IN ('MSREFC_CONFUSION_04', 'MSREFC_CONFUSION_05') OR ({{thrown}} = 1 AND id IN ('MSREFC_THROUGH_CONFUSION_04', 'MSREFC_THROUGH_CONFUSION_05'));\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_014}} * 1.0 / 5) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_014}} * 1.0 / 5) AS INTEGER)) WHERE id IN ('MSREFC_GROGGY_01', 'MSREFC_GROGGY_02') OR ({{thrown}} = 1 AND id IN ('MSREFC_THROUGH_GROGGY_01', 'MSREFC_THROUGH_GROGGY_02'));\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_304}} * 1.0 / 7) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_304}} * 1.0 / 7) AS INTEGER)) WHERE id IN ('MSREFC_BULLETIME_03', 'MSREFC_BULLETIME_04');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_032}} * 1.0 / 30) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_032}} * 1.0 / 30) AS INTEGER)) WHERE id IN ('MSREFC_SMOKE_03') OR ({{thrown}} = 1 AND id IN ('MSREFC_THROUGH_SMOKE_03'));\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_024}} * 1.0 / 30) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_024}} * 1.0 / 30) AS INTEGER)) WHERE id IN ('MSREFC_ATK_UP_01', 'MSREFC_ATK_UP_02');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_017}} * 1.0 / 30) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_017}} * 1.0 / 30) AS INTEGER)) WHERE id IN ('MSREFC_DECOY_01', 'MSREFC_DECOY_02') OR ({{thrown}} = 1 AND id IN ('MSREFC_THROUGH_DECOY_01', 'MSREFC_THROUGH_DECOY_02'));\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_012}} * 1.0 / 30) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_012}} * 1.0 / 30) AS INTEGER)) WHERE id IN ('MSREFC_POISON_01', 'MSREFC_POISON_02') OR ({{thrown}} = 1 AND id IN ('MSREFC_THROUGH_POISON_01', 'MSREFC_THROUGH_POISON_02'));\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_041}} * 1.0 / 10) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_041}} * 1.0 / 10) AS INTEGER)) WHERE id IN ('MSREFC_AMMO_01', 'MSREFC_AMMO_02');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_047}} * 1.0 / 20) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_047}} * 1.0 / 20) AS INTEGER)) WHERE id IN ('MSREFC_INCREASE_GORE_01', 'MSREFC_INCREASE_GORE_02');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_303}} * 1.0 / 5) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_303}} * 1.0 / 5) AS INTEGER)) WHERE id IN ('MSREFC_GROGGY_03', 'MSREFC_GROGGY_04') OR ({{thrown}} = 1 AND id IN ('MSREFC_THROUGH_GROGGY_03', 'MSREFC_THROUGH_GROGGY_04'));\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_037}} * 1.0 / 15) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_037}} * 1.0 / 15) AS INTEGER)) WHERE id IN ('MSREFC_CONFUSION_01', 'MSREFC_CONFUSION_02') OR ({{thrown}} = 1 AND id IN ('MSREFC_THROUGH_CONFUSION_01', 'MSREFC_THROUGH_CONFUSION_02'));\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_010}} * 1.0 / 20) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_010}} * 1.0 / 20) AS INTEGER)) WHERE id IN ('MSREFC_SLEEP_01', 'MSREFC_SLEEP_02') OR ({{thrown}} = 1 AND id IN ('MSREFC_THROUGH_SLEEP_01', 'MSREFC_THROUGH_SLEEP_02'));\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_031}} * 1.0 / 5) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_031}} * 1.0 / 5) AS INTEGER)) WHERE id IN ('MSREFC_SMOKE_01', 'MSREFC_SMOKE_02') OR ({{thrown}} = 1 AND id IN ('MSREFC_THROUGH_SMOKE_01', 'MSREFC_THROUGH_SMOKE_02'));\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_029}} * 1.0 / 20) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_029}} * 1.0 / 20) AS INTEGER)) WHERE id IN ('MSREFC_GAMBLE_01', 'MSREFC_GAMBLE_02');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_042}} * 1.0 / 40) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_042}} * 1.0 / 40) AS INTEGER)) WHERE id IN ('MSREFC_AMMO_03');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_048}} * 1.0 / 60) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_048}} * 1.0 / 60) AS INTEGER)) WHERE id IN ('MSREFC_INCREASE_GORE_03');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_038}} * 1.0 / 60) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_038}} * 1.0 / 60) AS INTEGER)) WHERE id IN ('MSREFC_CONFUSION_03') OR ({{thrown}} = 1 AND id IN ('MSREFC_THROUGH_CONFUSION_03'));\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_040}} * 1.0 / 120) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_040}} * 1.0 / 120) AS INTEGER)) WHERE id IN ('MSREFC_ATTRIBUTE_03');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_036}} * 1.0 / 60) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_036}} * 1.0 / 60) AS INTEGER)) WHERE id IN ('MSREFC_RISK_03');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_046}} * 1.0 / 90) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_046}} * 1.0 / 90) AS INTEGER)) WHERE id IN ('MSREFC_VAMPIRE_03');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_025}} * 1.0 / 30) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_025}} * 1.0 / 30) AS INTEGER)) WHERE id IN ('MSREFC_INVINCIBLE_01', 'MSREFC_INVINCIBLE_02');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_301}} * 1.0 / 12) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_301}} * 1.0 / 12) AS INTEGER)) WHERE id IN ('MSREFC_INVINCIBLE_03', 'MSREFC_INVINCIBLE_04');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_009}} * 1.0 / 10) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_009}} * 1.0 / 10) AS INTEGER)) WHERE id IN ('MSREFC_FIRE_01', 'MSREFC_FIRE_02') OR ({{thrown}} = 1 AND id IN ('MSREFC_THROUGH_FIRE_01', 'MSREFC_THROUGH_FIRE_02'));\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_300}} * 1.0 / 25) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_300}} * 1.0 / 25) AS INTEGER)) WHERE id IN ('MSREFC_RISK_04', 'MSREFC_RISK_05');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_020}} * 1.0 / 10) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_020}} * 1.0 / 10) AS INTEGER)) WHERE id IN ('MSREFC_BULLETIME_01', 'MSREFC_BULLETIME_02');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_039}} * 1.0 / 60) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_039}} * 1.0 / 60) AS INTEGER)) WHERE id IN ('MSREFC_ATTRIBUTE_01', 'MSREFC_ATTRIBUTE_02');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_016}} * 1.0 / 30) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_016}} * 1.0 / 30) AS INTEGER)) WHERE id IN ('MSREFC_STMN_INF_01', 'MSREFC_STMN_INF_02');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_035}} * 1.0 / 30) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_035}} * 1.0 / 30) AS INTEGER)) WHERE id IN ('MSREFC_RISK_01', 'MSREFC_RISK_02');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_007}} * 1.0 / 30) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_007}} * 1.0 / 30) AS INTEGER)) WHERE id IN ('MSREFC_DEF_UP_01', 'MSREFC_DEF_UP_02');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_015}} * 1.0 / 15) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_015}} * 1.0 / 15) AS INTEGER)) WHERE id IN ('MSREFC_CLOAK_01', 'MSREFC_CLOAK_02');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_302}} * 1.0 / 12) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_302}} * 1.0 / 12) AS INTEGER)) WHERE id IN ('MSREFC_CLOAK_03', 'MSREFC_CLOAK_04');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_045}} * 1.0 / 30) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_045}} * 1.0 / 30) AS INTEGER)) WHERE id IN ('MSREFC_VAMPIRE_01', 'MSREFC_VAMPIRE_02');\nUPDATE master_mushroom_efc SET tmmin = MAX(1, CAST(ROUND(tmmin * {{msr_013}} * 1.0 / 10) AS INTEGER)), tmmax = MAX(1, CAST(ROUND(tmmax * {{msr_013}} * 1.0 / 10) AS INTEGER)) WHERE id IN ('MSREFC_YOGA_01', 'MSREFC_YOGA_02');"
+    }
+  ]
+}

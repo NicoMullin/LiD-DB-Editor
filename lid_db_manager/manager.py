@@ -28,6 +28,7 @@ from . import vetted
 from . import install as install_module
 from . import migrations
 from . import modedit
+from . import plugins as plugins_module
 from . import savegame
 from . import snapshot as snapshot_module
 from .conflict import ConflictReport, analyze
@@ -607,8 +608,17 @@ class Manager:
             self.watcher.stamp(
                 self.state.db_sha256_at_last_save, self.state.db_mtime_at_last_save
             )
+            self.follow_plugins()
         self.state.save()
         return report
+
+    # -- plugins -----------------------------------------------------------
+
+    def follow_plugins(self) -> list[str]:
+        """Each plugin a mod names, on or off to match its mod."""
+        return plugins_module.follow_mods(
+            self.asset_game_root, self.scan.mods, self.state.enabled_mods, log=self.log
+        )
 
     def _apply_asset_files(
         self, mods, report: ApplyReport, db_rollback: Path | None,
@@ -795,6 +805,8 @@ class Manager:
             self.watcher.stamp(
                 self.state.db_sha256_at_last_save, self.state.db_mtime_at_last_save
             )
+            if disable:
+                self.follow_plugins()
         self.state.save()
         return results
 

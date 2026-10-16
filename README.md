@@ -685,7 +685,7 @@ its own GitHub page, where GitHub builds and tests every release:
 | Login Bonus            | [LiD-Login-Bonus](https://github.com/NicoMullin/LiD-Login-Bonus)                       | A random daily login bonus, from the online rewards for your floor or your own lists      |
 | Fighter Class Passives | [LiD-Fighter-Class-Passives](https://github.com/NicoMullin/LiD-Fighter-Class-Passives) | A skill decal for each fighter class, always on, and the pause-map reveals                |
 | Offline Fixes          | [LiD-Offline-Fixes](https://github.com/NicoMullin/LiD-Offline-Fixes)                   | Bugs in the game's own offline mode, such as closing when a Hater dies as you take stairs |
-| HUD                    | [LiD-HUD](https://github.com/NicoMullin/LiD-HUD)                                       | Durability numbers on the weapon bars and the Enemies Left counter, more to come          |
+| HUD                    | [LiD-HUD](https://github.com/NicoMullin/LiD-HUD)                                       | Durability, enemies, floor info, rage, bag, mushroom timers, run totals, minimap, bow arc |
 
 **Get mods...** (top right, or Mods > Get mods that need a plugin) lists them,
 shows which you have, and gets one with a click:
@@ -704,6 +704,22 @@ copy, with its settings kept.
 
 By hand works too: each release's `LiD-<name>.zip` holds `mods/` for the
 manager and `lid-plugins/` for the game's `Binaries\Win64`.
+
+### Switching plugins on and off
+
+A plugin is switched with the mod it goes with. A mod names its plugin in its
+`mod.json` (`"plugin": "lid-timers.dll"`), and on every **Save Mod List** the
+manager switches it to match: on while the mod is ticked, off when it is not.
+Off means renamed to `<name>.dll.off`, which the Plugin Loader skips; nothing
+is deleted, and ticking the mod again brings it back. Close the game first.
+
+A plugin with nothing else to change gets a small mod of its own that only
+names it, so it has a tick box in the mod list like everything else. Offline
+Fixes is one. A plugin two mods use (a list in `"plugin"`) stays on while
+either of them is ticked. A plugin no mod names is left as it is.
+
+Getting a newer copy of a switched-off plugin through Get mods keeps it
+switched off.
 
 ## Adding mods
 
