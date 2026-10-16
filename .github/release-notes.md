@@ -36,7 +36,7 @@ compares it with a clean copy of the same game build, says which mods it can
 already see in there, and offers to take them over. The moment you pick a
 database it also keeps a permanent `masters.db.original` copy.
 
-### What's new in Beta V0.12.8
+### What's new in Beta V0.12.9
 
 **Plugins are switched in the mod list.** A mod can now name the plugin it
 goes with, and **Save Mod List** switches that plugin with it: on while the
