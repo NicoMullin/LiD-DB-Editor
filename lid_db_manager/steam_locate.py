@@ -18,6 +18,9 @@ import sys
 from pathlib import Path
 
 GAME_DIR = "LET IT DIE"
+# LET IT DIE on Steam: how the Play button asks Steam to start it.
+APP_ID = 794600
+RUN_URL = f"steam://rungameid/{APP_ID}"
 DB_REL = Path("BrgGame") / "Content" / "masters.db"
 DEFAULT_STEAM = Path(r"C:\Program Files (x86)\Steam")
 

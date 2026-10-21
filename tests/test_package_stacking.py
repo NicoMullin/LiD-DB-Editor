@@ -288,7 +288,8 @@ class TheFighterPassivesHook(unittest.TestCase):
         from lid_db_manager.upk import apply, packagepatch
         patch = packagepatch.read(self.PATCH)
         self.assertEqual(apply.unsupported(patch), "")
-        self.assertEqual([o.export_index for o in patch.objects], [39980])
+        # GetSkillArray's export number in game 1.92 (39980 in 1.89 and 1.91)
+        self.assertEqual([o.export_index for o in patch.objects], [40019])
         self.assertIn("BrgCommonPawn_CustomChara\\GetSkillArray",
                       [r.full_path for r in patch.object_references])
 

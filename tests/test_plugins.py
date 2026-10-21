@@ -184,6 +184,49 @@ class SavingSwitchesThePlugins(unittest.TestCase):
         self.assertFalse(any(self.dir.glob("lid-timers*")))
 
 
+class TheBorderlessMod(unittest.TestCase):
+    """The Borderless Fullscreen mod (LiD Borderless repo): Windowed plus the plugin, or neither."""
+
+    MOD = Path(__file__).resolve().parents[2] / "LiD Borderless" / "mods" / "Borderless Fullscreen"
+
+    def setUp(self) -> None:
+        if not self.MOD.is_dir():
+            self.skipTest("the LiD Borderless repository is not next to this one")
+        import shutil
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        self.paths = AppPaths(root / "app").ensure()
+        shutil.copytree(self.MOD, self.paths.mods_dir / self.MOD.name)
+        self.game = root / "game"
+        db = build_db(self.game / "BrgGame" / "Content" / "masters.db")
+        (self.game / "BrgGame" / "CookedPCConsole").mkdir(parents=True)
+        self.ini = self.game / "BrgGame" / "Config" / "BrgGraphicsConfig.ini"
+        self.ini.parent.mkdir(parents=True)
+        self.stock = b"[BrgGame.BrgGraphicsConfig]\r\nmbEnabled=True\r\nmbFullScreen=True\r\nmbUseVsync=False\r\n"
+        self.ini.write_bytes(self.stock)
+        self.dir = P.folder(self.game)
+        self.dir.mkdir(parents=True)
+        (self.dir / "lid-borderless.dll.off").write_bytes(b"MZ")
+        self.manager = Manager(self.paths)
+        self.manager.set_db_path(db)
+
+    def save(self, on: bool) -> None:
+        self.manager.set_enabled("Borderless Fullscreen", on)
+        report = self.manager.save_mod_list()
+        self.assertTrue(report.ok, report.error)
+
+    def test_ticked_is_windowed_with_the_plugin_and_unticked_is_stock(self) -> None:
+        self.save(True)
+        self.assertIn(b"mbFullScreen=False\r\n", self.ini.read_bytes())
+        self.assertIn(b"mbUseVsync=False", self.ini.read_bytes())          # the rest is untouched
+        self.assertTrue((self.dir / "lid-borderless.dll").is_file())
+        self.save(False)
+        self.assertEqual(self.ini.read_bytes(), self.stock)
+        self.assertTrue((self.dir / "lid-borderless.dll.off").is_file())
+
+
 class GetModsKeepsItOff(GetModsBase):
     def setUp(self) -> None:
         super().setUp()

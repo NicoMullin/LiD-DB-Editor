@@ -216,3 +216,39 @@ jobs:
           Add-Content -Path $notes -Value $lines -Encoding utf8
           # --target tags the commit this build came from when the tag is new.
           gh release create $tag "$env:ZIP_NAME" --title $title --notes-file $notes --target $env:GITHUB_SHA
+
+      - name: Check for the Nexus Mods settings
+        # The same zip goes to the Nexus Mods page too, but only when the
+        # repository has a NEXUS_API_KEY secret and a NEXUS_FILE_ID variable
+        # (Settings -> Secrets and variables -> Actions). Without them this
+        # is skipped and nothing else changes.
+        if: steps.label.outputs.release == 'true'
+        id: nexus
+        shell: pwsh
+        env:
+          NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
+          NEXUS_FILE_ID: ${{ vars.NEXUS_FILE_ID }}
+        run: |
+          if ($env:NEXUS_API_KEY -and $env:NEXUS_FILE_ID) {
+            "ready=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            Write-Host "No NEXUS_API_KEY secret or NEXUS_FILE_ID variable, so nothing was sent to Nexus Mods."
+          }
+
+      - name: Upload to Nexus Mods
+        # As a new version of the file already on the page; the one before is
+        # moved to Old files. The GitHub release is out already, so a Nexus
+        # problem only marks this step, never undoes the release.
+        if: steps.nexus.outputs.ready == 'true'
+        continue-on-error: true
+        # Nexus Mods' own action, pinned to the commit of v1.0.0-beta.11
+        uses: Nexus-Mods/upload-action@98532f7670c27cbecc78fae03fa3e278147827e2
+        with:
+          api_key: ${{ secrets.NEXUS_API_KEY }}
+          file_id: ${{ vars.NEXUS_FILE_ID }}
+          filename: ${{ env.ZIP_NAME }}
+          version: ${{ steps.label.outputs.version }}
+          display_name: LID DB Mod Manager ${{ steps.label.outputs.version }}
+          description: Beta V${{ steps.label.outputs.version }} - the same zip as the GitHub release, built by GitHub.
+          archive_existing_version: 'true'
+          update_mod_version: 'true'

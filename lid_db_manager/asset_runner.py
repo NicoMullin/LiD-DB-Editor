@@ -135,6 +135,11 @@ def game_lock_reason(db_path: Path | str | None = None) -> str:
     return ""
 
 
+def game_running() -> bool:
+    """Is LET IT DIE running now?"""
+    return _process_running(GAME_PROCESS)
+
+
 def _process_running(exe_name: str) -> bool:
     """True if a process with this executable name is running. Windows only."""
     if sys.platform != "win32":
@@ -662,12 +667,20 @@ def _stage_transforms(
         if not dest.is_file():
             raise OSError(f"{mod_id}: {target} is not in the game folder")
         kept = manifest.get(target, {}).get("backup")
+        if kept and not (store / kept).is_file():
+            # The record names a copy that is not there. Found for real when 1.92
+            # arrived: a save dropped 1.91's copy and then failed, and every save
+            # after it stopped here. The game's own file is the original now -
+            # checked below against the hash the game lists, as on a first save.
+            _forget_kept(store, manifest, target, kept)
+            kept = None
+            if log:
+                log.warn(f"the kept copy of {target} was missing; rebuilding from the game's own file")
         if kept and _from_an_older_build(store / kept, dest):
             # Kept before a game update. Transforming it would refuse (or worse,
             # hand back an executable for the old build) - the one on disk, put
             # back to stock, is the real original now.
-            (store / kept).unlink(missing_ok=True)
-            manifest.pop(target, None)
+            _forget_kept(store, manifest, target, kept)
             kept = None
         elif kept and not _is_game_exe(target) and (store / kept).is_file():
             # The same for a package, told apart by the hash the game lists for
@@ -685,8 +698,7 @@ def _stage_transforms(
                         "\"Verify integrity of game files\" puts the game's own copy back. It "
                         "also resets masters.db and the game .exe, so switch the file check "
                         "back off and save your mod list again afterwards.")
-                (store / kept).unlink(missing_ok=True)
-                manifest.pop(target, None)
+                _forget_kept(store, manifest, target, kept)
                 kept = None
                 if log:
                     log.info(f"the kept copy of {target} was from an older game build; "
@@ -736,6 +748,23 @@ def _stage_transforms(
             stock_path.write_bytes(stock)
             stock_files[target] = stock_path
     return plan, stock_files
+
+
+def _forget_kept(store: Path, manifest: dict[str, dict], target: str, kept: str) -> None:
+    """Drop a kept copy that is no use any more, on disk as well as in this run.
+
+    The record goes first and is written at once, then the file. A save can still
+    fail after this - a mod's change that no longer fits, say - and a failed save
+    does not write the manifest, so a record changed only in memory would name a
+    file that is gone, and every later save would stop on it.
+    """
+    manifest.pop(target, None)
+    backups_dir = store.parent
+    on_disk = _load_manifest(backups_dir)
+    if target in on_disk:
+        on_disk.pop(target)
+        _save_manifest(backups_dir, on_disk)
+    (store / kept).unlink(missing_ok=True)
 
 
 def _keep_original(

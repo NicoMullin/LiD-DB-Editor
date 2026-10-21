@@ -20,9 +20,9 @@ it.)
 
 Only program files are swapped: the .exe, ``_internal/`` and each mod that
 ships with the program. What a player has done with it - ``state.json``,
-snapshots, backups, logs, the cache, their own mods, any clean databases - is
-never touched, so nothing has to be carried over. The old program files are
-moved aside first and moved back if anything goes wrong.
+snapshots, backups, logs, the cache, the save library, their own mods, any
+clean databases - is never touched, so nothing has to be carried over. The old
+program files are moved aside first and moved back if anything goes wrong.
 
 Nothing here goes online on its own: a check is the player's click, or the
 check at start that they switched on.
@@ -69,7 +69,8 @@ MODS = "mods"
 # Never replaced, even if a release were to carry one by mistake: everything
 # here is the player's, not the program's.
 PLAYER_DATA = frozenset(
-    {"state.json", "snapshots", "backups", "logs", "cache", "LiD Vanilla DB", UPDATE_DIR}
+    {"state.json", "snapshots", "backups", "logs", "cache", "saves", "modpacks", "LiD Vanilla DB",
+     UPDATE_DIR}
 )
 
 # What build.py names the program and its .exe - and, with the version after

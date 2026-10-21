@@ -175,6 +175,11 @@ class State:
     # differ from the mod's default are kept, so a mod whose author later
     # changes a default carries players who never touched it along.
     mod_settings: dict[str, dict] = field(default_factory=dict)
+    # The mod list as it was last applied to this install - which mods, their
+    # settings and parts - as the saves' own notes (savelink.py) record it, so
+    # a save arriving from another PC can be told apart from what is here.
+    # Empty until the first Save Mod List with this version.
+    applied_choice: dict = field(default_factory=dict)
     settings: Settings = field(default_factory=Settings)
     # Set once state.json has been replaced from outside - by bringing an older
     # copy's history over - so this now out-of-date copy can never write its
@@ -238,6 +243,8 @@ class State:
             for mod_id, chosen in (data.get("mod_settings") or {}).items()
             if isinstance(chosen, dict)
         }
+        choice = data.get("applied_choice")
+        state.applied_choice = choice if isinstance(choice, dict) else {}
         state.settings = Settings.from_dict(data.get("settings") or {})
         return state
 
@@ -259,6 +266,7 @@ class State:
             "disabled_patches": {k: v for k, v in self.disabled_patches.items() if v},
             "enabled_patches": {k: v for k, v in self.enabled_patches.items() if v},
             "mod_settings": {k: v for k, v in self.mod_settings.items() if v},
+            "applied_choice": self.applied_choice,
             "settings": self.settings.to_dict(),
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)

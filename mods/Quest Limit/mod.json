@@ -2,11 +2,11 @@
   "id": "Quest Limit",
   "name": "Quest Limit",
   "description": "Accept up to {{quests}} quests at once instead of 10. Set it in Configuration.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "KSFA",
   "category": "Quality of life",
   "tags": ["quests", "limit", "game-files"],
-  "game_version": ["5.0.4.4.0 - 1.91"],
+  "game_version": ["5.0.5.0.0 - 1.92"],
   "requires": [],
   "conflicts_with": [],
   "requires_check_off": ["BrgGame.upk"],
@@ -31,8 +31,8 @@
         {
           "name": "Most quests accepted",
           "find": [
-            {"hex": "e9be0000 00000000"},
-            {"hex": "367a0000 00000000"},
+            {"hex": "f6be0000 00000000"},
+            {"hex": "3f7a0000 00000000"},
             {"hex": "04000000 00000000"}
           ],
           "write": {"type": "i32", "value": "{{quests}}"}

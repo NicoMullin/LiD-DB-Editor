@@ -449,6 +449,107 @@ moves. Every time, the save as it was is copied first to
 replaces the save once it reads back right. Close the game first - the manager
 refuses while it runs, since the game writes its save on the way out.
 
+## Your saves
+
+The **Saves** tab keeps your LET IT DIE saves in a library beside the manager,
+each one with the mods it was played with. **▶ Play** at the top starts the
+game through Steam.
+
+### The save library
+
+- **30 slots.** **Keep the game's save...**, **Import a .sav...** or **Start a
+  new save...** fills the first empty one. **Move to slot...** swaps two.
+- **A nickname for each save**, for the list only. The file the game reads is
+  never renamed.
+- **What's in it.** Pick a save to see its Kill Coins, Splithium, Bloodnium,
+  Death Metals, time played, highest floor, blueprints found and researched,
+  and every fighter with their stats.
+- **Switch to this save** puts it in the game. The save that was there is kept
+  in its own slot first, and a copy goes to `backups\saves\<your Steam id>\`.
+- **It keeps itself up to date.** When the game closes, the save it wrote is
+  copied into its slot. A rebuilt or moved manager finds its saves again in
+  the game's save folder at start-up.
+- **Start a new save...** makes a fresh game for your Steam account, at the
+  start of the tutorial or just after it.
+
+Close the game before you switch, import or edit: it writes its save as it
+quits, over whatever was put there.
+
+### Each save remembers its mods
+
+Every **Save Mod List** writes the mod list, with every setting and part,
+beside the save in the game (`brggame.sav.lidmm.json`). The note travels with
+the save, through Steam Cloud or a copy, so on another PC or another install
+the manager can tell the save was played with a different list, and offers
+to tick it. **Use its mod list** ticks a save's mods; when the game already
+has exactly those, it says so and nothing is applied again.
+
+Steam only syncs when the game starts or quits, so after changing mods, start
+and quit the game once before you move to another PC.
+
+### Steam Cloud backup
+
+Each save you keep also gets a copy in the game's save folder, named
+`brggame.sav.lidmm-<id>`, so Steam Cloud carries it to your other PCs, where
+the manager brings it back into the library. **Steam Cloud backup: on/off**
+switches it for the picked save. The meter shows how much of Steam's 100 MB
+the folder uses; the manager stops at 75 MB, so the game's own save always has
+room.
+
+### Sharing a save with its mods
+
+**Share with its mods...** writes a `.lidpack`: the save and the mods it was
+played with - the mod folders themselves, their settings, any plugins with
+their `.ini` files, and the Plugin Loader. **Import a .sav...** takes a
+`.lidpack` too. It shows what it would add or replace, lets you keep your own
+copies, and offers to keep the save in a slot.
+
+### The save editor
+
+**Edit...** opens the save editor:
+
+- **Account** - Kill Coins and the Kill Coin Bank, Splithium and the SPL tank,
+  Bloodnium, Re points, Death Metals, free continues a day.
+- **Fighters** - name, model, gas mask, class, grade, stats and stat bonuses;
+  their Death Bag and gear, moved to and from the Storage Box; the decals they
+  wear. The **Fighter Freezer** box buys, deletes and brings back fighters and
+  sets the Freezer's size.
+- **Storage Box** - add any part, item, mushroom or beast, take things out,
+  repair and refill, and set its size.
+- **Research** - research parts to any level, and give blueprints.
+- **Decals** and **Weapon Mastery**.
+- **Mushroom Stew** - the decals coming next, and clearing the list.
+- **Quests** - reset them, or set any quest's counts and progress.
+- **Dates** - fix the dates winding the PC clock breaks; with the Timers mod,
+  finish timers.
+- **Run** - end a Tengoku run or go back to the last boss floor; move to
+  another boss floor, lock the boss floors ahead, I'm feeling lucky, and the
+  Jackals' loot.
+
+Nothing is written until **Save changes**, which lists every change first. The
+save is copied to `backups\saves\` before it is written, and the editor
+refuses while the game runs.
+
+The limits and lists come from the save's own game data. A save played with
+mods that raise a cap or add items - Bank Limit, the Crossover pack - is edited
+with a copy of the database those mods make, so their values and items are
+offered too. The rules follow the game's own code: how a bought fighter's
+bonuses are rolled, what a part's level means, what deleting a fighter gives
+back.
+
+### Credit
+
+The save editor stands on the LET IT DIE save editors that came first, used
+with their authors' permission:
+
+- **oberlinx** - [let-it-die-save-editor](https://github.com/oberlinx/let-it-die-save-editor),
+  the main reference. Most of the editor's pages follow its features confirmed
+  in game.
+- **g3usyk** - [Let-It-Die-Save-Editor](https://github.com/g3usyk/Let-It-Die-Save-Editor),
+  which also gives the item icons.
+- **mrzacarias** - [let-it-die-save-editor](https://github.com/mrzacarias/let-it-die-save-editor).
+- The author of **lid-utils**, for its map of the save file.
+
 ## Mods included
 
 Twenty-three, in `mods/`, each with its own `readme.md`: twenty of mine -
@@ -686,6 +787,7 @@ its own GitHub page, where GitHub builds and tests every release:
 | Fighter Class Passives | [LiD-Fighter-Class-Passives](https://github.com/NicoMullin/LiD-Fighter-Class-Passives) | A skill decal for each fighter class, always on, and the pause-map reveals                |
 | Offline Fixes          | [LiD-Offline-Fixes](https://github.com/NicoMullin/LiD-Offline-Fixes)                   | Bugs in the game's own offline mode, such as closing when a Hater dies as you take stairs |
 | HUD                    | [LiD-HUD](https://github.com/NicoMullin/LiD-HUD)                                       | Durability, enemies, floor info, rage, bag, mushroom timers, run totals, minimap, bow arc |
+| Borderless Fullscreen  | [LiD-Borderless](https://github.com/NicoMullin/LiD-Borderless)                         | Borderless fullscreen: fills the monitor with no title bar, and Alt+Tab is instant        |
 
 **Get mods...** (top right, or Mods > Get mods that need a plugin) lists them,
 shows which you have, and gets one with a click:

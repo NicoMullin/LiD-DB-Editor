@@ -124,6 +124,10 @@ CATALOG: tuple[Offer, ...] = (
           "Fixes the game's own offline mode: no more closing on the spot when a Hater dies as "
           "you take the stairs.",
           mods=("Offline Fixes",), plugin="lid-offlinefixes.dll"),
+    Offer("borderless", "Borderless Fullscreen", "LiD-Borderless",
+          "The game fills your monitor with no title bar or edges, but Alt+Tab is instant. Tick the "
+          "mod for borderless, untick it for the game's normal fullscreen.",
+          mods=("Borderless Fullscreen",), plugin="lid-borderless.dll"),
 )
 
 

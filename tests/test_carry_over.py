@@ -50,6 +50,10 @@ def an_old_copy(root: Path, *, applied=("shipped-mod", "my-own-mod"), exe=True) 
     write(root / "backups" / "game_files" / "x.original", "stock bytes")
     write(root / "backups" / "2026-10-01_12-00-00.db", "dated backup")
     write(root / "cache" / "texture-index.json", "{}")
+    write(root / "saves" / "20261016-1200-abc123" / "entry.json", '{"nickname": "Main run"}')
+    write(root / "saves" / "20261016-1200-abc123" / "brggame.sav", "a kept save")
+    write(root / "saves" / "live.json", '{"76561190000000000": "20261016-1200-abc123"}')
+    write(root / "modpacks" / "My run.lidpack", "a packed mod list")
     write(root / "logs" / "session.log", "old log")
     a_mod(root / "mods" / "shipped-mod", "1.0.0")
     a_mod(root / "mods" / "my-own-mod")
@@ -98,7 +102,7 @@ class Planning(unittest.TestCase):
 
     def test_what_comes_over(self) -> None:
         plan = carry_over.plan(self.old, self.paths, has_applied_here=False)
-        self.assertEqual(plan.data_dirs, ["snapshots", "backups", "cache"])
+        self.assertEqual(plan.data_dirs, ["snapshots", "backups", "cache", "saves", "modpacks"])
         self.assertEqual(plan.own_mods, ["my-own-mod"])
         self.assertEqual(plan.shipped_mods, ["shipped-mod"])
         self.assertEqual(plan.vanilla_files, ["LiD Vanilla DB/5.0.4.1/masters.db",
@@ -136,6 +140,8 @@ class Copying(unittest.TestCase):
         for relative in ("state.json", "snapshots/shipped-mod.json",
                          "backups/game_files/manifest.json", "backups/game_files/x.original",
                          "backups/2026-10-01_12-00-00.db", "cache/texture-index.json",
+                         "saves/20261016-1200-abc123/brggame.sav", "saves/live.json",
+                         "modpacks/My run.lidpack",
                          "mods/my-own-mod/mod.json", "LiD Vanilla DB/5.0.4.1/masters.db"):
             self.assertEqual((self.new / relative).read_bytes(),
                              (self.old_root / relative).read_bytes(), relative)

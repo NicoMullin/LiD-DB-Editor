@@ -8,12 +8,16 @@ returns a report, so callers decide how to present the outcome.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
+import os
 from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 
 import shutil
 import sqlite3
 
+from . import __version__
 from . import adopt
 from . import asset_runner
 from . import browse
@@ -28,8 +32,14 @@ from . import vetted
 from . import install as install_module
 from . import migrations
 from . import modedit
+from . import modpack
 from . import plugins as plugins_module
+from . import savecheck
+from . import saveedit
 from . import savegame
+from . import savelibrary
+from . import savelink
+from . import savesummary
 from . import snapshot as snapshot_module
 from .conflict import ConflictReport, analyze
 from .errors import ModManagerError
@@ -49,7 +59,7 @@ from .runner import (
     revert_mods,
 )
 from .session_log import SessionLog, rotate_logs
-from .sqlutil import connect
+from .sqlutil import connect, sha256_file
 from .state import State
 from .validator import ValidationReport, validate
 from .watchdog import STATUS_MISSING, STATUS_STALE, DbStatus, DbWatcher
@@ -61,6 +71,80 @@ MOD_FAILED = "failed"  # red
 MOD_DISABLED = "disabled"
 
 DELTAS_KEPT_PER_MOD = 6
+
+
+@dataclass
+class SaveGameData:
+    """The game's data a save's editor works from (Manager.save_game_data)."""
+
+    db_path: Path | None
+    # "applied": the game's masters.db, whose mods are the save's; "built": a copy
+    # made with the save's mods; "stock": no mods are noted for the save, so the
+    # clean database - stock limits, which every game holds; "unknown": the same,
+    # but with no clean copy, so the game's masters.db as it is; "no-clean-copy":
+    # the save's mods are known, but there is nothing to build them on.
+    source: str
+    mods: list = field(default_factory=list)        # the save's mods, as used
+    missing: list = field(default_factory=list)     # the save's mods not installed here
+
+    def describe(self) -> str:
+        count = f"{len(self.mods)} mod(s)" if self.mods else "no mods"
+        if self.source == "built":
+            text = f"the game's data with this save's {count}, put together for the editor"
+        elif self.source == "applied":
+            text = f"the game's data as it is - its {count} are this save's"
+        elif self.source == "no-clean-copy":
+            text = ("the game's data as it is - there is no clean copy to put this save's own mods "
+                    "together on")
+        elif self.source == "stock":
+            text = ("the clean game's data - no mod list is noted for this save yet, so its limits are "
+                    "the stock ones, which hold in every game")
+        else:
+            text = "the game's data as it is - no mod list is noted for this save yet"
+        if self.missing:
+            text += f". Not installed here, so left out: {', '.join(self.missing)}"
+        return text
+
+
+@dataclass
+class ModpackInfo:
+    """One mod pack as the Modpacks box lists it: a packed file, or an old list of names."""
+
+    name: str
+    pack: "modpack.Pack | None" = None       # a .lidpack: the mods, settings and plugins themselves
+    mod_ids: list = field(default_factory=list)   # an old list-only pack (state.json)
+
+    @property
+    def packed(self) -> bool:
+        return self.pack is not None
+
+    @property
+    def enabled(self) -> list:
+        return list(self.pack.choice["enabled_mods"]) if self.pack else list(self.mod_ids)
+
+
+@dataclass
+class OpenedPack:
+    """A packed mod pack unpacked, with what loading it would change (Manager.open_modpack)."""
+
+    info: ModpackInfo
+    folder: Path
+    plan: "modpack.Plan"
+
+
+class ModpackExists(ModManagerError):
+    """A different mod pack of that name is kept already."""
+
+
+@dataclass
+class SavesUpdate:
+    """What bringing the library up to date from the game did."""
+
+    updated: list = field(default_factory=list)     # entries brought up to date
+    foreign: list = field(default_factory=list)     # LiveSaves: another save in an entry's place
+    failed: list = field(default_factory=list)      # why an entry could not be
+    restored: list = field(default_factory=list)    # entries brought back from the game's save folder
+    relinked: list = field(default_factory=list)    # entries found to be the save in the game
 
 
 @dataclass(frozen=True)
@@ -96,6 +180,10 @@ class Manager:
         self.started_fresh = not self.paths.state_file.is_file()
         self.state = State.load(self.paths.state_file)
         self.scan = ScanResult()
+        self._library: "savelibrary.Library | None" = None
+        # Why the last save added to the library could not be backed up to
+        # Steam Cloud as new saves are (None when it was).
+        self.cloud_default_problem: str | None = None
         self.watcher = DbWatcher(
             self.state.db_path or None,
             self.state.db_sha256_at_last_save,
@@ -206,6 +294,375 @@ class Manager:
         else:
             self.log.info(f"New game day: {save} already begins a new day at the next start - left alone")
         return result
+
+    # -- the save library --------------------------------------------------
+
+    @property
+    def library(self) -> "savelibrary.Library":
+        if self._library is None:
+            self._library = savelibrary.Library(self.paths.root, game_root=lambda: self.asset_game_root)
+        return self._library
+
+    def mod_choice(self) -> dict:
+        """The mod list as it stands - which mods, their settings and parts - for a save to keep."""
+        return copy.deepcopy({
+            "enabled_mods": self.state.enabled_mods,
+            "mod_settings": self.state.mod_settings,
+            "disabled_patches": self.state.disabled_patches,
+            "enabled_patches": self.state.enabled_patches,
+        })
+
+    def use_mod_choice(self, mods: dict) -> list[str]:
+        """A save's (or a mod pack's) mod list made the one ticked here (not applied -
+        Save Mod List does that): those mods, in that order, each with the settings
+        and parts it gives them. Settings kept for mods it leaves off stay as they are.
+
+        Returns the mods it names that are not installed, which are left out.
+        """
+        installed = set(self.scan.by_id)
+        wanted = [str(m) for m in mods.get("enabled_mods", []) or []]
+        missing = [m for m in wanted if m not in installed]
+        self.state.enabled_mods = [m for m in wanted if m in installed]
+        for key in ("mod_settings", "disabled_patches", "enabled_patches"):
+            given = mods.get(key) if isinstance(mods.get(key), dict) else {}
+            kept = getattr(self.state, key)
+            for mod_id in self.state.enabled_mods:
+                if given.get(mod_id):
+                    kept[mod_id] = copy.deepcopy(given[mod_id])
+                else:
+                    kept.pop(mod_id, None)
+        self.state.save()
+        return missing
+
+    def mods_in_place(self, mods: dict) -> str:
+        """How far a save's (or a pack's) mod list is already set up here.
+
+        "applied": it is the list last saved into the game, every one of its mods
+        is still the version that was applied, and the database is still the one
+        that save left - so nothing has to be written (the ticks may have moved
+        since; putting them back is all). "ticked": it is the list ticked now, but
+        the game does not have it yet (never saved, a mod updated since, or the
+        database replaced by a game update or Steam's file check) - only Save Mod
+        List is needed. "": it is a different list.
+        """
+        applied = self.state.applied_choice
+        if applied and savelink.same_choice(mods, applied):
+            installed = self.installed_versions()
+            current = all(
+                m in installed and m in self.state.applied
+                and self.state.applied[m].version == installed[m]
+                for m in savelink.trim_choice(mods)["enabled_mods"])
+            if current and self.db_status().state == "ok":
+                return "applied"
+        return "ticked" if savelink.same_choice(mods, self.mod_choice()) else ""
+
+    def _remember_mods_for_live_saves(self) -> None:
+        """After the mod list is applied: each save in the game keeps that list,
+        in its library entry and in the note beside it that travels with it."""
+        game_root = self.asset_game_root
+        if game_root is None:
+            return
+        choice = copy.deepcopy(self.state.applied_choice or self.mod_choice())
+        try:
+            for live in self.library.live(game_root):
+                self._write_link(live.path, choice)
+                if live.known:
+                    self.library.remember_mods(live.entry.id, choice)
+        except (OSError, savelibrary.LibraryError) as exc:
+            self.log.warn(f"the save library could not note the mod list: {exc}")
+
+    def installed_versions(self) -> dict[str, str]:
+        return {mod.id: str(mod.version or "") for mod in self.scan.mods}
+
+    def _write_link(self, save: Path, mods: dict | None) -> None:
+        """The note beside the save in the game: ``mods``, or none when nothing is known."""
+        try:
+            if mods is None:
+                savelink.remove(save)
+                return
+            versions = self.installed_versions()
+            savelink.write(save, mods, {m: versions[m] for m in mods.get("enabled_mods", []) if m in versions},
+                           f"LID DB Mod Manager {__version__}")
+        except (OSError, savegame.SaveError) as exc:
+            self.log.warn(f"could not note the mod list beside {save}: {exc}")
+
+    def save_mod_checks(self) -> list["savelink.Check"]:
+        """For each save in the game: its own note's mods against what this install has applied."""
+        applied = self.state.applied_choice or {"enabled_mods": [m for m in self.state.enabled_mods
+                                                                  if m in self.state.applied]}
+        installed = self.installed_versions()
+        return [savelink.check(path, applied, installed) for path in self.saves()]
+
+    def save_names(self) -> "savesummary.Names":
+        return savesummary.Names(self.db_path)
+
+    def add_live_save(self, steam_id: str, nickname: str) -> "savelibrary.Entry":
+        """The save in the game kept in the library, with the mods its own note gives it
+        (it may have come from another PC), else the mods applied here."""
+        mods = None
+        for check in self.save_mod_checks():
+            if check.save.parent.name == steam_id and check.belongs:
+                mods = check.link.mods
+        if mods is None:
+            mods = copy.deepcopy(self.state.applied_choice) or self.mod_choice()
+        entry = self.library.add_live(self.asset_game_root, steam_id, nickname, mods)
+        self.log.info(f"Save library: the save in the game for {steam_id} kept as \"{entry.nickname}\"")
+        return self._cloud_by_default(entry)
+
+    def import_save(self, source: Path, steam_id: str, nickname: str) -> "savelibrary.Entry":
+        entry = self.library.import_file(source, steam_id, nickname)
+        self.log.info(f"Save library: {source} kept as \"{entry.nickname}\"")
+        return self._cloud_by_default(entry)
+
+    def update_saves_from_game(self) -> "SavesUpdate":
+        """Every save in the game that has been played since it was kept, copied into its
+        library slot - run when the game closes and when the manager starts.
+
+        Only ever the same save (savelibrary.same_save): a different save in its
+        place is left for the player to keep as one of its own, and the slot is
+        not touched. Nothing happens while the game runs.
+        """
+        result = SavesUpdate()
+        if self.asset_game_root is None:
+            return result
+        try:
+            found = self.library.sync_from_game(self.asset_game_root)
+        except OSError as exc:
+            result.failed.append(str(exc))
+            return result
+        result.restored, result.relinked = found.restored, found.relinked
+        result.failed.extend(found.failed)
+        for entry in found.restored:
+            self.log.info(f"Save library: {entry.nickname} brought back into slot {entry.slot} "
+                          "from its copy in the game's save folder")
+        for entry in found.relinked:
+            self.log.info(f"Save library: the save in the game is {entry.nickname} (slot {entry.slot})")
+        if asset_runner.game_running():
+            return result
+        try:
+            live = self.library.live(self.asset_game_root)
+        except OSError as exc:
+            result.failed.append(str(exc))
+            return result
+        for save in live:
+            if save.foreign:
+                result.foreign.append(save)
+            elif save.known and not save.in_sync:
+                try:
+                    result.updated.append(self.store_live_save(save.steam_id))
+                except (savelibrary.LibraryError, OSError) as exc:
+                    result.failed.append(f"{save.entry.nickname}: {exc}")
+                    self.log.warn(f"Save library: {save.entry.nickname} could not be brought up to date: {exc}")
+        return result
+
+    def import_strays(self, paths: list) -> list:
+        """Other saves found in the game's save folder, each given a slot of its own.
+
+        Not backed up to Steam Cloud by default: the file is in the cloud already,
+        where it was found."""
+        kept = []
+        for path in paths:
+            path = Path(path)
+            # Savedata/<steam id>/..., or the old layout's Savedata/<steam id>.sav
+            steam_id = next((n for n in (path.parent.name, path.stem) if n.isdigit()), "")
+            name = path.name[len(savegame.SAVE_NAME) + 1:] if path.name.lower().startswith(
+                savegame.SAVE_NAME + ".") else path.stem
+            entry = self.library.import_file(path, steam_id, name or path.name)
+            self.log.info(f"Save library: {path.name} from the game's save folder kept in slot {entry.slot}")
+            kept.append(entry)
+        return kept
+
+    def store_live_save(self, steam_id: str) -> "savelibrary.Entry | None":
+        entry = self.library.store_live(self.asset_game_root, steam_id)
+        if entry is not None:
+            self.log.info(f"Save library: \"{entry.nickname}\" brought up to date from the game")
+        return entry
+
+    def start_new_save(self, steam_id: str, profile_name: str, nickname: str,
+                       start: str = "tutorial") -> "savelibrary.Entry":
+        """A new game in place of the save in the game (kept in the library), with no mods noted."""
+        if self.asset_game_root is None:
+            raise savelibrary.LibraryError("the game folder is not known - set it with Tools > Set game folder...")
+        entry = self.library.start_fresh(self.asset_game_root, steam_id, profile_name, nickname, start=start)
+        self._write_link(Path(self.asset_game_root) / "Savedata" / steam_id / savegame.SAVE_NAME, None)
+        self.log.info(f"Save library: a new game, \"{entry.nickname}\", is now the save in the game")
+        return self._cloud_by_default(entry)
+
+    def _cloud_by_default(self, entry: "savelibrary.Entry") -> "savelibrary.Entry":
+        """A save new to the library is backed up to Steam Cloud from the start, when it fits.
+
+        When it does not (the cloud is near its budget, or the game folder is
+        unknown), the save is kept all the same and ``cloud_default_problem``
+        says why, for the window to pass on.
+        """
+        self.cloud_default_problem = None
+        try:
+            return self.set_save_cloud(entry.id, True)
+        except (savelibrary.LibraryError, OSError) as exc:
+            self.cloud_default_problem = str(exc)
+            self.log.warn(f"Save library: \"{entry.nickname}\" is not backed up to Steam Cloud: {exc}")
+            return entry
+
+    def set_save_cloud(self, entry_id: str, on: bool) -> "savelibrary.Entry":
+        entry = self.library.set_cloud(entry_id, on)
+        self.log.info(f"Save library: \"{entry.nickname}\" "
+                      + ("backed up to Steam Cloud" if on else "no longer backed up to Steam Cloud"))
+        return entry
+
+    def restore_cloud_saves(self, found: list) -> list:
+        restored = [self.library.restore_from_cloud(cloud) for cloud in found]
+        for entry in restored:
+            self.log.info(f"Save library: \"{entry.nickname}\" brought in from its Steam Cloud backup")
+        return restored
+
+    # -- editing a save ----------------------------------------------------
+
+    def _edit_target(self, entry_id: str) -> tuple:
+        """(the entry, the file to edit, whether it is the game's own save)."""
+        entry = self.library.get(entry_id)
+        if self.asset_game_root is not None:
+            live = self.library.live_for(self.asset_game_root, entry.steam_id)
+            if live is not None and live.known and live.entry.id == entry.id:
+                return entry, live.path, True
+        return entry, entry.save, False
+
+    def open_save(self, entry_id: str) -> "saveedit.SaveDocument":
+        """A save from the library, ready to edit - the game's own file when it is the save
+        in the game, so nothing played since is missed."""
+        _, path, _ = self._edit_target(entry_id)
+        return saveedit.SaveDocument.read(path)
+
+    def save_limits(self, db_path: Path | None = None) -> "saveedit.Limits":
+        return saveedit.Limits.read(db_path or self.db_path)
+
+    def save_mods(self, entry_id: str) -> dict | None:
+        """The mod list a save is played with: the note beside it when it is the save in
+        the game (it travels with the save), else its library slot's. None when unknown."""
+        entry, path, in_game = self._edit_target(entry_id)
+        if in_game:
+            link = savelink.read(path)
+            if link is not None:
+                try:
+                    if link.save == savelink.save_identity(path):
+                        return link.mods
+                except (OSError, savegame.SaveError):
+                    pass
+        return entry.mods or None
+
+    def _mods_for_choice(self, choice: dict) -> tuple[list, list]:
+        """(the mods ``choice`` names, trimmed to its settings and parts; those not installed)."""
+        parts = State(path=self.paths.root / "unused-state.json")
+        parts.disabled_patches = dict(choice.get("disabled_patches") or {})
+        parts.enabled_patches = dict(choice.get("enabled_patches") or {})
+        settings = choice.get("mod_settings") or {}
+        by_id = self.scan.by_id
+        mods, missing = [], []
+        for mod_id in choice.get("enabled_mods", []) or []:
+            mod = by_id.get(mod_id)
+            if mod is None:
+                missing.append(mod_id)
+                continue
+            mod = mod.with_settings(settings.get(mod_id))
+            kept = [p for p in mod.patches if parts.is_part_on(mod.id, p.key, p.ships_on)]
+            mods.append(mod if len(kept) == len(mod.patches) else replace(mod, patches=kept))
+        return mods, missing
+
+    def save_game_data(self, entry_id: str) -> "SaveGameData":
+        """The game's data as a save's own mods make it: what its editor shows and allows.
+
+        The game's masters.db when its applied mods are the save's (or nothing is
+        known of the save's); else a copy built for the editor - a clean database
+        with the save's mods applied, kept in the cache. The game's own database
+        is never touched.
+        """
+        choice = self.save_mods(entry_id)
+        applied = self.state.applied_choice or self.mod_choice()
+        if choice is None:
+            # Stock is the safe guess: whatever the clean game holds, a modded one holds too.
+            if self.vanilla_path is not None:
+                return SaveGameData(self.vanilla_path, "stock", [], [])
+            return SaveGameData(self.db_path, "unknown", [], [])
+        mods, missing = self._mods_for_choice(choice)
+        names = [m.id for m in mods]
+        if savelink.same_choice(choice, applied) or self.vanilla_path is None:
+            source = "applied" if savelink.same_choice(choice, applied) else "no-clean-copy"
+            return SaveGameData(self.db_path, source, names, missing)
+        versions = {m.id: str(m.version or "") for m in mods}
+        key = hashlib.sha256(json.dumps({
+            "clean": str(self.vanilla_path), "clean_size": self.vanilla_path.stat().st_size,
+            "clean_time": self.vanilla_path.stat().st_mtime_ns, "choice": choice, "versions": versions,
+            "manager": __version__,
+        }, sort_keys=True, default=str).encode()).hexdigest()[:20]
+        folder = self.paths.root / "cache" / "save-data"
+        built = folder / f"{key}.db"
+        if not built.is_file():
+            folder.mkdir(parents=True, exist_ok=True)
+            work = folder / f".{key}.building"
+            shutil.rmtree(work, ignore_errors=True)
+            work.mkdir()
+            try:
+                copy = work / "masters.db"
+                shutil.copy2(self.vanilla_path, copy)
+                report = apply_mods(copy, mods, snapshots_dir=work / "snapshots", log=SessionLog(),
+                                    installed_ids=set(self.scan.by_id))
+                if not report.ok:
+                    raise saveedit.EditError(f"the save's mods could not be put together for the editor: "
+                                             f"{report.error}")
+                os.replace(copy, built)
+            finally:
+                shutil.rmtree(work, ignore_errors=True)
+            for old in sorted(folder.glob("*.db"), key=lambda p: p.stat().st_mtime, reverse=True)[3:]:
+                old.unlink(missing_ok=True)          # the last few kept: each is a whole database
+            self.log.info(f"Save editor: game data built with {len(mods)} mod(s) for the save "
+                          f"({', '.join(names) or 'no mods'})")
+        return SaveGameData(built, "built", names, missing)
+
+    def check_save(self, entry_id: str) -> "savecheck.SaveCheck | None":
+        """The signs of mods in a save, against the clean database (None without one)."""
+        if self.vanilla_path is None:
+            return None
+        return savecheck.check(self.open_save(entry_id), self.vanilla_path, self.scan.mods)
+
+    def found_mods_choice(self, found: "savecheck.SaveCheck") -> dict:
+        """A mod list of the mods a check found, in load order, each with the settings
+        and parts it has here - what the player is offered for the save."""
+        ids = self.adoption_order([m for m in found.found_mods if m in self.scan.by_id],
+                                  recorded=self.state.enabled_mods)
+        choice = savelink.trim_choice({**self.mod_choice(), "enabled_mods": ids})
+        choice["noted"] = "found"
+        return choice
+
+    def note_save_mods(self, entry_id: str, choice: dict, how: str = "chosen") -> "savelibrary.Entry":
+        """The mod list a save is played with, as the player settled it for a save with none
+        noted. Save Mod List with the save in the game notes the real list over it."""
+        choice = {**savelink.trim_choice(choice), "noted": how}
+        entry = self.library.remember_mods(entry_id, choice)
+        names = ", ".join(choice["enabled_mods"]) or "no mods"
+        self.log.info(f"Save library: \"{entry.nickname}\" noted as played with {names} ({how})")
+        return entry
+
+    def write_edited_save(self, entry_id: str, document: "saveedit.SaveDocument") -> "savelibrary.Entry":
+        """An edited save written back: backed up first, the game closed; its library slot
+        (and Steam Cloud copy) follow."""
+        entry, path, in_game = self._edit_target(entry_id)
+        data = document.to_bytes()
+        backup = saveedit.write_save(path, data, self.paths.backups_dir)
+        for change in document.changes():
+            self.log.info(f"Save editor: {entry.nickname}: {change.label} {change.before} -> {change.after}")
+        self.log.info(f"Save editor: {entry.nickname} written; the save as it was is at {backup}")
+        if in_game:
+            return self.library.store_live(self.asset_game_root, entry.steam_id) or entry
+        return self.library.saved_over(entry.id)
+
+    def switch_save(self, entry_id: str) -> "savelibrary.Entry":
+        """Put a save from the library in the game. Its mod list is not applied here."""
+        if self.asset_game_root is None:
+            raise savelibrary.LibraryError("the game folder is not known - set it with Tools > Set game folder...")
+        entry = self.library.switch_to(self.asset_game_root, entry_id)
+        self._write_link(Path(self.asset_game_root) / "Savedata" / entry.steam_id / savegame.SAVE_NAME,
+                         entry.mods or None)
+        self.log.info(f"Save library: \"{entry.nickname}\" is now the save in the game")
+        return entry
 
     # -- the game's own file check ----------------------------------------
 
@@ -609,6 +1066,8 @@ class Manager:
                 self.state.db_sha256_at_last_save, self.state.db_mtime_at_last_save
             )
             self.follow_plugins()
+            self.state.applied_choice = self.mod_choice()
+            self._remember_mods_for_live_saves()
         self.state.save()
         return report
 
@@ -807,6 +1266,12 @@ class Manager:
             )
             if disable:
                 self.follow_plugins()
+                reverted = {r.mod_id for r in results if r.ok}
+                if self.state.applied_choice:
+                    choice = copy.deepcopy(self.state.applied_choice)
+                    choice["enabled_mods"] = [m for m in choice.get("enabled_mods", []) if m not in reverted]
+                    self.state.applied_choice = choice
+                    self._remember_mods_for_live_saves()
         self.state.save()
         return results
 
@@ -851,21 +1316,181 @@ class Manager:
         self.state.save()
 
     # -- modpacks ----------------------------------------------------------
+    #
+    # A mod pack is one .lidpack file (modpack.py) in <root>/modpacks: the
+    # ticked mods themselves, their settings and parts, and the plugins they go
+    # with - so it loads to the same list on any PC, and can be handed out with
+    # a save. Packs saved before that kept only the mods' names in state.json;
+    # those still load, as a list of names, and are packed when exported.
 
-    def save_modpack(self, name: str) -> None:
-        self.state.save_modpack(name)
-        self.state.save()
-        self.log.info(f"Saved modpack {name!r} ({len(self.state.enabled_mods)} mod(s))")
+    def modpacks(self) -> list[ModpackInfo]:
+        found: dict[str, ModpackInfo] = {}
+        for path in sorted(self.paths.modpacks_dir.glob("*" + modpack.SUFFIX)):
+            try:
+                pack = modpack.read(path)
+            except modpack.PackError as exc:
+                self.log.warn(f"Mod pack {path.name} skipped: {exc}")
+                continue
+            found.setdefault(pack.name, ModpackInfo(pack.name, pack))
+        for name, mod_ids in self.state.modpacks.items():
+            found.setdefault(name, ModpackInfo(name, mod_ids=list(mod_ids)))
+        return sorted(found.values(), key=lambda info: info.name.lower())
 
-    def load_modpack(self, name: str) -> list[str]:
-        mod_ids = self.state.load_modpack(name)
-        self.state.save()
-        self.log.info(f"Loaded modpack {name!r}")
-        return mod_ids
+    def modpack(self, name: str) -> ModpackInfo:
+        for info in self.modpacks():
+            if info.name == name:
+                return info
+        raise KeyError(name)
+
+    def _pack_path(self, name: str) -> Path:
+        """Where the pack called ``name`` is kept: its own file, or a free name for it."""
+        folder = self.paths.modpacks_dir
+        for path in folder.glob("*" + modpack.SUFFIX):
+            try:
+                if modpack.read(path).name == name:
+                    return path
+            except modpack.PackError:
+                continue
+        path, n = folder / modpack.file_name(name), 1
+        while path.exists():
+            n += 1
+            path = folder / modpack.file_name(f"{name} ({n})")
+        return path
+
+    def _write_pack(self, target: Path, name: str, choice: dict,
+                    save: tuple[bytes, str] | None = None) -> "modpack.Pack":
+        mods = [self.scan.by_id[m] for m in choice.get("enabled_mods", []) or [] if m in self.scan.by_id]
+        pack = modpack.write(target, name, choice, mods, self.asset_game_root,
+                             f"LID DB Mod Manager {__version__}", save=save)
+        size = target.stat().st_size / (1 << 20)
+        self.log.info(f"Mod pack {pack.name!r} packed: {len(pack.mods)} mod(s), {len(pack.plugins)} plugin(s)"
+                      + (", a save" if pack.save else "") + f", {size:,.1f} MB - {target}")
+        for dll in pack.missing_plugins:
+            self.log.warn(f"Mod pack {pack.name!r}: the plugin {dll} is not in the game folder, so it is "
+                          "not in the pack - whoever loads it gets it with Get mods")
+        return pack
+
+    def save_modpack(self, name: str) -> "modpack.Pack":
+        """The ticked mods, with their settings and parts and plugins, packed as ``name``."""
+        name = name.strip()
+        self.paths.modpacks_dir.mkdir(parents=True, exist_ok=True)
+        pack = self._write_pack(self._pack_path(name), name, self.mod_choice())
+        if self.state.modpacks.pop(name, None) is not None:
+            self.state.save()                   # the old list-only pack of that name is this now
+        return pack
+
+    def open_modpack(self, name: str) -> OpenedPack:
+        """A packed mod pack unpacked into the cache, and what loading it would change."""
+        info = self.modpack(name)
+        if not info.packed:
+            raise modpack.PackError(f"{name} is an old list-only mod pack: there is nothing in it to unpack")
+        folder = modpack.unpack(info.pack, self.paths.root / "cache" / "modpack")
+        plan = modpack.plan(info.pack, folder, self.paths.mods_dir, self.asset_game_root)
+        return OpenedPack(info, folder, plan)
+
+    def close_modpack(self, opened: OpenedPack) -> None:
+        """An opened pack not loaded after all: its unpacked copy tidied away."""
+        shutil.rmtree(opened.folder, ignore_errors=True)
+
+    def load_modpack(self, name: str, keep_mine: bool = False, opened: OpenedPack | None = None) -> list[str]:
+        """Tick the pack's mods with its settings and parts (Save Mod List applies them).
+
+        A packed one first puts in place what it holds that is not here - and,
+        unless ``keep_mine``, swaps a different copy here for the pack's, so the
+        list is exactly the one packed (a replaced copy goes to the backups).
+        Returns the mods now ticked.
+        """
+        info = opened.info if opened else self.modpack(name)
+        if not info.packed:
+            mod_ids = self.state.load_modpack(name)
+            self.state.save()
+            self.log.info(f"Loaded modpack {name!r}")
+            return mod_ids
+        opened = opened or self.open_modpack(name)
+        try:
+            if opened.plan.writes_anything:
+                for line in modpack.install(info.pack, opened.folder, opened.plan, self.paths.mods_dir,
+                                            self.asset_game_root, self.paths.backups_dir, keep_mine=keep_mine):
+                    self.log.info(f"Mod pack {name!r}: {line}")
+                self.rescan()
+        finally:
+            shutil.rmtree(opened.folder, ignore_errors=True)
+        missing = self.use_mod_choice(info.pack.choice)
+        for mod_id in missing:
+            self.log.warn(f"Mod pack {name!r}: {mod_id} could not be put in place, so it is left out")
+        self.log.info(f"Loaded mod pack {name!r} ({len(self.state.enabled_mods)} mod(s) ticked)")
+        return list(self.state.enabled_mods)
+
+    def import_modpack(self, source: Path, replace: bool = False) -> "modpack.Pack":
+        """A .lidpack from anywhere, kept with the others. Loading it is the player's next step."""
+        pack = modpack.read(source)
+        self.paths.modpacks_dir.mkdir(parents=True, exist_ok=True)
+        target = self._pack_path(pack.name)
+        if target.exists():
+            if sha256_file(target) == sha256_file(source):
+                return modpack.read(target)
+            if not replace:
+                raise ModpackExists(f"There is already a mod pack called {pack.name!r}.")
+        partial = target.with_name(target.name + ".partial")
+        try:
+            shutil.copyfile(source, partial)
+            os.replace(partial, target)
+        finally:
+            partial.unlink(missing_ok=True)
+        if self.state.modpacks.pop(pack.name, None) is not None:
+            self.state.save()
+        self.log.info(f"Mod pack {pack.name!r} kept from {source}")
+        return modpack.read(target)
+
+    def export_modpack(self, name: str, target: Path) -> "modpack.Pack":
+        """The pack as a file to hand out. An old list-only one is packed now, from the
+        mods installed here with their settings as they are."""
+        info = self.modpack(name)
+        target = Path(target)
+        if info.packed:
+            shutil.copyfile(info.pack.path, target)
+            self.log.info(f"Mod pack {name!r} exported to {target}")
+            return modpack.read(target)
+        choice = self.mod_choice()
+        choice["enabled_mods"] = list(info.mod_ids)
+        return self._write_pack(target, name, choice)
 
     def delete_modpack(self, name: str) -> None:
+        for info in self.modpacks():
+            if info.name == name and info.packed:
+                info.pack.path.unlink(missing_ok=True)
         self.state.delete_modpack(name)
         self.state.save()
+
+    def pack_save(self, entry_id: str, target: Path) -> "modpack.Pack":
+        """A save and the mods it is played with, in one file to hand out."""
+        entry, path, _ = self._edit_target(entry_id)
+        choice = self.save_mods(entry_id)
+        if choice is None:
+            raise modpack.PackError(f"It is not known which mods \"{entry.nickname}\" is played with yet. Put "
+                                    "it in the game and Save Mod List with its mods ticked, and the manager "
+                                    "notes them.")
+        try:
+            data = Path(path).read_bytes()
+        except OSError as exc:
+            raise modpack.PackError(f"The save could not be read: {exc}") from None
+        return self._write_pack(Path(target), entry.nickname, choice, save=(data, entry.nickname))
+
+    def keep_pack_save(self, name: str, steam_id: str, nickname: str) -> "savelibrary.Entry":
+        """The save in a mod pack kept in the library, noted as played with the pack's mods."""
+        info = self.modpack(name)
+        if not info.packed or info.pack.save is None:
+            raise modpack.PackError(f"The mod pack {name!r} holds no save.")
+        work = self.paths.root / "cache" / "modpack-save"
+        work.mkdir(parents=True, exist_ok=True)
+        source = work / savegame.SAVE_NAME
+        try:
+            source.write_bytes(modpack.save_bytes(info.pack))
+            entry = self.library.import_file(source, steam_id, nickname, mods=copy.deepcopy(info.pack.choice))
+        finally:
+            source.unlink(missing_ok=True)
+        self.log.info(f"Save library: the save in the mod pack {name!r} kept as \"{entry.nickname}\"")
+        return self._cloud_by_default(entry)
 
     # -- installing new mods ----------------------------------------------
 

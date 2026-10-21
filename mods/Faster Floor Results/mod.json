@@ -6,7 +6,7 @@
   "author": "KSFA",
   "category": "Quality of life",
   "tags": ["loading", "floor-results", "waiting", "game-files"],
-  "game_version": ["5.0.4.4.0 - 1.91"],
+  "game_version": ["5.0.4.4.0 - 1.91", "5.0.5.0.0 - 1.92"],
   "requires": [],
   "conflicts_with": [],
   "requires_check_off": ["SteamPCRelease-BrgUI.ini"],

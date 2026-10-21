@@ -175,7 +175,7 @@ class EditingAMod(unittest.TestCase):
 
     def test_renaming_updates_modpacks(self) -> None:
         self.manager.set_enabled("old-name", True)
-        self.manager.save_modpack("my pack")
+        self.manager.state.save_modpack("my pack")      # an old list-only pack: a packed one keeps its copy
         self.manager.edit_mod("old-name", "Renamed")
         self.assertIn("Renamed", self.manager.state.modpacks["my pack"])
         self.assertNotIn("old-name", self.manager.state.modpacks["my pack"])

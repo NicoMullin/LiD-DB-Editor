@@ -36,6 +36,40 @@ compares it with a clean copy of the same game build, says which mods it can
 already see in there, and offers to take them over. The moment you pick a
 database it also keeps a permanent `masters.db.original` copy.
 
+### What's new in Beta V0.13.0
+
+**Your saves, in a new Saves tab.** A library of 30 save slots, each with a
+nickname, a summary (Kill Coins, Splithium, Death Metals, time played, highest
+floor, blueprints, every fighter's stats) and the mods it was played with.
+**Switch to this save** puts it in the game and offers its mod list; **Use its
+mod list** ticks those mods, and says so when the game already has them.
+Saves are kept up to date when the game closes, backed up to Steam Cloud, and
+can be shared with their mods as a `.lidpack`. **Start a new save...** begins a
+fresh game, before or after the tutorial. **▶ Play** starts the game.
+
+**A save editor** (**Edit...** on the Saves tab): the account's currencies;
+fighters, their Death Bags, gear and decals, and the Fighter Freezer (buy,
+delete, bring back, size); the Storage Box; research and blueprints; decals
+and weapon mastery; the stew list; quests; dates and timers; and Tengoku runs.
+It uses the save's own mods for its limits and lists, lists every change
+before writing, and backs the save up first. Built with the help of the save
+editors by oberlinx, g3usyk, mrzacarias and the lid-utils author, used with
+their permission.
+
+**Borderless Fullscreen** is in **Get mods**: the game fills the monitor with
+no title bar.
+
+**Game 1.92.** The update moved things inside BrgGame.upk, which stopped every
+mod that changes it. **Quest Limit 0.1.1** and **Skip Intro 0.1.1** are made
+for 1.92, and **Get mods** has 1.92 releases of Death Metals, Timers, Stew
+Multi Pull and Fighter Class Passives. Colored PlayStation Buttons needs a new
+release from its author for 1.92.
+
+**Fixed:** after a game update, a save that failed part way could leave every
+later save stopping with "the saved copy of BrgGame.upk is missing", which
+Steam's file check could not fix. The manager now rebuilds from the game's
+own file instead.
+
 ### What's new in Beta V0.12.9
 
 **Plugins are switched in the mod list.** A mod can now name the plugin it

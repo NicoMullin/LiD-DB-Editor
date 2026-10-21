@@ -6,7 +6,8 @@ Everything lives next to the source tree by default::
     <root>/snapshots/    per-mod pre-apply snapshots
     <root>/logs/         one plain-text log per session
     <root>/backups/      dated .db snapshots taken on "Save Mod List"
-    <root>/state.json    enabled mods, modpacks, last-seen DB hash
+    <root>/modpacks/     mod packs: each a .lidpack with its mods, settings and plugins
+    <root>/state.json    enabled mods, old list-only modpacks, last-seen DB hash
 
 Set ``LID_DB_MANAGER_HOME`` to move all of it somewhere else - useful when the
 tool is installed read-only, or frozen into an .exe living in Program Files.
@@ -54,6 +55,10 @@ class AppPaths:
     @property
     def backups_dir(self) -> Path:
         return self.root / "backups"
+
+    @property
+    def modpacks_dir(self) -> Path:
+        return self.root / "modpacks"
 
     @property
     def state_file(self) -> Path:

@@ -174,10 +174,11 @@ class ThePatches(unittest.TestCase):
         # 0.2.1's x10 (b48bb365...a293), proven in game, showed a card for
         # every decal; 0.3.0 (6eb28676...5f1c, proven) showed them all in the
         # grid; 0.4.0 (e0a460ee...1973, proven) asks for the run's whole price and
-        # can do it in one request; 0.4.1 raises the grid a little
+        # can do it in one request; 0.4.1 raises the grid a little (8d4f280d...c7d4, proven); 0.5.2 is
+        # the same code rebuilt for game 1.92, whose new names moved every number
         import hashlib
         self.assertEqual(hashlib.sha256(PATCHES[10].read_bytes()).hexdigest(),
-                         "8d4f280d1bf1241a5b1fcdf09d0d6642e867358f547e950a27cf9e400c83c7d4")
+                         "2b49bd3f76bb59e8910f2e9c4bb3ea03c548f7f09badd49abfd9a434272d9441")
 
     def test_a_run_fills_the_grid_instead_of_showing_cards(self) -> None:
         for n, functions, refs in self.each():

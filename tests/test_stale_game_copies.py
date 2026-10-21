@@ -161,6 +161,48 @@ class StalePackageRebuildTests(unittest.TestCase):
         self.assertEqual(plan[0][1].read_bytes(), b"scripts mark")
         self.assertIn(self.TARGET, manifest)
 
+    def _on_disk(self) -> dict:
+        return json.loads((self.store / "manifest.json").read_text(encoding="utf-8"))
+
+    def test_a_save_that_fails_after_dropping_an_old_copy_leaves_no_dangling_record(self) -> None:
+        # Found for real when 1.92 arrived: the save dropped 1.91's copy, then a
+        # mod's change no longer fitted, and the record of the deleted copy stayed.
+        class NoLongerFits(AddsAMark):
+            def transform(self, raw: bytes) -> bytes:
+                raise ValueError("those bytes are not in this package")
+
+        self._write_exe([("BrgGame.upk", sha1(b"new scripts"))], code=b"\xcc" * 512)
+        (self.cooked / "BrgGame.upk").write_bytes(b"new scripts")
+        self._manifest(**{self.TARGET: {"backup": self._kept("brg.original", b"old scripts")}})
+        manifest = self._on_disk()
+        with self.assertRaises(OSError):
+            asset_runner._stage_transforms({self.TARGET: (NoLongerFits(), "scripts")}, self.game,
+                                           self.store, manifest, self.root / "staging")
+        self.assertFalse((self.store / "brg.original").exists())
+        self.assertNotIn(self.TARGET, self._on_disk())
+
+    def test_a_missing_kept_copy_is_rebuilt_from_the_games_own_file(self) -> None:
+        self._write_exe([("BrgGame.upk", sha1(b"scripts"))], code=b"\xcc" * 512)
+        (self.cooked / "BrgGame.upk").write_bytes(b"scripts")
+        self._manifest(**{self.TARGET: {"backup": "brg.original"}})     # the file is not there
+        plan, manifest = self._stage()
+        self.assertEqual(plan[0][1].read_bytes(), b"scripts mark")
+        self.assertNotIn(self.TARGET, manifest)
+        self.assertNotIn(self.TARGET, self._on_disk())
+
+    def test_a_missing_kept_copy_with_a_changed_game_file_is_still_refused(self) -> None:
+        self._write_exe([("BrgGame.upk", sha1(b"scripts"))], code=b"\xcc" * 512)
+        (self.cooked / "BrgGame.upk").write_bytes(b"someone else's scripts")
+        self._manifest(**{self.TARGET: {"backup": "brg.original"}})
+
+        class PackageMod(AddsAMark):          # rebuilds one package, as the real ones do
+            def transform_target(self, target: str, raw: bytes) -> bytes:
+                return self.transform(raw)
+
+        with self.assertRaisesRegex(OSError, "already been changed"):
+            asset_runner._stage_transforms({self.TARGET: (PackageMod(), "scripts")}, self.game,
+                                           self.store, self._on_disk(), self.root / "staging")
+
     def test_with_the_file_check_switched_off(self) -> None:
         # Switched off, the exe lists brggame.upy: the hash beside it still counts.
         self._write_exe([("BrgGame.upy", sha1(b"new scripts"))], code=b"\xcc" * 512)

@@ -52,8 +52,9 @@ def cmd_status(manager: Manager, args: argparse.Namespace) -> int:
     print(f"  status   : {status.label}")
     print(f"  last save: {manager.state.last_saved_at or '(never)'}")
     print(f"  mods     : {len(manager.mods)} installed, {len(manager.state.enabled_mods)} enabled")
-    if manager.state.modpacks:
-        print(f"  modpacks : {', '.join(sorted(manager.state.modpacks))}")
+    packs = manager.modpacks()
+    if packs:
+        print(f"  modpacks : {', '.join(info.name for info in packs)}")
     deleted = manager.deleted_mods()
     if deleted:
         print(f"  deleted  : {', '.join(deleted)} (applied but no longer installed)")
@@ -220,17 +221,19 @@ def cmd_restore_game_files(manager: Manager, args: argparse.Namespace) -> int:
 
 def cmd_modpack(manager: Manager, args: argparse.Namespace) -> int:
     if args.action == "list":
-        if not manager.state.modpacks:
+        packs = manager.modpacks()
+        if not packs:
             print("no modpacks saved")
-        for name, mod_ids in sorted(manager.state.modpacks.items()):
-            print(f"{name}: {', '.join(mod_ids) or '(empty)'}")
+        for info in packs:
+            kind = "" if info.packed else " (list only)"
+            print(f"{info.name}{kind}: {', '.join(info.enabled) or '(empty)'}")
         return 0
     if not args.name:
         print("a modpack name is required", file=sys.stderr)
         return 1
     if args.action == "save":
-        manager.save_modpack(args.name)
-        print(f"saved modpack {args.name!r}")
+        pack = manager.save_modpack(args.name)
+        print(f"saved modpack {args.name!r} to {pack.path}")
         return 0
     if args.action == "load":
         try:

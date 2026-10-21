@@ -7,6 +7,7 @@ Everything the manager needs to undo what it did lives in its own folder:
     backups/        the stock copies of game files it changed, and dated
                     copies of the database
     cache/          the texture index, slow to rebuild
+    saves/          the save library: every save kept, its nickname and mods
 
 A new release unzipped somewhere else has none of it while the game is still
 modded, which is why "copy your files over" kept going wrong: copy too little
@@ -34,7 +35,7 @@ STATE_FILE = "state.json"
 EXE_NAME = "LID DB Mod Manager.exe"
 # Copied whole, in this order; state.json goes last of all, so a copy that
 # fails halfway leaves this install looking as new as it was.
-DATA_DIRS = ("snapshots", "backups", "cache")
+DATA_DIRS = ("snapshots", "backups", "cache", "saves", "modpacks")
 VANILLA_DIR = "LiD Vanilla DB"
 # Releases up to 0.10.1 carried their clean databases inside the program, here.
 # They are still clean copies, so they come across too: a player updating from

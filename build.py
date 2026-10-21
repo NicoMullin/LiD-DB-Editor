@@ -173,6 +173,11 @@ def build(one_file: bool, icon: Path | None, keep_console: bool) -> Path:
     if recipes.is_dir():
         command += ["--add-data", f"{recipes}{os.pathsep}lid_db_manager/recipes"]
         print(f"Bundling {len(list(recipes.glob('*.sql')))} content-pack recipe(s)")
+    # The new-game save "Start a new save" writes (see newsave.py).
+    templates = ROOT / "lid_db_manager" / "templates"
+    if templates.is_dir():
+        command += ["--add-data", f"{templates}{os.pathsep}lid_db_manager/templates"]
+        print("Bundling the new-save template")
     # The clean databases are NOT bundled: they are the game's own data, 276 MB
     # of it. The manager downloads the one for the player's build from the
     # repository's own LiD Vanilla DB folder instead - see clean_db_download.py.

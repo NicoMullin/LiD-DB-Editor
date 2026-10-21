@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QProgressDialog,
     QPushButton,
     QSplitter,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -33,6 +34,7 @@ from .. import APP_NAME, DB_FILENAME, DEFAULT_DB_HINT, __version__, steam_locate
 from .. import browse
 from .. import carry_over
 from .. import clean_db_download
+from .. import modpack
 from .. import self_update
 from ..browse import SORT_LABELS, SORT_ORDER
 from ..textsize import DEFAULT_SCALE, SCALE_PRESETS, clamp_scale, stepped
@@ -49,7 +51,7 @@ from ..install import (
 from ..errors import ModManagerError
 from ..modedit import ModEditError
 from .. import vanilla_library
-from ..manager import Manager
+from ..manager import Manager, ModpackExists
 from ..watchdog import STATUS_OK, STATUS_STALE, DbStatus
 from .adopt_dialog import AdoptDialog
 from .diff_view import DiffView
@@ -59,6 +61,8 @@ from .install_dialog import InstallDialog
 from .log_panel import LogPanel
 from .mod_filter_bar import ModFilterBar
 from .mod_list import MOD_ID_ROLE, ModListWidget
+from .game_watch import GameWatch
+from .saves_tab import SavesTab
 from .theme import apply_theme, colors
 from .workers import TaskThread, WatchThread
 
@@ -100,6 +104,18 @@ class MainWindow(QMainWindow):
             self.watch.start()
 
         self.refresh(rescan=False)
+        # The game starting and closing, however it was started: when it
+        # closes, the saves played are brought up to date in the library.
+        from .. import asset_runner
+
+        self.game_watch = GameWatch(
+            asset_runner.game_running,
+            lambda: [f for s in self.manager.saves() for f in (s, s.with_name("brggame.bak"))],
+            self,
+        )
+        self.game_watch.gameStarted.connect(self._on_game_started)
+        self.game_watch.gameClosed.connect(self._on_game_closed)
+        self.game_watch.start()
         # Parented to the window on purpose. QTimer.singleShot with a bound
         # method keeps no receiver, so it still fires after the window has been
         # destroyed and then builds a QMessageBox on a dead C++ object. Qt owns
@@ -168,16 +184,22 @@ class MainWindow(QMainWindow):
 
         get_mods = QPushButton("Get mods...")
         get_mods.setToolTip(
-            "Mods that need a plugin DLL (Death Metals, Timers, Login Bonus, Fighter Class "
-            "Passives, Offline Fixes), straight from their GitHub pages."
+            "Mods that need a plugin DLL (HUD, Death Metals, Timers, Login Bonus, Fighter Class "
+            "Passives, Offline Fixes, Borderless Fullscreen...), straight from their GitHub pages."
         )
         get_mods.clicked.connect(self.get_mods)
+
+        play = QPushButton("▶ Play")
+        play.setObjectName("primary")
+        play.setToolTip("Start LET IT DIE through Steam, with the mods and the save as they are now.")
+        play.clicked.connect(self.play_game)
 
         top = QHBoxLayout()
         top.addWidget(QLabel("Database:"))
         top.addWidget(self.db_label, 1)
         top.addWidget(browse)
         top.addWidget(get_mods)
+        top.addWidget(play)
 
         bottom = QHBoxLayout()
         bottom.addWidget(self.status_label, 1)
@@ -247,8 +269,21 @@ class MainWindow(QMainWindow):
         self.center_split.setStretchFactor(0, 3)
         self.center_split.setStretchFactor(1, 2)
 
+        # The mods and the save library, as tabs above the shared log. The
+        # Mods page (the list, its details and the footer) is filled in by
+        # _build_footer.
+        self.saves_tab = SavesTab(self.manager)
+        self.saves_tab.modListChosen.connect(self._on_save_mod_list_chosen)
+        self.saves_tab.modListRestored.connect(self._on_save_mod_list_restored)
+        self.saves_tab.packChosen.connect(self.import_modpack_file)
+        self.mods_page = QWidget()
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.mods_page, "Mods")
+        self.tabs.addTab(self.saves_tab, "Saves")
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+
         self.main_split = QSplitter(Qt.Orientation.Vertical)
-        self.main_split.addWidget(self.center_split)
+        self.main_split.addWidget(self.tabs)
         self.main_split.addWidget(self.log_panel)
         self.main_split.setStretchFactor(0, 4)
         self.main_split.setStretchFactor(1, 1)
@@ -256,10 +291,21 @@ class MainWindow(QMainWindow):
     def _build_footer(self) -> None:
         self.modpack_box = QComboBox()
         self.modpack_box.setMinimumWidth(180)
+        self.modpack_box.setToolTip("Mod packs: a mod list kept whole - the mods themselves, their settings "
+                                    "and their plugins - to load again or to hand to someone.")
         save_pack = QPushButton("Save as...")
+        save_pack.setToolTip("Pack the ticked mods, with their settings, parts and plugins, as a mod pack.")
         save_pack.clicked.connect(self.save_modpack)
         load_pack = QPushButton("Load")
+        load_pack.setToolTip("Tick the pack's mods with its settings, putting in place any it holds that "
+                             "are not here. Save Mod List applies them.")
         load_pack.clicked.connect(self.load_modpack)
+        import_pack = QPushButton("Import...")
+        import_pack.setToolTip("Keep a .lidpack someone gave you with your mod packs.")
+        import_pack.clicked.connect(self.import_modpack)
+        export_pack = QPushButton("Export...")
+        export_pack.setToolTip("The mod pack as one .lidpack file, to hand to someone.")
+        export_pack.clicked.connect(self.export_modpack)
         delete_pack = QPushButton("Delete")
         delete_pack.clicked.connect(self.delete_modpack)
 
@@ -272,6 +318,8 @@ class MainWindow(QMainWindow):
         packs.addWidget(self.modpack_box)
         packs.addWidget(save_pack)
         packs.addWidget(load_pack)
+        packs.addWidget(import_pack)
+        packs.addWidget(export_pack)
         packs.addWidget(delete_pack)
         packs.addStretch(1)
         packs.addWidget(self.dark_box)
@@ -308,7 +356,12 @@ class MainWindow(QMainWindow):
         central_layout.addWidget(self.header)
         central_layout.addWidget(line)
         central_layout.addWidget(self.main_split, 1)
-        central_layout.addWidget(footer)
+
+        mods_layout = QVBoxLayout(self.mods_page)
+        mods_layout.setContentsMargins(0, 0, 0, 0)
+        mods_layout.setSpacing(0)
+        mods_layout.addWidget(self.center_split, 1)
+        mods_layout.addWidget(footer)
         self.setCentralWidget(central)
 
         self.buttons = [self.save_button, self.reapply_button, self.revert_button, validate]
@@ -528,7 +581,9 @@ class MainWindow(QMainWindow):
         current = self.modpack_box.currentText()
         self.modpack_box.blockSignals(True)
         self.modpack_box.clear()
-        self.modpack_box.addItems(sorted(self.manager.state.modpacks))
+        for info in self.manager.modpacks():
+            # an old pack keeps only names: its mods and settings are whatever is here
+            self.modpack_box.addItem(info.name if info.packed else f"{info.name} (list only)", info.name)
         if current:
             index = self.modpack_box.findText(current)
             if index >= 0:
@@ -1154,25 +1209,188 @@ class MainWindow(QMainWindow):
 
     # -- modpacks ----------------------------------------------------------
 
-    def save_modpack(self) -> None:
-        name, ok = QInputDialog.getText(self, "Save modpack", "Name:")
-        if not ok or not name.strip():
-            return
-        self.manager.save_modpack(name.strip())
+    def _chosen_modpack(self) -> str:
+        return self.modpack_box.currentData() or ""
+
+    def _pack_task(self, work, on_done, message: str) -> None:
+        """A slow mod pack step off the GUI thread; a refusal is said plainly, not as a crash."""
+        def attempt():
+            try:
+                return True, work()
+            except (modpack.PackError, ModManagerError, OSError) as exc:
+                return False, exc
+
+        def done(result) -> None:
+            if result is None:
+                return
+            ok, value = result
+            if not ok:
+                QMessageBox.warning(self, "Mod pack", str(value))
+                self._refresh_modpacks()
+                return
+            on_done(value)
+        self._run(attempt, done, message=message)
+
+    def _select_modpack(self, name: str) -> None:
         self._refresh_modpacks()
-        self.modpack_box.setCurrentText(name.strip())
+        index = self.modpack_box.findData(name)
+        if index >= 0:
+            self.modpack_box.setCurrentIndex(index)
+
+    def save_modpack(self) -> None:
+        self._commit_setting_edits()
+        title = "Save mod pack"
+        name, ok = QInputDialog.getText(
+            self, title, "A name for this mod pack. It keeps the ticked mods themselves, with their "
+            "settings, parts and plugins:", text=self._chosen_modpack())
+        name = name.strip()
+        if not ok or not name:
+            return
+        if any(info.name == name for info in self.manager.modpacks()):
+            answer = QMessageBox.question(self, title, f"There is already a mod pack called \"{name}\". "
+                                                       "Pack the ticked mods over it?")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        def saved(pack) -> None:
+            self._select_modpack(pack.name)
+            note = (f"\n\nThese plugins were not in the game folder, so they are not in it: "
+                    f"{', '.join(pack.missing_plugins)}. Whoever loads it can get them with Get mods."
+                    if pack.missing_plugins else "")
+            QMessageBox.information(
+                self, title, f"Packed \"{pack.name}\": {len(pack.mods)} mod(s) with their settings"
+                + (f", {len(pack.plugins)} plugin(s)" if pack.plugins else "")
+                + f", {_megabytes(pack.path)}.{note}")
+        self._pack_task(lambda: self.manager.save_modpack(name), saved, f"Packing {name}...")
 
     def load_modpack(self) -> None:
-        name = self.modpack_box.currentText()
+        name = self._chosen_modpack()
         if not name:
             return
-        self.manager.load_modpack(name)
-        self.unsaved = True
-        self.refresh()
+        try:
+            info = self.manager.modpack(name)
+        except KeyError:
+            self._refresh_modpacks()
+            return
+        if not info.packed:
+            self.manager.load_modpack(name)
+            self.unsaved = True
+            self.refresh()
+            return
+        self._pack_task(lambda: self.manager.open_modpack(name), self._confirm_modpack_load,
+                        f"Opening {name}...")
+
+    def _ask_modpack_load(self, name: str, pack, plan) -> str:
+        """What loading may write, asked first: "pack" (the pack's copies), "mine" (keep
+        the player's own, add only what is missing) or "" (not now)."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Load mod pack")
+        box.setText(f"\"{name}\" ticks {len(pack.mods)} mod(s) with the settings it was packed with. "
+                    "First it puts in place:")
+        box.setInformativeText("\n".join(f"  - {line}" for line in plan.lines())
+                               + ("\n\nYour own copies of anything replaced are kept in the backups."
+                                  if plan.replaces_anything else ""))
+        use = box.addButton("Use the pack's", QMessageBox.ButtonRole.AcceptRole)
+        mine = None
+        if plan.replaces_anything:
+            mine = box.addButton("Keep my copies", QMessageBox.ButtonRole.ActionRole)
+            mine.setToolTip("Add only what is missing; mods and plugin settings you have stay yours. "
+                            "The list may then not be exactly the pack's.")
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is not None and clicked is use:
+            return "pack"
+        if clicked is not None and clicked is mine:
+            return "mine"
+        return ""
+
+    def _confirm_modpack_load(self, opened) -> None:
+        name, plan, pack = opened.info.name, opened.plan, opened.info.pack
+        title = "Load mod pack"
+        keep_mine = False
+        if plan.writes_anything:
+            answer = self._ask_modpack_load(name, pack, plan)
+            if not answer:
+                self.manager.close_modpack(opened)
+                return
+            keep_mine = answer == "mine"
+
+        def loaded(_mods) -> None:
+            self.unsaved = True
+            missing = [m for m in pack.choice["enabled_mods"] if m not in self.manager.state.enabled_mods]
+            lines = [f"Ticked {len(self.manager.state.enabled_mods)} mod(s) from \"{name}\". Save Mod List "
+                     "applies them to the game."]
+            if missing:
+                lines.append(f"Left out, as they could not be put in place: {', '.join(missing)}")
+            if pack.missing_plugins:
+                lines.append(f"The pack has no copy of these plugins: {', '.join(pack.missing_plugins)}. "
+                             "Get them with Get mods.")
+            self.statusBar().showMessage(lines[0], 10000)
+            if len(lines) > 1:
+                QMessageBox.information(self, title, "\n\n".join(lines))
+        self._pack_task(lambda: self.manager.load_modpack(name, keep_mine=keep_mine, opened=opened), loaded,
+                        f"Loading {name}...")
+
+    def import_modpack(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Import a mod pack", "",
+                                              f"Mod packs (*{modpack.SUFFIX});;All files (*)")
+        if path:
+            self.import_modpack_file(Path(path))
+
+    def import_modpack_file(self, path: Path) -> None:
+        """A .lidpack kept with the mod packs, then the save in it and loading it offered."""
+        title = "Import a mod pack"
+        try:
+            try:
+                pack = self.manager.import_modpack(path)
+            except ModpackExists:
+                name = modpack.read(path).name
+                answer = QMessageBox.question(self, title, f"You already have a different mod pack called "
+                                                           f"\"{name}\". Replace it with this one?")
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
+                pack = self.manager.import_modpack(path, replace=True)
+        except (modpack.PackError, OSError) as exc:
+            QMessageBox.warning(self, title, str(exc))
+            return
+        self._select_modpack(pack.name)
+        made = f" by {pack.made_by}" if pack.made_by else ""
+        text = (f"Kept the mod pack \"{pack.name}\" ({len(pack.mods)} mod(s), packed {pack.created[:10]}{made}).")
+        if pack.save is not None:
+            answer = QMessageBox.question(
+                self, title, f"{text}\n\nIt holds a save, \"{pack.save.get('nickname') or pack.name}\", played "
+                "with these mods. Keep the save in the Saves tab too?")
+            if answer == QMessageBox.StandardButton.Yes:
+                self.saves_tab.keep_pack_save(pack)
+            text = ""
+        answer = QMessageBox.question(self, title, (text + "\n\n" if text else "") + "Load it now? Its mods are "
+                                      "ticked; nothing is written to the game until Save Mod List.")
+        if answer == QMessageBox.StandardButton.Yes:
+            self.load_modpack()
+
+    def export_modpack(self) -> None:
+        name = self._chosen_modpack()
+        if not name:
+            return
+        target, _ = QFileDialog.getSaveFileName(self, "Export a mod pack", modpack.file_name(name),
+                                                f"Mod packs (*{modpack.SUFFIX})")
+        if not target:
+            return
+
+        def exported(pack) -> None:
+            QMessageBox.information(self, "Export a mod pack",
+                                    f"Saved \"{pack.name}\" ({_megabytes(pack.path)}) to:\n  {pack.path}")
+        self._pack_task(lambda: self.manager.export_modpack(name, Path(target)), exported, f"Exporting {name}...")
 
     def delete_modpack(self) -> None:
-        name = self.modpack_box.currentText()
+        name = self._chosen_modpack()
         if not name:
+            return
+        answer = QMessageBox.question(self, "Delete mod pack", f"Delete the mod pack \"{name}\"? The mods "
+                                      "installed here are not touched.")
+        if answer != QMessageBox.StandardButton.Yes:
             return
         self.manager.delete_modpack(name)
         self._refresh_modpacks()
@@ -1234,6 +1452,114 @@ class MainWindow(QMainWindow):
         self.manager.set_game_root_override(path)
         self.refresh()
         QMessageBox.information(self, "Set game folder", f"Game folder set to:\n  {path}")
+
+    # -- playing and the save library -------------------------------------
+
+    def play_game(self) -> None:
+        """Start the game through Steam, which the game needs to run."""
+        from .. import asset_runner
+
+        title = "Play"
+        if asset_runner.game_lock_reason():
+            QMessageBox.information(self, title, "LET IT DIE is already running.")
+            return
+        if self.unsaved:
+            answer = QMessageBox.question(
+                self, title,
+                "Your mod list has changes that are not saved, so the game would start "
+                "without them.\n\nStart the game anyway?",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        if not QDesktopServices.openUrl(QUrl(steam_locate.RUN_URL)):
+            QMessageBox.warning(self, title, "Steam did not answer. Start the game from Steam instead.")
+            return
+        self.manager.log.info("Play: asked Steam to start LET IT DIE")
+        self.statusBar().showMessage("Starting LET IT DIE through Steam...", 8000)
+
+    def _on_game_started(self) -> None:
+        self.statusBar().showMessage(
+            "LET IT DIE is running - the saves are brought up to date here when it closes.", 10000)
+        self.saves_tab.refresh()
+
+    def _on_game_closed(self) -> None:
+        self._update_saves_from_game("closed")
+
+    def _update_saves_from_game(self, when: str) -> None:
+        """The saves played since they were kept, copied into their library slots."""
+        try:
+            result = self.manager.update_saves_from_game()
+        except OSError as exc:
+            self.manager.log.warn(f"Save library: could not look at the game's saves: {exc}")
+            return
+        said = []
+        if result.restored:
+            said.append(f"{len(result.restored)} save(s) brought back into the library from the game's "
+                        "save folder.")
+        if result.updated:
+            names = ", ".join(e.nickname for e in result.updated if e is not None)
+            said.append(("The game closed: " if when == "closed" else "Played since last time: ")
+                        + f"{names} brought up to date in the save library.")
+        if result.foreign:
+            said.append("The save in the game is not the one the library put there - see the Saves tab.")
+        if result.failed:
+            said.append("A save could not be brought up to date - see the log.")
+        if said:
+            self.statusBar().showMessage(" ".join(said), 15000)
+        self.saves_tab.refresh()
+
+    def _offer_save_mods(self) -> None:
+        """When the save in the game says it is played with other mods than this install
+        has applied - it came from another PC or install - offer its list. Once a session."""
+        if getattr(self, "_save_mods_offered", False):
+            return
+        self._save_mods_offered = True
+        try:
+            checks = [c for c in self.manager.save_mod_checks() if c.state == "differs"]
+        except OSError:
+            return
+        if not checks:
+            return
+        check = checks[0]
+        if self.manager.mods_in_place(check.link.mods) == "applied":
+            return
+        lines = [f"The save in the game was last played with a different mod list "
+                 f"(noted {check.link.written} by {check.link.by}) than this install has applied."]
+        if check.missing:
+            lines.append("Not installed here: " + ", ".join(check.missing) + ".")
+        if check.versions:
+            lines.append("Other versions here: " + ", ".join(f"{m} {here} (the save had {theirs})"
+                                                             for m, theirs, here in check.versions) + ".")
+        lines.append("Tick the save's mod list now? Nothing is written until Save Mod List.")
+        answer = QMessageBox.question(self, "This save's mods", "\n\n".join(lines))
+        if answer == QMessageBox.StandardButton.Yes:
+            self._on_save_mod_list_chosen(self.manager.use_mod_choice(check.link.mods))
+
+    def _on_tab_changed(self, index: int) -> None:
+        if self.tabs.widget(index) is self.saves_tab:
+            self.saves_tab.refresh()
+
+    def _on_save_mod_list_restored(self) -> None:
+        """The ticks were put back to the mod list the game already has: nothing to save."""
+        self.unsaved = False
+        self.refresh()
+
+    def _on_save_mod_list_chosen(self, missing: list) -> None:
+        """A save's mod list is now the ticked one: show it, then offer to apply it."""
+        self.unsaved = True
+        self.refresh()
+        self.tabs.setCurrentWidget(self.mods_page)
+        note = ""
+        if missing:
+            note = ("\n\nNot installed, so left out: " + ", ".join(missing)
+                    + ". Get mods... or drop them on the window to add them.")
+        answer = QMessageBox.question(
+            self, "Use this save's mod list",
+            "The mods this save was played with are ticked now." + note
+            + "\n\nSave Mod List now, so the game has them?",
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.save_mod_list()
 
     def start_new_game_day(self) -> None:
         """Set the save's last game day back one, so the next start is a new day."""
@@ -1329,7 +1655,7 @@ class MainWindow(QMainWindow):
 
     # -- installing mods ---------------------------------------------------
 
-    ACCEPTED_SUFFIXES = (".sql", ".zip", ".db", ".sqlite", ".sqlite3")
+    ACCEPTED_SUFFIXES = (".sql", ".zip", ".db", ".sqlite", ".sqlite3", modpack.SUFFIX)
 
     def _droppable(self, path: Path) -> bool:
         # An older copy's .exe counts too: dropping it brings that copy over.
@@ -1498,6 +1824,10 @@ class MainWindow(QMainWindow):
         if not self._install_queue or (self.task is not None and self.task.isRunning()):
             return
         source = self._install_queue.pop(0)
+        if source.suffix.lower() == modpack.SUFFIX:
+            self.import_modpack_file(source)        # a mod pack, not a mod
+            self._later(self._drain_install_queue)
+            return
         # Inspecting a database means diffing it, and a large .sql file has to
         # be read through - either one takes long enough that with nothing on
         # screen it looks as though the window has died.
@@ -1954,6 +2284,8 @@ class MainWindow(QMainWindow):
             return
         if not self._offer_clean_copy():
             self._offer_adoption()
+        self._update_saves_from_game("start")
+        self._offer_save_mods()
 
     def _clean_copy_from(self, source: str) -> bool:
         """Carry out a new player's answer to _ask_clean_source. Returns True
@@ -2513,3 +2845,10 @@ def _open_folder(path: Path) -> None:
         subprocess.Popen(["open", str(path)])
     else:
         subprocess.Popen(["xdg-open", str(path)])
+
+
+def _megabytes(path) -> str:
+    try:
+        return f"{Path(path).stat().st_size / (1 << 20):,.1f} MB"
+    except OSError:
+        return "size unknown"
