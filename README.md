@@ -4,8 +4,10 @@ https://www.virustotal.com/gui/url/63368c8eb96033d99a7a4bc4788535a4810c7ddc300b7
 ## Interactive Readme Site
 https://nicomullin.github.io/LiD-DB-Editor/
 
-## Discord Server
+### Discord Server
 Help, bug reports, mod requests and new releases: https://discord.gg/8WknbpHvFq
+
+#### Linux users! Please join the discord as I have a channel set up for linux testing.
 
 # LET IT DIE DB Mod Manager
 
