@@ -121,6 +121,13 @@ def edit_mod(
     new_id = safe_folder_name(name)
     target = folder.parent / new_id
     renaming = new_id != mod.id
+    if renaming and new_id.casefold() == mod.id.casefold():
+        # Only the capitals differ. On Windows that is the same folder, so the
+        # rename would refuse against the mod itself; on Linux it would be a
+        # real rename nobody asked for. This is reachable without anybody
+        # typing a new name: a bare "loose.sql" folder shows as "Loose", and
+        # saving anything about it asks for that folder name. Keep the folder.
+        new_id, renaming = mod.id, False
 
     if renaming and target.exists():
         try:
@@ -128,10 +135,7 @@ def edit_mod(
         except OSError:  # pragma: no cover - only if the path stops resolving
             same = False
         if same:
-            # Only the capitals differ, and on Windows that is the same folder,
-            # so the rename would refuse against the mod itself. This is reachable
-            # without anybody typing a new name: a bare "loose.sql" folder shows
-            # as "Loose", and saving anything about it asks for that folder name.
+            # The same folder by another spelling (a link, say): nothing to rename.
             new_id, renaming = mod.id, False
         else:
             raise ModEditError(f"a mod folder called {new_id!r} already exists")

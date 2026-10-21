@@ -104,8 +104,13 @@ class ARebuiltProgram(Base):
         return manager
 
     def test_the_library_comes_back_from_the_game_folder(self) -> None:
+        # A save of its own, as a second slot is in real use. Two copies of one
+        # save would leave which slot the game's save belongs to down to which
+        # was kept in a later second.
+        doc = document(kc=5)
+        doc["user"]["created"] = 1600000000
         other = Path(self._tmp.name) / "o.sav"
-        other.write_bytes(save_bytes(kc=5))
+        other.write_bytes(savegame.write_container(2, json.dumps(doc).encode()))
         second = self.manager.import_save(other, STEAM, "Challenge")
         self.manager.library.move_to_slot(second.id, 9)
         (self.folder / "brggame.bak").write_bytes(save_bytes(kc=900))
