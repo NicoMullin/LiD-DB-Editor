@@ -67,6 +67,8 @@ from .theme import apply_theme, colors
 from .workers import TaskThread, WatchThread
 
 ORDER_HINT = "Load order: top applies first, bottom wins"
+# A permanent invite: it never expires and has no use limit.
+DISCORD_INVITE = "https://discord.gg/8WknbpHvFq"
 # A window opened in place of another (after bringing an older copy over) has
 # no other Python reference holding it; without one it would be collected.
 _OPEN_WINDOWS: list = []
@@ -486,6 +488,7 @@ class MainWindow(QMainWindow):
         self.update_at_start_action.toggled.connect(self._on_update_at_start_toggled)
         help_menu.addAction(self.update_at_start_action)
         help_menu.addSeparator()
+        self._add_action(help_menu, "Join the Discord server...", self.open_discord)
         self._add_action(help_menu, "About", self.about)
 
     def _add_action(self, menu, text: str, slot, shortcut: str = "") -> QAction:
@@ -1660,7 +1663,7 @@ class MainWindow(QMainWindow):
     def _droppable(self, path: Path) -> bool:
         # An older copy's .exe counts too: dropping it brings that copy over.
         return (path.is_dir() or path.suffix.lower() in self.ACCEPTED_SUFFIXES
-                or path.name.lower() == carry_over.EXE_NAME.lower())
+                or carry_over.is_program_file(path))
 
     def dragEnterEvent(self, event) -> None:
         data = event.mimeData()
@@ -2129,11 +2132,13 @@ class MainWindow(QMainWindow):
             return False
         old = carry_over.find_install(path)
         if old is None:
+            program = (carry_over.EXE_NAME if sys.platform == "win32"
+                       else f"{carry_over.LINUX_EXE_NAME} program")
             QMessageBox.warning(
                 self, "Not a copy of the manager",
                 f"{path} does not look like a copy of {APP_NAME}: there is no "
-                f"state.json beside a {carry_over.EXE_NAME} in it.\n\n"
-                f"Pick the folder that holds the old {carry_over.EXE_NAME}.",
+                f"state.json beside a {program} in it.\n\n"
+                f"Pick the folder that holds the old {program}.",
             )
             return False
         try:
@@ -2811,8 +2816,18 @@ class MainWindow(QMainWindow):
             f"Logs: <code>{self.manager.paths.logs_dir}</code><br>"
             f"Backups: <code>{self.manager.paths.backups_dir}</code><br><br>"
             "It goes online only when you ask it to: to download a clean database, "
-            "or to check its GitHub page for a newer version (Help menu).",
+            "or to check its GitHub page for a newer version (Help menu).<br><br>"
+            f'Help, bug reports and mod requests: <a href="{DISCORD_INVITE}">Discord server</a>',
         )
+
+    def open_discord(self) -> None:
+        # In the browser, which hands it on to the Discord app if there is one.
+        if not QDesktopServices.openUrl(QUrl(DISCORD_INVITE)):
+            QMessageBox.information(
+                self,
+                "Join the Discord server",
+                f"Your browser could not be opened. The invite is:<br><br>{DISCORD_INVITE}",
+            )
 
     # -- shutdown ----------------------------------------------------------
 

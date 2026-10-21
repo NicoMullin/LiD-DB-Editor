@@ -4,7 +4,8 @@
     python build.py              -> dist/LID DB Mod Manager 0.11.0/   (recommended)
     python build.py --onefile    -> dist/LID DB Mod Manager.exe
 
-Run it with the same interpreter PySide6 is installed in.
+Run it with the same interpreter PySide6 is installed in. On Linux the same
+command builds the Linux program (no .exe, no Windows version details).
 
 What this does that a bare `pyinstaller run.py` does not: it copies `mods/` next
 to the finished executable. Mods are read from disk at runtime so users can add
@@ -181,8 +182,9 @@ def build(one_file: bool, icon: Path | None, keep_console: bool) -> Path:
     # The clean databases are NOT bundled: they are the game's own data, 276 MB
     # of it. The manager downloads the one for the player's build from the
     # repository's own LiD Vanilla DB folder instead - see clean_db_download.py.
-    command += ["--version-file", str(write_version_file(ROOT / "build"))]
-    bootloader_note()
+    if sys.platform == "win32":
+        command += ["--version-file", str(write_version_file(ROOT / "build"))]
+        bootloader_note()
     if icon is not None:
         command += ["--icon", str(icon)]
     command.append(str(ROOT / "run.py"))
@@ -192,7 +194,8 @@ def build(one_file: bool, icon: Path | None, keep_console: bool) -> Path:
     subprocess.run(command, cwd=ROOT, check=True)
     print(f"\nPyInstaller finished in {time.monotonic() - started:.0f}s")
 
-    return ROOT / "dist" / (f"{APP_NAME}.exe" if one_file else APP_NAME)
+    program = f"{APP_NAME}.exe" if sys.platform == "win32" else APP_NAME
+    return ROOT / "dist" / (program if one_file else APP_NAME)
 
 
 # What the app writes beside its own executable, and what a rebuild must not

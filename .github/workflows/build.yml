@@ -1,7 +1,8 @@
 name: Build Windows exe
 
 # Runs on GitHub's own Windows machines, so nobody needs Python installed to
-# get a working .exe - including you.
+# get a working .exe - including you. A second job does the same on Linux
+# (see "linux" below): the tests, and a -linux.tar.gz beside the zip.
 #
 #   push to main / a pull request   -> run the tests, build, attach a zip you
 #                                      can download from the run's Artifacts
@@ -35,6 +36,10 @@ jobs:
     # Needed only by the release step; harmless otherwise.
     permissions:
       contents: write
+
+    # The release's tag, for the Linux job to add its file to.
+    outputs:
+      tag: ${{ steps.publish.outputs.tag }}
 
     steps:
       - name: Check out the repository
@@ -173,6 +178,7 @@ jobs:
       - name: Publish a Release
         # Only when asked for, so ordinary pushes never create releases.
         if: steps.label.outputs.release == 'true'
+        id: publish
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -180,6 +186,7 @@ jobs:
           $version = "${{ steps.label.outputs.version }}"
           # The tag the updater reads the version from, and the title players see.
           $tag = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "Release_Beta_V$version" }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           $title = "Beta V$version"
           # The notes as written, plus the hash of the file actually published.
           # Built here rather than kept in the repo: every build has its own.
@@ -252,3 +259,277 @@ jobs:
           description: Beta V${{ steps.label.outputs.version }} - the same zip as the GitHub release, built by GitHub.
           archive_existing_version: 'true'
           update_mod_version: 'true'
+
+      - name: Post the release to Discord
+        # A card in the Discord server's #releases channel: the download, what's
+        # new, how to update, the hash and the VirusTotal report. Only when the
+        # repository has a DISCORD_RELEASES_WEBHOOK secret; the Nexus Mods link
+        # is added once there is a NEXUS_PAGE_URL variable. The release is out
+        # already, so a Discord problem only marks this step.
+        if: steps.label.outputs.release == 'true'
+        continue-on-error: true
+        shell: pwsh
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_RELEASES_WEBHOOK }}
+          NEXUS_PAGE_URL: ${{ vars.NEXUS_PAGE_URL }}
+        run: |
+          if (-not $env:DISCORD_WEBHOOK) {
+            Write-Host "No DISCORD_RELEASES_WEBHOOK secret, so nothing was posted to Discord."
+            exit 0
+          }
+          $version = "${{ steps.label.outputs.version }}"
+          $tag = "${{ steps.publish.outputs.tag }}"
+          $sha = "${{ steps.hash.outputs.sha256 }}"
+          $repo = "${{ github.server_url }}/${{ github.repository }}"
+          $page = "$repo/releases/tag/$tag"
+          $zipUrl = "$repo/releases/download/$tag/$env:ZIP_NAME"
+          $arrow = [char]0x2192
+
+          # This version's "What's new" section of the notes. The notes are
+          # wrapped at 78 columns and Discord keeps every line break, so each
+          # paragraph is joined back into one line; list items stay one a line.
+          $all = Get-Content ".github/release-notes.md" -Raw -Encoding utf8
+          $pattern = "(?ms)^### What's new in Beta V$([regex]::Escape($version))[ \t]*\r?\n(.*?)(?=^### |\z)"
+          $section = [regex]::Match($all, $pattern).Groups[1].Value
+          $paragraphs = foreach ($block in ($section.Trim() -split '\r?\n\s*\r?\n')) {
+            $lines = @()
+            foreach ($line in ($block -split '\r?\n')) {
+              $line = $line.Trim()
+              if ($lines.Count -and $line -notmatch '^[-*] ') { $lines[-1] += " $line" } else { $lines += $line }
+            }
+            $lines -join "`n"
+          }
+          $news = ($paragraphs | Where-Object { $_ }) -join "`n`n"
+          if (-not $news) { $news = "See the release notes." }
+          # An embed field holds 1024 characters. Longer notes become one line
+          # a paragraph - its bold lead-in and the first sentence after it, or
+          # for a list the names of its items - and, if even that is too long,
+          # are cut at a line break.
+          $more = "`n`n[More in the release notes]($page)"
+          if ($news.Length -gt 1024) {
+            $out = [System.Collections.Generic.List[string]]::new()
+            foreach ($p in ($paragraphs | Where-Object { $_ })) {
+              $items = @($p -split "`n")
+              if (@($items | Where-Object { $_ -notmatch '^[-*] ' }).Count -eq 0) {
+                $names = foreach ($item in $items) {
+                  $item = $item -replace '^[-*] ', ''
+                  $b = [regex]::Match($item, '^\*\*(.+?)\*\*')
+                  $name = if ($b.Success) { $b.Groups[1].Value } else { $item -replace '\*\*|`', '' }
+                  $name = $name.TrimEnd('.', ':', ' ')
+                  if ($name.Length -gt 40) { $name = $name.Substring(0, 40).TrimEnd() + [char]0x2026 }
+                  $name
+                }
+                $list = $names -join ", "
+                # After the line that introduces it ("Five new mods:"), if any.
+                if ($out.Count -and $out[$out.Count - 1] -match ':(\*\*)?$') {
+                  $out[$out.Count - 1] += " $list"
+                } else {
+                  $out.Add("$([char]0x2022) $list")
+                }
+                continue
+              }
+              $m = [regex]::Match($p, '^(\*\*.+?\*\*)\s*(.*)$', 'Singleline')
+              $lead = if ($m.Success) { $m.Groups[1].Value } else { "" }
+              $rest = if ($m.Success) { $m.Groups[2].Value } else { $p }
+              $rest = ($rest -replace '\*\*|`', '') -replace '\s+', ' '
+              # The first full stop that is not part of "..." ends the sentence.
+              $first = [regex]::Match($rest, '^.*?(?<!\.)[.!?](?!\.)(?=\s|$)').Value
+              if (-not $first) { $first = $rest }
+              if ($first.Length -gt 180) {
+                $at = $first.LastIndexOf(' ', 180)
+                if ($at -lt 1) { $at = 180 }
+                $first = $first.Substring(0, $at) + [char]0x2026
+              }
+              $line = if ($first -match '^[,.;:!?)]') { "$lead$first" } else { "$lead $first" }
+              $out.Add(("$([char]0x2022) $line" -replace '\s+', ' ').TrimEnd())
+            }
+            $news = $out -join "`n"
+            if ($news.Length + $more.Length -gt 1024) {
+              $news = $news.Substring(0, 1024 - $more.Length)
+              $end = $news.LastIndexOf("`n")
+              if ($end -gt 0) { $news = $news.Substring(0, $end) }
+            }
+            $news = $news.TrimEnd() + $more
+          }
+
+          $nexus = if ($env:NEXUS_PAGE_URL) { "[Nexus Mods page]($env:NEXUS_PAGE_URL)" } else { "Coming soon." }
+          $card = @{
+            title = "LID DB Mod Manager - Beta V$version"
+            url = $page
+            color = 0x2ECC71
+            description = "**[Download from GitHub]($zipUrl)** (``$env:ZIP_NAME``)`n`nUnzip it into a folder you can write to (**not** Program Files) and run ``LID DB Mod Manager.exe``. Nothing else to install. Windows may warn that the build isn't signed: **More info $arrow Run anyway**."
+            fields = @(
+              @{ name = "What's new"; value = $news },
+              @{ name = "Updating"; value = "**From 0.11.0 or newer:** close the game, then **Help $arrow Check for updates $arrow Update now**.`n**From 0.10.1 or older:** unzip into a new folder, click **I'm updating** and pick your old folder.`nThen click **Save Mod List** once." },
+              @{ name = "Nexus Mods"; value = $nexus },
+              @{ name = "Check your download"; value = "SHA-256: ``$sha```n[VirusTotal report](https://www.virustotal.com/gui/file/$sha) - [Full release notes]($page)" }
+            )
+            footer = @{ text = "Released $(Get-Date -Format yyyy-MM-dd)" }
+          }
+          $body = @{ embeds = @($card); allowed_mentions = @{ parse = @() } } | ConvertTo-Json -Depth 6
+          Invoke-RestMethod -Uri $env:DISCORD_WEBHOOK -Method Post -ContentType "application/json; charset=utf-8" -Body ([Text.Encoding]::UTF8.GetBytes($body))
+          Write-Host "Posted Beta V$version to Discord."
+
+  linux:
+    # The same tests on Linux, and the Linux program: a tar.gz, because a zip
+    # loses the mark that lets a file run. 22.04, the oldest Ubuntu GitHub
+    # offers, so the program runs on older systems too (and the Steam Deck).
+    # Its own job: a Linux problem never holds up the Windows release.
+    runs-on: ubuntu-22.04
+
+    outputs:
+      release: ${{ steps.label.outputs.release }}
+      version: ${{ steps.label.outputs.version }}
+      tar: ${{ steps.pack.outputs.tar }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Work out the version and whether to release
+        # The same as the Windows job's.
+        id: label
+        shell: pwsh
+        run: |
+          $inside = (Select-String -Path lid_db_manager/__init__.py -Pattern '^__version__ = "(.+)"').Matches[0].Groups[1].Value
+          $typed = "${{ github.event.inputs.release_version }}".Trim()
+          if ("${{ github.ref_type }}" -eq "tag") { $typed = "${{ github.ref_name }}" }
+          $release = "false"
+          $asked = ""
+          if ($typed) {
+            $found = [regex]::Match($typed, '\d+(\.\d+)+')
+            if (-not $found.Success) {
+              Write-Error "No version number in '$typed'. Type it like 0.11.0 or Beta V0.11.0."
+              exit 1
+            }
+            $asked = $found.Value
+          }
+          if ($asked) {
+            if ($asked -ne $inside) {
+              Write-Error "Asked to release $asked, but lid_db_manager/__init__.py says $inside. Change one of them so they match."
+              exit 1
+            }
+            $release = "true"
+            $version = $asked
+          } else {
+            $version = "$inside-$($env:GITHUB_SHA.Substring(0,7))"
+          }
+          $safe = $version -replace '[^A-Za-z0-9._-]', '-'
+          "version=$safe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "release=$release" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Version $version, release: $release"
+
+      - name: Install the libraries Qt needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 \
+            libfontconfig1 libdbus-1-3 libxcb-cursor0
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Run the tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python tools/run_tests.py || { code=$?; echo "python tools/run_tests.py ended with exit code $code"; exit $code; }
+
+      - name: Build the program
+        run: python build.py
+
+      - name: Pack it up
+        id: pack
+        run: |
+          folder=$(find dist -maxdepth 1 -type d -name 'LID DB Mod Manager *' | head -n 1)
+          if [ -z "$folder" ]; then echo "build.py left no program folder in dist"; exit 1; fi
+          tar="LID-DB-Mod-Manager-${{ steps.label.outputs.version }}-linux.tar.gz"
+          tar -C dist -czf "$tar" "$(basename "$folder")"
+          sha=$(sha256sum "$tar" | cut -d' ' -f1)
+          echo "tar=$tar" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          ls -l "$tar"
+          printf '### SHA-256\n\n`%s`  \n`%s`\n' "$tar" "$sha" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attach it to this run
+        uses: actions/upload-artifact@v6
+        with:
+          name: LID-DB-Mod-Manager-${{ steps.label.outputs.version }}-linux
+          path: ${{ steps.pack.outputs.tar }}
+          if-no-files-found: error
+
+  linux-release:
+    # Once the Windows job has published the release, the Linux file goes on
+    # it too, with its hash added to the notes.
+    needs: [build, linux]
+    if: needs.linux.outputs.release == 'true' && needs.build.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Fetch the Linux program
+        uses: actions/download-artifact@v6
+        with:
+          name: LID-DB-Mod-Manager-${{ needs.linux.outputs.version }}-linux
+
+      - name: Add it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+          TAR: ${{ needs.linux.outputs.tar }}
+          SHA: ${{ needs.linux.outputs.sha256 }}
+        run: |
+          gh release upload "$TAG" "$TAR" --repo "$GITHUB_REPOSITORY"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes.md
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "**Linux:** \`$TAR\`. Unpack it somewhere you can write to and run"
+            echo "\`LID DB Mod Manager\` in the folder. If it does not open, install"
+            echo "\`libxcb-cursor0\`. Plugin mods need a Steam launch option - see"
+            echo "\"Linux and the Steam Deck\" in the README. Check the download with"
+            echo "\`sha256sum $TAR\`; it should print:"
+            echo ""
+            echo '```'
+            echo "$SHA"
+            echo '```'
+          } >> notes.md
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+
+      - name: Check for the Nexus Mods settings
+        # A second file on the Nexus page, updated like the Windows one, once
+        # the repository has a NEXUS_LINUX_FILE_ID variable.
+        id: nexus
+        env:
+          NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
+          NEXUS_LINUX_FILE_ID: ${{ vars.NEXUS_LINUX_FILE_ID }}
+        run: |
+          if [ -n "$NEXUS_API_KEY" ] && [ -n "$NEXUS_LINUX_FILE_ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No NEXUS_API_KEY secret or NEXUS_LINUX_FILE_ID variable, so the Linux file was not sent to Nexus Mods."
+          fi
+
+      - name: Upload to Nexus Mods
+        if: steps.nexus.outputs.ready == 'true'
+        continue-on-error: true
+        uses: Nexus-Mods/upload-action@98532f7670c27cbecc78fae03fa3e278147827e2
+        with:
+          api_key: ${{ secrets.NEXUS_API_KEY }}
+          file_id: ${{ vars.NEXUS_LINUX_FILE_ID }}
+          filename: ${{ needs.linux.outputs.tar }}
+          version: ${{ needs.linux.outputs.version }}
+          display_name: LID DB Mod Manager ${{ needs.linux.outputs.version }} (Linux)
+          description: Beta V${{ needs.linux.outputs.version }} for Linux - the same tar.gz as the GitHub release, built by GitHub.
+          archive_existing_version: 'true'
+          update_mod_version: 'false'

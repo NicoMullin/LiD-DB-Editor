@@ -5,7 +5,8 @@ One click, the way players expect an update to work:
 1. Ask GitHub for the newest release (``releases/latest``, which never counts
    a pre-release).
 2. Download its zip into ``<program>/_update/`` and keep it only if it matches
-   the SHA-256 GitHub lists for it.
+   the SHA-256 GitHub lists for it. On Linux it is the ``-linux.tar.gz``
+   instead: a tar keeps the mark that lets the program run, a zip does not.
 3. Unpack it there, next to - never over - the running program.
 4. Start the NEW copy with ``--finish-update``. It waits for the old one to
    close, puts its own program files in place of the old ones, and starts the
@@ -37,6 +38,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.error
 import urllib.request
@@ -168,16 +170,34 @@ def check(opener: Opener = _open) -> Release:
         raise UpdateError("GitHub's answer about the newest version could not be read.") from exc
 
 
-def _pick_asset(assets: list) -> Asset | None:
+LINUX_SUFFIX = ".tar.gz"
+
+
+def on_linux() -> bool:
+    return sys.platform.startswith("linux")
+
+
+def _pick_asset(assets: list, linux: bool | None = None) -> Asset | None:
     """The program's zip: the one .zip on the release, or of several the one
     named after the program. Only one GitHub lists a SHA-256 for, and only one
-    served from this repository's own releases."""
+    served from this repository's own releases.
+
+    On Linux, the same for the release's ``-linux.tar.gz``. Copies from before
+    there was a Linux build only ever look at .zip files, so a release with
+    both still hands them the one zip they expect.
+    """
+    linux = on_linux() if linux is None else linux
     zips = []
     for entry in assets:
         name = str(entry.get("name") or "")
         url = str(entry.get("browser_download_url") or "")
         digest = str(entry.get("digest") or "")
-        if not name.lower().endswith(".zip") or not url.startswith(DOWNLOAD_PREFIX):
+        if not url.startswith(DOWNLOAD_PREFIX):
+            continue
+        if linux:
+            if not (name.lower().endswith(LINUX_SUFFIX) and "linux" in name.lower()):
+                continue
+        elif not name.lower().endswith(".zip"):
             continue
         if not digest.startswith("sha256:"):
             continue
@@ -248,8 +268,9 @@ def fetch(
     work = Path(folder) / UPDATE_DIR
     work.mkdir(parents=True, exist_ok=True)
     stem = safe_version(release.version)
-    packed = work / f"{stem}.zip"
-    partial = work / f"{stem}.zip.part"
+    kind = LINUX_SUFFIX if asset.name.lower().endswith(LINUX_SUFFIX) else ".zip"
+    packed = work / f"{stem}{kind}"
+    partial = work / f"{stem}{kind}.part"
     progress.stage(f"Downloading {APP_NAME} {release.version}...", 0, 80)
     try:
         _download(asset, partial, progress, opener)
@@ -290,12 +311,15 @@ def _download(asset: Asset, path: Path, progress: Progress, opener: Opener) -> N
 
 
 def unpack(packed: Path, into: Path, exe: str, progress: Progress | None = None) -> Path:
-    """Unpack a release zip into ``into`` (emptied first). Returns the folder
-    in it that holds ``exe`` and ``_internal``."""
+    """Unpack a release zip (or Linux tar.gz) into ``into`` (emptied first).
+    Returns the folder in it that holds ``exe`` and ``_internal``."""
     progress = ensure(progress)
     if into.exists():
         shutil.rmtree(into)
     into.mkdir(parents=True)
+    if Path(packed).name.lower().endswith(LINUX_SUFFIX):
+        _untar(Path(packed), into, progress)
+        return _program_folder(into, exe)
     try:
         with zipfile.ZipFile(packed) as archive:
             members = archive.infolist()
@@ -320,6 +344,33 @@ def unpack(packed: Path, into: Path, exe: str, progress: Progress | None = None)
                 progress.step(done, total)
     except zipfile.BadZipFile as exc:
         raise UpdateError("The download is not a zip the program can open.") from exc
+    return _program_folder(into, exe)
+
+
+def _untar(packed: Path, into: Path, progress: Progress) -> None:
+    """Unpack a Linux release. Python's "data" filter refuses any file or link
+    that would land outside ``into``, and anything that is not a plain file,
+    folder or link; the program's own run permission is kept."""
+    try:
+        with tarfile.open(packed, "r:gz") as archive:
+            members = archive.getmembers()
+            total = sum(m.size for m in members if m.isfile())
+            if total > MAX_UNPACKED:
+                raise UpdateError("The download unpacks to far more than a release should.")
+            done = 0
+            for member in members:
+                try:
+                    archive.extract(member, into, filter="data")
+                except tarfile.FilterError as exc:
+                    raise UpdateError(f"The download holds a file it should not: {member.name}") from exc
+                if member.isfile():
+                    done += member.size
+                    progress.step(done, total)
+    except (tarfile.TarError, EOFError) as exc:
+        raise UpdateError("The download is not a tar.gz the program can open.") from exc
+
+
+def _program_folder(into: Path, exe: str) -> Path:
     found = [
         folder for folder in [into, *into.iterdir(), *(p for d in into.iterdir() if d.is_dir()
                                                        for p in d.iterdir())]
@@ -339,11 +390,17 @@ def hand_over(new_folder: Path, exe: str, target: Path, from_version: str = __ve
 
 
 def restart(folder: Path, exe: str, args: list[str]):
+    if sys.platform == "win32":
+        detach = {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    else:
+        # Its own session, so it carries on when this copy (or the terminal
+        # that started it) closes.
+        detach = {"start_new_session": True}
     return subprocess.Popen(  # noqa: S603 - the program's own exe, hash-checked if new
         [str(folder / exe), *args],
         cwd=str(folder),
         close_fds=True,
-        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        **detach,
     )
 
 
@@ -423,8 +480,11 @@ def install(new_folder: Path, target: Path, progress: Progress | None = None) ->
                 moved.append((destination, aside))
             destination.parent.mkdir(parents=True, exist_ok=True)
             added.append(destination)
-            if source.is_dir():
-                shutil.copytree(source, destination, copy_function=count)
+            if source.is_symlink():
+                # The Linux build links some libraries to one another.
+                os.symlink(os.readlink(source), destination)
+            elif source.is_dir():
+                shutil.copytree(source, destination, symlinks=True, copy_function=count)
             else:
                 count(source, destination)
     except BaseException as exc:
@@ -443,7 +503,7 @@ def install(new_folder: Path, target: Path, progress: Progress | None = None) ->
 
 def _files(path: Path):
     if path.is_dir():
-        yield from (p for p in path.rglob("*") if p.is_file())
+        yield from (p for p in path.rglob("*") if p.is_file() and not p.is_symlink())
     else:
         yield path
 

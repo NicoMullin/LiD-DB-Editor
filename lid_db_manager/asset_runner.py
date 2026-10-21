@@ -141,7 +141,14 @@ def game_running() -> bool:
 
 
 def _process_running(exe_name: str) -> bool:
-    """True if a process with this executable name is running. Windows only."""
+    """True if a process with this executable name is running.
+
+    Windows asks for a process list; Linux reads /proc, where a game run
+    through Proton shows up under its Windows exe name. Anywhere else this
+    cannot tell, and says no rather than block on a guess.
+    """
+    if sys.platform.startswith("linux"):
+        return _linux_process_running(exe_name)
     if sys.platform != "win32":
         return False
     import ctypes
@@ -185,6 +192,35 @@ def _process_running(exe_name: str) -> bool:
             ok = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
     finally:
         kernel32.CloseHandle(snapshot)
+    return False
+
+
+def _linux_process_running(exe_name: str, proc: Path = Path("/proc")) -> bool:
+    """Is a process with this exe name in ``proc``?
+
+    Wine names its processes after the Windows exe, but only the first 15
+    characters fit in ``comm`` ("BrgGame-Steam.e"), so the first word of the
+    command line is checked as well: a Windows or Linux path ending in the
+    exe's name.
+    """
+    target = exe_name.lower()
+    try:
+        entries = list(proc.iterdir())
+    except OSError:
+        return False    # cannot tell - do not block on a guess
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            comm = (entry / "comm").read_text(encoding="utf-8", errors="replace").strip().lower()
+            if comm and comm == target[:15]:
+                return True
+            first = (entry / "cmdline").read_bytes().split(b"\0", 1)[0]
+        except OSError:
+            continue    # ended while being read, or not ours to read
+        name = first.decode("utf-8", errors="replace").replace("\\", "/").rsplit("/", 1)[-1]
+        if name.lower() == target:
+            return True
     return False
 
 
@@ -284,12 +320,41 @@ def _free_backup_name(store: Path, target: str, taken: set[str]) -> str:
 def _resolve_target(game_root: Path, target: str) -> Path:
     """game_root / target, refusing anything that escapes game_root."""
     root = game_root.resolve()
-    dest = (root / target).resolve()
+    dest = (root / _match_case(root, target)).resolve()
     try:
         dest.relative_to(root)
     except ValueError:
         raise OSError(f"target path escapes the game folder: {target}") from None
     return dest
+
+
+def _match_case(root: Path, target: str) -> str:
+    """``target`` spelt the way the game's own files are.
+
+    Mods are made on Windows, where "brggame/cookedpcconsole/brggame.upk" and
+    "BrgGame/CookedPCConsole/BrgGame.upk" are one file. On Linux they are two,
+    and writing the first would leave the game's file untouched beside a copy
+    nothing loads. So each part that does not exist as written takes the name
+    of the one entry there that differs only in capitals. On Windows every part
+    exists as written, and nothing changes.
+    """
+    if target.startswith(("/", "\\")) or Path(target).is_absolute():
+        return target   # refused by the caller, as it should be
+    parts =[p for p in _normalise(target).split("/") if p]
+    folder = Path(root)
+    for i, part in enumerate(parts):
+        if part in (".", "..") or (folder / part).exists():
+            folder = folder / part
+            continue
+        try:
+            same = [e.name for e in folder.iterdir() if e.name.lower() == part.lower()]
+        except OSError:
+            break
+        if len(same) != 1:
+            break       # new, or ambiguous: written as the mod says
+        parts[i] = same[0]
+        folder = folder / same[0]
+    return "/".join(parts)
 
 
 def _verified_copy(source: Path, dest: Path) -> None:

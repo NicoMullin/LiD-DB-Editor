@@ -23,6 +23,11 @@ APP_ID = 794600
 RUN_URL = f"steam://rungameid/{APP_ID}"
 DB_REL = Path("BrgGame") / "Content" / "masters.db"
 DEFAULT_STEAM = Path(r"C:\Program Files (x86)\Steam")
+# Where Steam keeps itself on Linux, relative to the home folder: the usual
+# install (and the links to it Steam makes in ~/.steam), the Flatpak and the Snap.
+LINUX_STEAM = (".local/share/Steam", ".steam/steam", ".steam/root",
+               ".var/app/com.valvesoftware.Steam/.local/share/Steam",
+               "snap/steam/common/.local/share/Steam")
 
 # Where people commonly put a second Steam library, relative to a drive root.
 USUAL_LIBRARY_NAMES = ("SteamLibrary", "Steam", "Games/Steam", "Games/SteamLibrary",
@@ -32,9 +37,20 @@ _PATH_LINE = re.compile(r'"path"\s+"((?:[^"\\]|\\.)*)"', re.IGNORECASE)
 
 
 def steam_roots() -> list[Path]:
-    """Steam's own install folder(s): from the registry, then the default."""
+    """Steam's own install folder(s): from the registry, then the default.
+    On Linux, the folders Steam installs itself in under the home folder."""
     found: list[Path] = []
-    if sys.platform == "win32":
+    if sys.platform.startswith("linux"):
+        home = Path.home()
+        for rel in LINUX_STEAM:
+            folder = home / rel
+            try:
+                if folder.is_dir():
+                    # ~/.steam/steam is a link to the real folder: one entry for both
+                    found.append(folder.resolve())
+            except OSError:
+                continue
+    elif sys.platform == "win32":
         try:
             import winreg
 
@@ -50,7 +66,7 @@ def steam_roots() -> list[Path]:
                     continue
         except ImportError:
             pass
-    found.append(DEFAULT_STEAM)
+        found.append(DEFAULT_STEAM)
     unique: list[Path] = []
     for path in found:
         if path not in unique:

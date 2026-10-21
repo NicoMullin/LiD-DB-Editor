@@ -4,6 +4,9 @@ https://www.virustotal.com/gui/url/63368c8eb96033d99a7a4bc4788535a4810c7ddc300b7
 ## Interactive Readme Site
 https://nicomullin.github.io/LiD-DB-Editor/
 
+## Discord Server
+Help, bug reports, mod requests and new releases: https://discord.gg/8WknbpHvFq
+
 # LET IT DIE DB Mod Manager
 
 A small desktop tool for modding LET IT DIE. It applies community-made patches
@@ -126,7 +129,8 @@ window itself is fine.
 ## Running it
 
 Note there is a release with a prebuilt exe if you do not want to install Python
-and the other requirements.
+and the other requirements. On Linux, see
+[Linux and the Steam Deck](#linux-and-the-steam-deck).
 
 ```bash
 pip install -r requirements.txt
@@ -149,6 +153,67 @@ Then:
 
 That last click is the one that does everything: backups, validation, then the
 apply, all as one step you can undo.
+
+## Linux and the Steam Deck
+
+The manager runs on Linux, and on the Steam Deck in Desktop Mode, with the
+game played through Proton. Everything works as on Windows: the mods, the
+saves and the editor, the file check, plugins and **Help ▸ Check for updates**.
+
+### The Linux download
+
+1. On the release page, download `LID-DB-Mod-Manager-<version>-linux.tar.gz`.
+2. Unpack it somewhere you can write to, such as your home folder:
+   `tar -xzf LID-DB-Mod-Manager-*-linux.tar.gz`
+3. Run **LID DB Mod Manager** in the folder it made: double-click it, or
+   `./"LID DB Mod Manager"` in a terminal.
+
+If it does not open and the terminal mentions `xcb`, one library Qt needs is
+missing:
+
+| System                 | Command                                |
+|------------------------|----------------------------------------|
+| Ubuntu, Mint, Debian   | `sudo apt install libxcb-cursor0`      |
+| Fedora                 | `sudo dnf install xcb-util-cursor`     |
+| Arch, Manjaro          | `sudo pacman -S xcb-util-cursor`       |
+
+### From source
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python run.py
+```
+
+A copy run from source cannot update itself. It says when a new version is
+out, and you get the new source (or switch to the Linux download).
+
+### Finding the game
+
+It looks for Steam in `~/.local/share/Steam`, the Flatpak and the Snap, and in
+every library Steam lists. The database is usually at
+`~/.local/share/Steam/steamapps/common/LET IT DIE/BrgGame/Content/masters.db`.
+The game keeps its saves in its own folder on Linux too, so the save library
+and Steam Cloud backups work the same.
+
+### Plugin mods need one Steam setting
+
+Plugin mods are loaded by the Plugin Loader, `dinput8.dll`, and Proton uses its
+own `dinput8.dll` unless told otherwise. In Steam, right-click **LET IT DIE ▸
+Properties ▸ General**, and under **Launch Options** put:
+
+```
+WINEDLLOVERRIDES="dinput8=n,b" %command%
+```
+
+Mods without a plugin do not need it.
+
+### Close the game first
+
+As on Windows, the manager will not change the game's files or saves while the
+game runs. It sees the game under Proton, and it updates the save library when
+the game closes.
 
 ## Point it at a clean `masters.db`
 

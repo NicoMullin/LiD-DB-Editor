@@ -33,6 +33,8 @@ from .paths import AppPaths
 
 STATE_FILE = "state.json"
 EXE_NAME = "LID DB Mod Manager.exe"
+# The Linux build's program: the same name, with no .exe.
+LINUX_EXE_NAME = "LID DB Mod Manager"
 # Copied whole, in this order; state.json goes last of all, so a copy that
 # fails halfway leaves this install looking as new as it was.
 DATA_DIRS = ("snapshots", "backups", "cache", "saves", "modpacks")
@@ -112,7 +114,7 @@ def find_install(path: Path) -> OldInstall | None:
     """
     path = Path(path)
     if path.is_file():
-        if path.name.lower() in (STATE_FILE, EXE_NAME.lower()):
+        if path.name.lower() == STATE_FILE or is_program_file(path):
             return read_install(path.parent)
         return None
     if not path.is_dir():
@@ -126,11 +128,18 @@ def find_install(path: Path) -> OldInstall | None:
 
 
 def _looks_like_manager(folder: Path) -> bool:
-    # A built copy has its .exe; a copy run from source has run.py. A state
-    # file alone is not enough to call some random folder a manager.
+    # A built copy has its .exe (or the Linux program); a copy run from source
+    # has run.py. A state file alone is not enough to call some random folder
+    # a manager.
     return (folder / STATE_FILE).is_file() and (
-        (folder / EXE_NAME).is_file() or (folder / "run.py").is_file()
+        (folder / EXE_NAME).is_file() or (folder / LINUX_EXE_NAME).is_file()
+        or (folder / "run.py").is_file()
     )
+
+
+def is_program_file(path: Path) -> bool:
+    """Is this the manager's own program file, Windows or Linux?"""
+    return Path(path).name.lower() in (EXE_NAME.lower(), LINUX_EXE_NAME.lower())
 
 
 def _subfolders(folder: Path) -> list[Path]:

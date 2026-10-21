@@ -25,6 +25,18 @@ EXE = "LID DB Mod Manager.exe"
 TOP = "LID DB Mod Manager"
 TAG = "Release_Beta_V9.1.0"
 
+# These tests are the Windows copy's (the .zip); the Linux copy's tar.gz has
+# its own in test_linux.py. Pinned, so they mean the same on a Linux runner.
+_windows = mock.patch.object(U, "on_linux", return_value=False)
+
+
+def setUpModule() -> None:
+    _windows.start()
+
+
+def tearDownModule() -> None:
+    _windows.stop()
+
 
 def a_release_zip(files: dict[str, bytes] | None = None) -> bytes:
     files = files if files is not None else {

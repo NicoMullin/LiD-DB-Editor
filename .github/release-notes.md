@@ -36,6 +36,23 @@ compares it with a clean copy of the same game build, says which mods it can
 already see in there, and offers to take them over. The moment you pick a
 database it also keeps a permanent `masters.db.original` copy.
 
+### What's new in Beta V0.13.1
+
+**Linux.** There is now a Linux download beside the Windows one: unpack the
+`-linux.tar.gz` and run **LID DB Mod Manager**. It updates itself through
+**Help → Check for updates**, like the Windows one. It works with the game
+played through Proton, on the Steam Deck in Desktop Mode too. On Linux the
+manager now:
+
+- sees the game running under Proton, so it waits for it to close before
+  changing anything, and updates the save library when it does;
+- finds Steam in its Linux folders, the Flatpak and the Snap;
+- writes to the game's own files when a mod spells their names in other
+  capitals (Windows treats those as the same file, Linux does not).
+
+Plugin mods need one Steam launch option on Linux; the README's **Linux and
+the Steam Deck** section has it. Nothing changes on Windows.
+
 ### What's new in Beta V0.13.0
 
 **Your saves, in a new Saves tab.** A library of 30 save slots, each with a
