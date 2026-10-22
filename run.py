@@ -32,7 +32,12 @@ def _run_gui() -> int:
 
 
 def main() -> int:
+    from lid_db_manager.certificates import use_system_certificates
     from lid_db_manager.self_update import DONE_FLAG, FINISH_FLAG
+
+    # Before anything goes online: the Linux build's OpenSSL looks for the
+    # trusted certificates where Ubuntu keeps them (see certificates.py).
+    use_system_certificates()
 
     # The two steps of an update are the program's own, not commands.
     if len(sys.argv) > 1 and sys.argv[1] not in (FINISH_FLAG, DONE_FLAG):

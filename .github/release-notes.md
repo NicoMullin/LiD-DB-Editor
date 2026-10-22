@@ -36,6 +36,22 @@ compares it with a clean copy of the same game build, says which mods it can
 already see in there, and offers to take them over. The moment you pick a
 database it also keeps a permanent `masters.db.original` copy.
 
+### What's new in Beta V0.13.2
+
+**Linux: GitHub can be reached again.** On many Linux systems (Fedora,
+openSUSE, Arch and others), the Linux download could not reach GitHub at all:
+the clean database download, **Get mods** and **Check for updates** all
+stopped with "certificate verify failed". The program looked for the system's
+trusted certificates where Ubuntu keeps them. It now finds them wherever the
+system keeps them, and has its own copy for systems with none. Every Linux
+build is now checked against GitHub on Fedora, openSUSE, Arch and Debian
+before it is released.
+
+**Updating:** 0.13.1 on Linux cannot update itself, because the update check
+is what failed. Download 0.13.2 from the release page once and unpack it; on
+its first start, click **I'm updating** and pick your 0.13.1 folder. Updates
+work from then on. Nothing changes on Windows.
+
 ### What's new in Beta V0.13.1
 
 **Linux.** There is now a Linux download beside the Windows one: unpack the

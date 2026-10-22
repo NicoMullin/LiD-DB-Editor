@@ -1975,6 +1975,7 @@ python run.py apply
 python run.py revert revive-cost
 python run.py backups
 python run.py watch                       # poll and re-apply on change
+python run.py check-update                # ask GitHub for the newest release
 ```
 
 `python run.py --help` lists the rest.

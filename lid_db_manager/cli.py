@@ -321,6 +321,24 @@ def cmd_apply_folder(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def cmd_check_update(args: argparse.Namespace) -> int:
+    """Ask GitHub for the newest release. Writes nothing - not even the
+    manager's own state - so it also shows whether this system can reach
+    GitHub over HTTPS at all."""
+    from . import self_update
+
+    try:
+        release = self_update.check()
+    except self_update.UpdateError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    if release.is_newer_than(__version__):
+        print(f"{APP_NAME} {release.version} is out (this is {__version__}): {release.page}")
+    else:
+        print(f"{APP_NAME} {__version__} is the newest version")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="run.py", description=f"{APP_NAME} (CLI)")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {__version__}")
@@ -377,6 +395,7 @@ def build_parser() -> argparse.ArgumentParser:
     folder = subparsers.add_parser("apply-folder", help="apply a single mod folder, ad hoc")
     folder.add_argument("folder")
     folder.add_argument("--db", help="database to apply to (defaults to the saved one)")
+    subparsers.add_parser("check-update", help="ask GitHub for the newest release (changes nothing)")
 
     return parser
 
@@ -424,4 +443,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "apply-folder":
         return cmd_apply_folder(args)
+    if args.command == "check-update":
+        return cmd_check_update(args)
     return COMMANDS[args.command](_manager(), args)

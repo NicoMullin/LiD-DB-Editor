@@ -446,6 +446,24 @@ jobs:
       - name: Build the program
         run: python build.py
 
+      - name: Check it reaches GitHub on other Linux systems
+        # The program carries its own OpenSSL, which looks for the trusted
+        # certificates where Ubuntu keeps them; each of these keeps them
+        # somewhere else, and Debian slim has none at all (so the copy from
+        # certifi is used). See lid_db_manager/certificates.py. GitHub
+        # limiting how often it is asked still proves HTTPS worked.
+        run: |
+          folder=$(find dist -maxdepth 1 -type d -name 'LID DB Mod Manager *' | head -n 1)
+          for image in fedora:latest opensuse/tumbleweed:latest archlinux:latest debian:stable-slim; do
+            echo "== $image"
+            out=$(docker run --rm -v "$PWD/$folder:/app:ro" "$image" "/app/LID DB Mod Manager" check-update 2>&1) || true
+            echo "$out"
+            if ! echo "$out" | grep -q -e "is the newest version" -e "is out (this is" -e "limiting how often"; then
+              echo "::error::The Linux program could not reach GitHub on $image"
+              exit 1
+            fi
+          done
+
       - name: Pack it up
         id: pack
         run: |

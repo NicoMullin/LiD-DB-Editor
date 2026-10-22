@@ -21,7 +21,7 @@ from unittest import mock
 
 import fixtures  # noqa: F401 - puts the project on the path
 
-from lid_db_manager import asset_runner, carry_over, steam_locate
+from lid_db_manager import asset_runner, carry_over, certificates, steam_locate
 from lid_db_manager import self_update as U
 
 EXE = "LID DB Mod Manager"
@@ -184,6 +184,81 @@ class FileNamesInOtherCapitals(unittest.TestCase):
         (self.upk.parent / "BRGGAME.UPK").write_bytes(b"other")
         self.assertEqual(asset_runner._match_case(self.root, "BrgGame/CookedPCConsole/brggame.upk"),
                          "BrgGame/CookedPCConsole/brggame.upk")
+
+
+class CertificatesForGitHub(unittest.TestCase):
+    """The Linux build's OpenSSL looks where Ubuntu keeps the trusted
+    certificates; a tester on another distribution got "certificate verify
+    failed" on every download."""
+
+    def choose(self, files, environ=None, platform="linux", cafile="/usr/lib/ssl/cert.pem", certifi=""):
+        environ = {} if environ is None else environ
+        chosen = certificates.use_system_certificates(
+            environ=environ, platform=platform, is_file=lambda p: p in files,
+            default_cafile=cafile, certifi_bundle=lambda: certifi)
+        return chosen, environ
+
+    def test_another_distributions_list_is_used(self) -> None:
+        chosen, environ = self.choose({"/etc/pki/tls/certs/ca-bundle.crt"})       # Fedora
+        self.assertEqual(chosen, "/etc/pki/tls/certs/ca-bundle.crt")
+        self.assertEqual(environ["SSL_CERT_FILE"], chosen)
+
+    def test_openssls_own_list_is_left_alone_when_it_is_there(self) -> None:
+        chosen, environ = self.choose({"/usr/lib/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt"})
+        self.assertEqual((chosen, environ), ("", {}))
+
+    def test_the_players_own_setting_wins(self) -> None:
+        chosen, environ = self.choose({"/etc/ssl/ca-bundle.pem"}, environ={"SSL_CERT_FILE": "/mine.pem"})
+        self.assertEqual((chosen, environ), ("", {"SSL_CERT_FILE": "/mine.pem"}))
+
+    def test_certifi_when_the_system_has_none(self) -> None:
+        chosen, environ = self.choose({"/app/_internal/certifi/cacert.pem"},
+                                      certifi="/app/_internal/certifi/cacert.pem")
+        self.assertEqual(environ["SSL_CERT_FILE"], "/app/_internal/certifi/cacert.pem")
+
+    def test_nothing_found_changes_nothing(self) -> None:
+        self.assertEqual(self.choose(set()), ("", {}))
+
+    def test_windows_is_never_touched(self) -> None:
+        self.assertEqual(self.choose({"/etc/ssl/certs/ca-certificates.crt"}, platform="win32"), ("", {}))
+
+    def test_it_runs_before_the_program_starts(self) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        import run
+
+        with mock.patch.object(sys, "argv", ["run.py"]), \
+                mock.patch.object(run, "_run_gui", return_value=0), \
+                mock.patch.object(certificates, "use_system_certificates") as chosen:
+            run.main()
+        chosen.assert_called_once_with()
+
+
+class CheckUpdateCommand(unittest.TestCase):
+    """`check-update`: what the Linux build check runs on other systems."""
+
+    def run_it(self, **check) -> tuple[int, str, str]:
+        from contextlib import redirect_stderr, redirect_stdout
+        from lid_db_manager import cli
+
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(U, "check", **check), redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(["check-update"])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_newest(self) -> None:
+        code, out, _ = self.run_it(return_value=U.Release("0.0.1", "v0.0.1", "", "", "", None))
+        self.assertEqual(code, 0)
+        self.assertIn("is the newest version", out)
+
+    def test_newer(self) -> None:
+        code, out, _ = self.run_it(return_value=U.Release("99.0.0", "v99.0.0", "", "", "https://x", None))
+        self.assertEqual(code, 0)
+        self.assertIn("99.0.0 is out (this is", out)
+
+    def test_unreachable(self) -> None:
+        code, _, err = self.run_it(side_effect=U.UpdateError("Could not reach GitHub."))
+        self.assertEqual(code, 1)
+        self.assertIn("Could not reach GitHub", err)
 
 
 class TheLinuxProgram(unittest.TestCase):
