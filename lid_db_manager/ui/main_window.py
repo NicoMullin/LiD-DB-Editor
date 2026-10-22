@@ -2859,7 +2859,32 @@ def _open_folder(path: Path) -> None:
     elif sys.platform == "darwin":
         subprocess.Popen(["open", str(path)])
     else:
-        subprocess.Popen(["xdg-open", str(path)])
+        subprocess.Popen(["xdg-open", str(path)], env=outside_environment())
+
+
+def outside_environment(environ=None, bundle=None) -> dict:
+    """The environment for another program, such as the file manager.
+
+    The Linux build points LD_LIBRARY_PATH (and Qt's plugin paths) at the
+    libraries it carries. A file manager started with those loads this
+    program's Qt instead of its own and does not open, so the system's own
+    LD_LIBRARY_PATH, which the build keeps as LD_LIBRARY_PATH_ORIG, is put
+    back and anything else pointing into the bundle is left out. Run from
+    source, there is no bundle and nothing changes.
+    """
+    env = dict(os.environ if environ is None else environ)
+    bundle = getattr(sys, "_MEIPASS", None) if bundle is None else bundle
+    if not bundle:
+        return env
+    original = env.pop("LD_LIBRARY_PATH_ORIG", None)
+    if original is not None:
+        env["LD_LIBRARY_PATH"] = original
+    else:
+        env.pop("LD_LIBRARY_PATH", None)
+    for name, value in list(env.items()):
+        if name != "LD_LIBRARY_PATH" and str(bundle) in value:
+            del env[name]
+    return env
 
 
 def _megabytes(path) -> str:

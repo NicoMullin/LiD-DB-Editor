@@ -199,17 +199,25 @@ every library Steam lists. The database is usually at
 The game keeps its saves in its own folder on Linux too, so the save library
 and Steam Cloud backups work the same.
 
-### Plugin mods need one Steam setting
+### If plugin mods do not show in the game
 
-Plugin mods are loaded by the Plugin Loader, `dinput8.dll`, and Proton uses its
-own `dinput8.dll` unless told otherwise. In Steam, right-click **LET IT DIE ▸
-Properties ▸ General**, and under **Launch Options** put:
+Plugin mods are loaded by the Plugin Loader, `dinput8.dll`. Many Proton
+versions load it from the game's folder on their own, so try the game first.
+If a plugin mod (the HUD, say) does not show, Proton is using its own
+`dinput8.dll`: in Steam, right-click **LET IT DIE ▸ Properties ▸ General**, and
+under **Launch Options** put:
 
 ```
 WINEDLLOVERRIDES="dinput8=n,b" %command%
 ```
 
-Mods without a plugin do not need it.
+Mods without a plugin never need it.
+
+### Borderless Fullscreen
+
+Leave the Borderless Fullscreen mod off on Linux. Proton's fullscreen already
+works like borderless fullscreen (Alt+Tab is instant), and the mod's windowed
+mode gets a title bar from your desktop instead.
 
 ### Close the game first
 

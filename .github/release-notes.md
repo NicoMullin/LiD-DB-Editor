@@ -36,6 +36,18 @@ compares it with a clean copy of the same game build, says which mods it can
 already see in there, and offers to take them over. The moment you pick a
 database it also keeps a permanent `masters.db.original` copy.
 
+### What's new in Beta V0.13.3
+
+**Linux: opening folders works** from the Linux download. The file manager was
+started with the program's own libraries and closed straight away.
+
+**Linux: the Steam launch option is only for when plugins do not show.** Many
+Proton versions load the Plugin Loader on their own; the README says what to
+do if yours does not. The README also says to leave Borderless Fullscreen off
+on Linux, where the game's own fullscreen already works that way.
+
+Nothing changes on Windows.
+
 ### What's new in Beta V0.13.2
 
 **Linux: GitHub can be reached again.** On many Linux systems (Fedora,

@@ -9,6 +9,7 @@ differ only in capitals); the Linux test run on GitHub covers those.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import io
 import os
 import stat
@@ -231,6 +232,41 @@ class CertificatesForGitHub(unittest.TestCase):
                 mock.patch.object(certificates, "use_system_certificates") as chosen:
             run.main()
         chosen.assert_called_once_with()
+
+
+@unittest.skipUnless(importlib.util.find_spec("PySide6"), "needs PySide6")
+class OpeningAFolder(unittest.TestCase):
+    """The Linux build's own libraries must not reach the file manager: a
+    tester could not open any folder from the download, only from source."""
+
+    def env(self, environ, bundle="/opt/lid/_internal"):
+        from lid_db_manager.ui.main_window import outside_environment
+        return outside_environment(environ, bundle)
+
+    def test_the_systems_library_path_comes_back(self) -> None:
+        env = self.env({"LD_LIBRARY_PATH": "/opt/lid/_internal:/usr/lib", "LD_LIBRARY_PATH_ORIG": "/usr/lib",
+                        "HOME": "/home/me"})
+        self.assertEqual(env, {"LD_LIBRARY_PATH": "/usr/lib", "HOME": "/home/me"})
+
+    def test_none_of_its_own_when_there_was_none(self) -> None:
+        env = self.env({"LD_LIBRARY_PATH": "/opt/lid/_internal", "QT_PLUGIN_PATH": "/opt/lid/_internal/PySide6/plugins",
+                        "PATH": "/usr/bin"})
+        self.assertEqual(env, {"PATH": "/usr/bin"})
+
+    def test_from_source_nothing_changes(self) -> None:
+        environ = {"LD_LIBRARY_PATH": "/usr/local/lib", "PATH": "/usr/bin"}
+        self.assertEqual(self.env(environ, bundle=""), environ)
+
+    def test_xdg_open_gets_it(self) -> None:
+        from lid_db_manager.ui import main_window as mw
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(mw.sys, "platform", "linux"), \
+                mock.patch.object(mw.subprocess, "Popen") as popen, \
+                mock.patch.object(mw, "outside_environment", return_value={"PATH": "/usr/bin"}):
+            mw._open_folder(Path(tmp))
+        self.assertEqual(popen.call_args.args[0][0], "xdg-open")
+        self.assertEqual(popen.call_args.kwargs["env"], {"PATH": "/usr/bin"})
 
 
 class CheckUpdateCommand(unittest.TestCase):

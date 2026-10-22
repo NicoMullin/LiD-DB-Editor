@@ -514,7 +514,7 @@ jobs:
             echo ""
             echo "**Linux:** \`$TAR\`. Unpack it somewhere you can write to and run"
             echo "\`LID DB Mod Manager\` in the folder. If it does not open, install"
-            echo "\`libxcb-cursor0\`. Plugin mods need a Steam launch option - see"
+            echo "\`libxcb-cursor0\`. If plugin mods do not show in the game, see"
             echo "\"Linux and the Steam Deck\" in the README. Check the download with"
             echo "\`sha256sum $TAR\`; it should print:"
             echo ""
