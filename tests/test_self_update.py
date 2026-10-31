@@ -223,6 +223,12 @@ class Installing(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
+    def test_a_mod_updated_since_the_release_is_left_alone(self) -> None:
+        (self.target / "mods" / "Shipped" / "mod.json").write_bytes(b'{"version": "3"}')
+        U.install(self.new, self.target)
+        self.assertEqual((self.target / "mods" / "Shipped" / "mod.json").read_bytes(), b'{"version": "3"}')
+        self.assertEqual((self.target / "mods" / "New Mod" / "mod.json").read_bytes(), b"new mod")
+
     def test_program_files_are_swapped_and_the_players_are_not(self) -> None:
         U.install(self.new, self.target)
         after = tree(self.target)

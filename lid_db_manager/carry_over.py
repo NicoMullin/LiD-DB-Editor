@@ -30,6 +30,7 @@ from pathlib import Path
 
 from .migrations import RETIRED_DIRNAME
 from .paths import AppPaths
+from .self_update import mod_version, newer
 
 STATE_FILE = "state.json"
 EXE_NAME = "LID DB Mod Manager.exe"
@@ -172,11 +173,14 @@ def plan(old: OldInstall, paths: AppPaths, *, has_applied_here: bool) -> CarryOv
 
     result = CarryOverPlan(old=old, new_root=new_root)
     result.data_dirs = [d for d in DATA_DIRS if (old_root / d).is_dir()]
-    shipped_here = {p.name.lower() for p in _subfolders(paths.mods_dir)}
+    shipped_here = {p.name.lower(): p for p in _subfolders(paths.mods_dir)}
     for folder in _subfolders(old_root / "mods"):
         if folder.name in _SKIPPED_MOD_FOLDERS:
             continue
-        if folder.name.lower() in shipped_here:
+        shipped = shipped_here.get(folder.name.lower())
+        # this release's own copy - unless the old one is newer, got from the
+        # mods repository after this release was made
+        if shipped is not None and not newer(mod_version(folder), mod_version(shipped)):
             result.shipped_mods.append(folder.name)
         else:
             result.own_mods.append(folder.name)
@@ -202,7 +206,10 @@ def carry_over(plan: CarryOverPlan) -> CarryOverReport:
         for name in plan.data_dirs:
             report.files_copied += _copy_tree(old_root / name, new_root / name)
         for name in plan.own_mods:
-            report.files_copied += _copy_tree(old_root / "mods" / name, new_root / "mods" / name)
+            target = new_root / "mods" / name
+            if target.is_dir():         # this release's older copy: the old one replaces it whole
+                shutil.rmtree(target)
+            report.files_copied += _copy_tree(old_root / "mods" / name, target)
         for relative in plan.vanilla_files:
             source = old_root / relative
             target = new_root / VANILLA_DIR / relative.split(VANILLA_DIR + "/", 1)[1]

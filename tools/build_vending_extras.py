@@ -105,9 +105,19 @@ def span_at(lines, fields, m):
     and 8 in memory, so the filler after the jump needs 5 bytes for each. A
     one-line ``super.TickASync(DeltaTime)`` names two and is only 11 bytes, so
     the next statement goes too - as long as nothing jumps into the middle.
+
+    A switch reads its first case from the bytes straight after it, so a
+    moved switch takes that case's header with it; the jump back then lands
+    on the case's code. Left behind, the switch read the jump back as a case:
+    on shop state 0 (a shop opening or closing) ShopBase.TickASync ran on
+    past the end of its script and the game crashed.
     """
     first = next(i for i, line in enumerate(lines) if line[1] == m)
+    if lines[first][4].startswith(("case ", "default")):
+        sys.exit(f"a case at {m:#x} cannot be moved away from its switch")
     for last in range(first, len(lines) - 1):
+        if lines[last][4].startswith("switch<"):
+            continue
         disk = sum(line[2] for line in lines[first:last + 1])
         mem = sum(line[3] for line in lines[first:last + 1])
         refs, odd = divmod(mem - disk, 4)

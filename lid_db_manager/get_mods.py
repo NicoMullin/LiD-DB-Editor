@@ -1,4 +1,11 @@
-"""Getting KSFA's plugin mods from their GitHub releases.
+"""Getting KSFA's mods from GitHub: the plugin mods and the mods repository.
+
+Every mod that needs no plugin lives in one repository, LiD-Mods, whose
+release "mods" holds a zip for each mod and mods-index.json listing them
+(tools/publish_mods.py builds both). A player gets or updates any one of them
+on its own - see "the mods repository" below. The manager download comes in
+two kinds, with all of these mods or with none, and its own update only ever
+brings the program, so mods change only when the player says so here.
 
 Some mods need a plugin: a DLL the game loads through the LiD Plugin Loader
 (a dinput8.dll next to the game). Those do not come with the manager. Each
@@ -241,6 +248,141 @@ def download(release: Release, work: Path, progress: Progress | None = None,
     finally:
         partial.unlink(missing_ok=True)
     return packed
+
+
+# -- the mods repository ---------------------------------------------------------
+
+MODS_REPO = "LiD-Mods"
+MODS_TAG = "mods"               # the one release, its files replaced as mods change
+MODS_INDEX = "mods-index.json"
+MODS_DOWNLOADS = DOWNLOADS.format(owner=OWNER, repo=MODS_REPO) + MODS_TAG + "/"
+MODS_INDEX_URL = MODS_DOWNLOADS + MODS_INDEX
+MODS_PAGE = f"https://github.com/{OWNER}/{MODS_REPO}"
+ZIP_NAME = re.compile(r"^[a-z0-9][a-z0-9.-]*\.zip$")
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True)
+class ListedMod:
+    """One mod in mods-index.json."""
+    folder: str
+    name: str
+    version: str
+    file: str
+    size: int
+    sha256: str
+    author: str = ""
+    description: str = ""
+    category: str = ""
+    min_manager_version: str = ""
+    game_versions: tuple[str, ...] = ()
+    updated: str = ""
+
+    @property
+    def asset(self) -> self_update.Asset:
+        return self_update.Asset(name=self.file, url=MODS_DOWNLOADS + self.file,
+                                 size=self.size, sha256=self.sha256)
+
+    def needs_newer_manager(self, current: str = self_update.__version__) -> bool:
+        return bool(self.min_manager_version) and self_update.newer(self.min_manager_version, current)
+
+
+def mods_index(opener=self_update._open) -> list[ListedMod]:
+    """Every mod the mods repository has. Raises GetModsError when it cannot be read."""
+    try:
+        with opener(MODS_INDEX_URL) as response:
+            raw = response.read(4 << 20)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise GetModsError("The mods repository has no mods published yet.") from exc
+        if exc.code in (403, 429):
+            raise GetModsError("GitHub is limiting how often it can be asked. Try again in an hour.") from exc
+        raise GetModsError(f"GitHub did not hand over the list of mods (it said {exc.code}).") from exc
+    except (urllib.error.URLError, OSError) as exc:
+        raise GetModsError(self_update._offline(exc)) from exc
+    return read_mods_index(raw)
+
+
+def read_mods_index(raw: bytes) -> list[ListedMod]:
+    """The index's mods, each checked; one that does not check out is left out."""
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise GetModsError("The list of mods could not be read.") from exc
+    if not isinstance(data, dict) or data.get("format") != 1:
+        raise GetModsError("The list of mods is a kind this manager does not know - update the manager.")
+    found: list[ListedMod] = []
+    for item in data.get("mods") or []:
+        try:
+            games = item.get("game_version") or []
+            mod = ListedMod(
+                folder=str(item["folder"]), name=str(item.get("name") or item["folder"]),
+                version=str(item["version"]), file=str(item["file"]), size=int(item["size"]),
+                sha256=str(item["sha256"]).lower(), author=str(item.get("author") or ""),
+                description=str(item.get("description") or ""),
+                category=str(item.get("category") or ""),
+                min_manager_version=str(item.get("min_manager_version") or ""),
+                game_versions=tuple(str(g) for g in games) if isinstance(games, list) else (),
+                updated=str(item.get("updated") or ""),
+            )
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+        if mod.folder in ("", ".", "..") or "/" in mod.folder or "\\" in mod.folder \
+                or mod.folder.startswith("_") or not ZIP_NAME.match(mod.file) \
+                or not HEX64.match(mod.sha256) or not 0 < mod.size <= MAX_PACKAGE:
+            continue
+        found.append(mod)
+    return found
+
+
+def installed_version(mods_dir: Path, folder: str) -> str:
+    """The version of the mod in ``mods_dir/folder``: "" when it is not there."""
+    try:
+        data = json.loads((Path(mods_dir) / folder / "mod.json").read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        return ""
+    except (OSError, ValueError):
+        return "?"
+    return str(data.get("version") or "?") if isinstance(data, dict) else "?"
+
+
+def mod_action(mod: ListedMod, have: str) -> str:
+    """What the window's button says: Get, Update, Reinstall - or why not."""
+    if mod.needs_newer_manager():
+        return "Needs manager " + mod.min_manager_version
+    if not have:
+        return "Get"
+    if have != "?" and not self_update.newer(mod.version, have):
+        return "Reinstall"
+    return "Update"
+
+
+def download_mod(mod: ListedMod, work: Path, progress: Progress | None = None,
+                 opener=self_update._open) -> Package:
+    """Download one mod's zip, check it against the index's SHA-256, unpack it."""
+    progress = ensure(progress)
+    if mod.needs_newer_manager():
+        raise GetModsError(f"{mod.name} {mod.version} needs manager {mod.min_manager_version} or newer. "
+                           "Update the manager first (Help > Check for updates).")
+    work.mkdir(parents=True, exist_ok=True)
+    packed = work / mod.file
+    partial = work / f"{mod.file}.part"
+    progress.stage(f"Downloading {mod.name} {mod.version}...", 0, 100)
+    try:
+        self_update._download(mod.asset, partial, progress, opener)
+        os.replace(partial, packed)
+    except self_update.UpdateError as exc:
+        raise GetModsError(str(exc)) from exc
+    finally:
+        partial.unlink(missing_ok=True)
+    package = unpack(packed, work / f"mod-{mod.folder}")
+    packed.unlink(missing_ok=True)
+    if package.mods != [mod.folder] or package.plugins or package.loader:
+        raise GetModsError(f"The {mod.name} download does not hold just that mod, so it was not used.")
+    if package.version != mod.version:
+        raise GetModsError(f"The {mod.name} download is version {package.version}, not {mod.version}. "
+                           "The list may have changed meanwhile - check again.")
+    return package
 
 
 # -- the package -------------------------------------------------------------

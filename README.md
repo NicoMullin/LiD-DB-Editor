@@ -77,8 +77,8 @@ program file is ever added to the game.
   wiping out everything else, and re-applying it can never compound.
 
 It goes online only when you ask it to - to download a clean database, to
-check its GitHub page for a newer version and update itself, or to get a mod
-that needs a plugin ([Get mods](#mods-that-need-a-plugin)) - and never to
+check its GitHub page for a newer version and update itself, or to get or
+update a mod ([Get mods](#getting-and-updating-mods)) - and never to
 anywhere but GitHub. No telemetry, and no Steam integration. It writes the
 `masters.db` you point it at, plus any game files a mod ships — normally `.upk` files in `BrgGame\CookedPCConsole\`.
 
@@ -886,6 +886,39 @@ Do not switch `Tengoku Enjoyer` (or its tower part) off while a fighter is past
 Blueprints` on as well, its share applies to floors 51 to 451; the new floors
 keep `Tengoku Enjoyer`'s own blueprint lists.
 
+## Getting and updating mods
+
+Every mod that needs no plugin also lives in one place: the
+[LiD-Mods](https://github.com/NicoMullin/LiD-Mods) repository, one download per
+mod. **Get mods...** (top right, or **Mods > Get mods...**), on its **Mods** tab,
+lists every one of them after **Check GitHub for the newest**, with the version
+you have and the newest:
+
+- **Get** adds a mod you do not have, and nothing else.
+- **Update** brings the newest version of one you have; **Update all** does
+  every one you have that has an update.
+- **Show** narrows the list to the mods you have, the ones with an update, or
+  the ones you do not have.
+
+Each download is checked against the SHA-256 the list gives for it, and you see
+what will be written before anything is. A mod you update keeps its settings;
+click **Save Mod List** to apply the new version. A mod that needs a newer
+manager says so on its button instead of downloading.
+
+The manager comes in two downloads: `LID-DB-Mod-Manager-<version>-win64.zip`
+with every one of these mods, and `LID-Mod-Manager-No-Mods-<version>-win64.zip`
+(and the same two for Linux) with none, for an empty list you fill yourself.
+**Help > Check for updates** always brings the program only, so it never
+changes, re-adds or downgrades a mod. Bringing an older copy's mods over
+(**I'm updating**) keeps any you updated past the version in the new download.
+
+**Publishing a mod change** (maintainers): change the mod in LiD-Mods, raise
+`"version"` in its `mod.json` and push. GitHub builds and signs a zip for each
+mod whose version went up and updates `mods-index.json`, the list the manager
+reads (`tools/publish_mods.py`). A mod whose files changed without a new
+version stops the build, because the manager only re-applies a mod when its
+version changes.
+
 ## Mods that need a plugin
 
 Some mods need a **plugin**: a DLL the game loads through the
@@ -908,8 +941,8 @@ its own GitHub page, where GitHub builds and tests every release:
 | Daily Quests           | [LiD-Daily-Quests](https://github.com/NicoMullin/LiD-Daily-Quests)                     | The online event quests back: a few random ones a day, paying DM and an unearnable decal  |
 | Better Dustin5         | [LiD-Better-Dustin5](https://github.com/NicoMullin/LiD-Better-Dustin5)                 | Free Dustin5s with no 5-item limit, no waiting, Rewards Box to Storage Box, take-all      |
 
-**Get mods...** (top right, or Mods > Get mods that need a plugin) lists them,
-shows which you have, and gets one with a click:
+**Get mods...** (top right, or Mods > Get mods...), on its **Mods with a plugin**
+tab, lists them, shows which you have, and gets one with a click:
 
 1. It asks GitHub for that mod's newest release and downloads its package
    (`LiD-<name>.zip`), keeping it only if it matches the SHA-256 GitHub lists

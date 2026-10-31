@@ -1,5 +1,9 @@
-Download the zip below, unzip it anywhere **writable** — not Program Files —
-and run `LID DB Mod Manager.exe`.
+Download a zip below, unzip it anywhere **writable** — not Program Files —
+and run `LID DB Mod Manager.exe`. There are two:
+
+- `LID-DB-Mod-Manager-…-win64.zip` comes with every mod that needs no plugin.
+- `LID-Mod-Manager-No-Mods-…-win64.zip` comes with none. Get the ones you want
+  from **Get mods** (the **Mods** tab).
 
 **No Python needed.** Python, Qt and the C++ runtime are all inside the build.
 
@@ -19,6 +23,9 @@ restarts as the new version. Your mods, settings, snapshots and backups stay whe
 are, and the folder keeps its name. Then click **Save Mod List** once, so the
 mods updated in this release are applied again.
 
+From 0.13.5 on, an update from inside the manager brings the program only. Mods
+are updated one at a time, whenever you like, from **Get mods**.
+
 ### Updating from 0.10.1 or older
 
 Unzip this release into a folder of its own and close your old copy. On its
@@ -35,6 +42,32 @@ Point it at your `masters.db`. It does not have to be untouched: the manager
 compares it with a clean copy of the same game build, says which mods it can
 already see in there, and offers to take them over. The moment you pick a
 database it also keeps a permanent `masters.db.original` copy.
+
+### What's new in Beta V0.13.5
+
+**Get only the mods you want, and update each one on its own.** Every mod that
+needs no plugin now also lives in one place on GitHub, the
+[LiD-Mods](https://github.com/NicoMullin/LiD-Mods) repository. **Get mods** has a
+new **Mods** tab listing all of them with the version you have and the newest:
+**Get** adds one, **Update** brings the newest version of one, and **Update
+all** does every one you have. A fixed mod no longer has to wait for a new
+manager. Each download is checked against its SHA-256 before anything is
+written, and you see what will be written first.
+
+**Two downloads: with every mod, or with none.** Pick the one without mods to
+start with an empty list and add only what you want. Updating the manager from
+inside it now brings the program only, so it never changes, re-adds or
+downgrades a mod you updated or removed.
+
+**Fix: the vending machine and the shops crashed with Refill ammo on.**
+Vending Machine 0.4.1. With **Ammo (20% cost)** switched on, the game could
+close when you opened or left the vending machine, the weapon, armor and R&D
+shop, or any other shop. The ammo refill's change to the shops' code moved one
+of the game's own checks away from the cases it reads, and on the frame a shop
+opens or closes the game ran past the end of that code. Whether it crashed
+depended on timing, which is why it happened to some players and not others.
+The **Decals** entry was never affected. Ticked already? The next **Save Mod
+List** applies the fix.
 
 ### What's new in Beta V0.13.4
 

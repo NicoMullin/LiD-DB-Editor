@@ -134,5 +134,117 @@ class TheWindow(unittest.TestCase):
         self.assertIsNone(self.dialog.task)
 
 
+@unittest.skipUnless(HAVE_QT, "needs PySide6")
+class TheModsTab(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        from test_get_mods import FakeModsRepo
+
+        from lid_db_manager.ui.get_mods_dialog import GetModsDialog
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        self.paths = AppPaths(root / "app").ensure()
+        self.manager = Manager(self.paths)
+        self.manager.set_db_path(build_db(root / "game" / "BrgGame" / "masters.db"))
+        self.repo = FakeModsRepo()
+        self.repo.publish("Quest Limit", "0.1.1", description="More quests at once.")
+        self.repo.publish("Vending Machine", "0.4.1")
+        self.repo.publish("Skip Intro", "0.1.1")
+        (self.paths.mods_dir / "Vending Machine").mkdir()
+        (self.paths.mods_dir / "Vending Machine" / "mod.json").write_text(
+            '{"id": "Vending Machine", "version": "0.4.0"}', encoding="utf-8")
+        self.github = FakeGitHub()
+        self.dialog = GetModsDialog(self.manager, opener=self.opener)
+        self.addCleanup(self.dialog.deleteLater)
+
+    def opener(self, url: str):
+        return self.repo(url) if url.startswith(G.MODS_DOWNLOADS) else self.github(url)
+
+    def wait(self) -> None:
+        deadline = time.monotonic() + 20
+        while self.dialog.task is not None and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.01)
+        self.app.processEvents()
+        self.assertIsNone(self.dialog.task, "the background work did not finish")
+
+    def checked(self) -> None:
+        self.dialog.check()
+        self.wait()
+
+    def words(self) -> dict:
+        return {folder: button.text() for folder, button in self.dialog.mod_buttons.items()}
+
+    def test_nothing_is_listed_until_asked(self) -> None:
+        self.assertEqual(self.dialog.mods_table.rowCount(), 0)
+        self.assertEqual(self.dialog.mods_note.text(), "Not checked yet.")
+
+    def test_checking_lists_every_mod_with_what_you_have(self) -> None:
+        self.checked()
+        self.assertEqual(self.words(), {"Quest Limit": "Get", "Skip Intro": "Get",
+                                        "Vending Machine": "Update"})
+        self.assertEqual(self.dialog.update_all_button.text(), "Update all (1)")
+        self.assertIn("3 mods, 1 of them here, 1 with an update", self.dialog.mods_note.text())
+
+    def test_the_filter_shows_only_what_was_asked(self) -> None:
+        self.checked()
+        self.dialog.show_box.setCurrentIndex(3)              # ones you do not have
+        self.assertEqual(sorted(self.words()), ["Quest Limit", "Skip Intro"])
+        self.dialog.show_box.setCurrentIndex(2)              # ones with an update
+        self.assertEqual(sorted(self.words()), ["Vending Machine"])
+
+    def test_get_brings_just_that_one_after_asking(self) -> None:
+        self.checked()
+        asked = []
+
+        def answer(box):
+            asked.append(box.informativeText())
+            return QMessageBox.StandardButton.Yes
+
+        with mock.patch.object(QMessageBox, "exec", answer), \
+                mock.patch.object(QMessageBox, "information"):
+            self.dialog.mod_buttons["Quest Limit"].click()
+            self.wait()
+            self.wait()
+        self.assertEqual(len(asked), 1)
+        self.assertIn("Quest Limit (0.1.1, new)", asked[0])
+        self.assertTrue((self.paths.mods_dir / "Quest Limit" / "mod.json").is_file())
+        self.assertFalse((self.paths.mods_dir / "Skip Intro").exists())
+        self.assertEqual(self.words()["Quest Limit"], "Reinstall")
+        self.assertTrue(self.dialog.changed)
+        self.assertFalse(self.dialog._work_dir().exists())
+
+    def test_update_all_updates_only_what_you_have(self) -> None:
+        self.checked()
+        with mock.patch.object(QMessageBox, "exec", lambda box: QMessageBox.StandardButton.Yes), \
+                mock.patch.object(QMessageBox, "information"):
+            self.dialog.update_all()
+            self.wait()
+            self.wait()
+        self.assertEqual(G.installed_version(self.paths.mods_dir, "Vending Machine"), "0.4.1")
+        self.assertFalse((self.paths.mods_dir / "Quest Limit").exists())
+        self.assertEqual(self.dialog.update_all_button.text(), "Update all")
+        self.assertFalse(self.dialog.update_all_button.isEnabled())
+
+    def test_saying_no_writes_nothing(self) -> None:
+        self.checked()
+        with mock.patch.object(QMessageBox, "exec", lambda box: QMessageBox.StandardButton.Cancel):
+            self.dialog.mod_buttons["Vending Machine"].click()
+            self.wait()
+        self.assertEqual(G.installed_version(self.paths.mods_dir, "Vending Machine"), "0.4.0")
+        self.assertIn("Nothing was installed", self.dialog.status.text())
+
+    def test_no_list_says_why(self) -> None:
+        self.repo.mods = []
+        self.dialog.opener = self.github             # the mods release is not there at all
+        self.checked()
+        self.assertIn("no mods published yet", self.dialog.mods_note.text())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -78,6 +78,10 @@ PLAYER_DATA = frozenset(
 # What build.py names the program and its .exe - and, with the version after
 # it, the folder a release zip unpacks into.
 RELEASE_NAME = "LID DB Mod Manager"
+# The download without the regular mods: "LID-Mod-Manager-No-Mods-0.13.5-win64.zip".
+# No "DB" in it, so RELEASE_NAME's letters are not in it (see _pick_asset).
+NO_MODS_NAME = "LID-Mod-Manager-No-Mods"
+NO_MODS_MARK = "nomods"
 
 MAX_DOWNLOAD = 1 << 30          # 1 GB; a release is ~60 MB
 MAX_UNPACKED = 3 << 30
@@ -185,8 +189,24 @@ def _pick_asset(assets: list, linux: bool | None = None) -> Asset | None:
     On Linux, the same for the release's ``-linux.tar.gz``. Copies from before
     there was a Linux build only ever look at .zip files, so a release with
     both still hands them the one zip they expect.
+
+    A release comes with all the regular mods and without them. An update
+    takes the one without (NO_MODS_NAME): it brings the program only, so a mod
+    the player updated, or removed, from the Get mods window stays as it is.
+    That download is named so that copies from before it existed, which look
+    for RELEASE_NAME in the name, still find only the one with the mods.
     """
     linux = on_linux() if linux is None else linux
+    candidates = [a for a in assets if NO_MODS_MARK in re.sub(r"[^a-z]", "", str(a.get("name") or "").lower())]
+    if candidates:
+        found = _pick_one(candidates, linux, NO_MODS_MARK)
+        if found is not None:
+            return found
+    return _pick_one([a for a in assets if a not in candidates], linux,
+                     re.sub(r"[^a-z]", "", RELEASE_NAME.lower()))
+
+
+def _pick_one(assets: list, linux: bool, wanted: str) -> Asset | None:
     zips = []
     for entry in assets:
         name = str(entry.get("name") or "")
@@ -204,7 +224,6 @@ def _pick_asset(assets: list, linux: bool | None = None) -> Asset | None:
         zips.append(Asset(name=name, url=url, size=int(entry["size"]),
                           sha256=digest.split(":", 1)[1].lower()))
     if len(zips) > 1:
-        wanted = re.sub(r"[^a-z]", "", RELEASE_NAME.lower())
         named = [a for a in zips if wanted in re.sub(r"[^a-z]", "", a.name.lower())]
         zips = named
     return zips[0] if len(zips) == 1 else None
@@ -430,15 +449,31 @@ def wait_for_exit(pid: int, timeout: float = 60.0) -> bool:
     return False
 
 
-def what_is_replaced(new_folder: Path) -> list[PurePosixPath]:
+def mod_version(folder: Path) -> str:
+    """The version in a mod folder's mod.json, or "" when it has none."""
+    try:
+        data = json.loads((Path(folder) / "mod.json").read_text(encoding="utf-8-sig"))
+        return str(data.get("version") or "") if isinstance(data, dict) else ""
+    except (OSError, ValueError):
+        return ""
+
+
+def what_is_replaced(new_folder: Path, target: Path | None = None) -> list[PurePosixPath]:
     """The program's own files in a release: each top-level item, except that
-    mods/ is taken one mod at a time so the player's own mods stay."""
+    mods/ is taken one mod at a time so the player's own mods stay - and a mod
+    ``target`` already has in a newer version (got from the mods repository
+    since this release was made) stays too."""
     items: list[PurePosixPath] = []
     for item in sorted(new_folder.iterdir()):
         if item.name in PLAYER_DATA:
             continue
         if item.name == MODS and item.is_dir():
-            items += [PurePosixPath(MODS, mod.name) for mod in sorted(item.iterdir())]
+            for mod in sorted(item.iterdir()):
+                here = Path(target) / MODS / mod.name if target is not None else None
+                if here is not None and mod.is_dir() and here.is_dir() \
+                        and newer(mod_version(here), mod_version(mod)):
+                    continue
+                items.append(PurePosixPath(MODS, mod.name))
         else:
             items.append(PurePosixPath(item.name))
     return items
@@ -456,7 +491,7 @@ def install(new_folder: Path, target: Path, progress: Progress | None = None) ->
     aside_root = target / UPDATE_DIR / PREVIOUS
     if aside_root.exists():
         shutil.rmtree(aside_root)
-    items = what_is_replaced(new_folder)
+    items = what_is_replaced(new_folder, target)
     files = sum(1 for rel in items for _ in _files(new_folder.joinpath(*rel.parts)))
     copied = 0
     moved: list[tuple[Path, Path]] = []

@@ -115,6 +115,12 @@ jobs:
         run: python build.py
 
       - name: Zip it up
+        # Two downloads: with every regular mod, and with none (only the
+        # templates, whose names start with _). Players without mods get the
+        # ones they want from Get mods, and the in-app update always takes the
+        # one without, so it never touches anyone's mods. Its name has no "DB"
+        # in it: copies from before it existed look for "LID DB Mod Manager" in
+        # the name, and so still find only the one with the mods.
         shell: pwsh
         run: |
           # build.py names the folder after the version: "LID DB Mod Manager 0.11.0".
@@ -122,10 +128,17 @@ jobs:
           if (-not $folder) { Write-Error "build.py left no program folder in dist"; exit 1 }
           $name = "LID-DB-Mod-Manager-${{ steps.label.outputs.version }}-win64.zip"
           Compress-Archive -Path $folder.FullName -DestinationPath $name
+          $bare = Join-Path $env:RUNNER_TEMP "no-mods"
+          Copy-Item $folder.FullName -Destination (Join-Path $bare $folder.Name) -Recurse
+          Get-ChildItem (Join-Path (Join-Path $bare $folder.Name) "mods") -Directory |
+            Where-Object { -not $_.Name.StartsWith("_") } | Remove-Item -Recurse -Force
+          $noMods = "LID-Mod-Manager-No-Mods-${{ steps.label.outputs.version }}-win64.zip"
+          Compress-Archive -Path (Join-Path $bare $folder.Name) -DestinationPath $noMods
           "ZIP_NAME=$name" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Get-Item $name | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+          "NO_MODS_ZIP=$noMods" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Get-Item $name, $noMods | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
 
-      - name: Hash the zip
+      - name: Hash the zips
         # Published with the release so anyone can check the file they got is
         # the one built here - a re-upload elsewhere, or a download that came
         # down damaged, will not match. It is also what a VirusTotal report is
@@ -134,11 +147,14 @@ jobs:
         shell: pwsh
         run: |
           $sha = (Get-FileHash $env:ZIP_NAME -Algorithm SHA256).Hash
+          $bare = (Get-FileHash $env:NO_MODS_ZIP -Algorithm SHA256).Hash
           "sha256=$sha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "sha256_no_mods=$bare" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "SHA-256: $sha"
+          Write-Host "SHA-256 (no mods): $bare"
           # Also on the run's summary page, so builds that publish no release
           # (an ordinary push, or Run workflow) still show it.
-          "### SHA-256`n`n``$($env:ZIP_NAME)``  `n``$sha``" |
+          "### SHA-256`n`n``$($env:ZIP_NAME)``  `n``$sha``  `n``$($env:NO_MODS_ZIP)``  `n``$bare``" |
             Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Send the zip to VirusTotal
@@ -161,18 +177,22 @@ jobs:
             exit 0
           }
           $headers = @{ "x-apikey" = $env:VT_API_KEY }
-          $upload = (Invoke-RestMethod -Uri "https://www.virustotal.com/api/v3/files/upload_url" -Headers $headers).data
-          $answer = curl.exe --silent --show-error --fail -X POST -H "x-apikey: $env:VT_API_KEY" -F "file=@$env:ZIP_NAME" $upload
-          if ($LASTEXITCODE -ne 0) { throw "VirusTotal did not take the upload." }
-          $analysis = ($answer | ConvertFrom-Json).data.id
-          Write-Host "Sent to VirusTotal, analysis $analysis"
+          foreach ($file in @($env:ZIP_NAME, $env:NO_MODS_ZIP)) {
+            $upload = (Invoke-RestMethod -Uri "https://www.virustotal.com/api/v3/files/upload_url" -Headers $headers).data
+            $answer = curl.exe --silent --show-error --fail -X POST -H "x-apikey: $env:VT_API_KEY" -F "file=@$file" $upload
+            if ($LASTEXITCODE -ne 0) { throw "VirusTotal did not take the upload of $file." }
+            $analysis = ($answer | ConvertFrom-Json).data.id
+            Write-Host "Sent $file to VirusTotal, analysis $analysis"
+          }
           "scan=started" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Attach the zip to this run
+      - name: Attach the zips to this run
         uses: actions/upload-artifact@v6
         with:
           name: LID-DB-Mod-Manager-${{ steps.label.outputs.version }}-win64
-          path: ${{ env.ZIP_NAME }}
+          path: |
+            ${{ env.ZIP_NAME }}
+            ${{ env.NO_MODS_ZIP }}
           if-no-files-found: error
 
       - name: Publish a Release
@@ -193,9 +213,15 @@ jobs:
           $notes = "release-notes-published.md"
           Copy-Item ".github/release-notes.md" $notes
           $sha = "${{ steps.hash.outputs.sha256 }}"
+          $bare = "${{ steps.hash.outputs.sha256_no_mods }}"
           $lines = @(
             "",
             "---",
+            "",
+            "**Two downloads.** ``$env:ZIP_NAME`` comes with every regular mod.",
+            "``$env:NO_MODS_ZIP`` comes with none: get the ones you want from",
+            "**Get mods**, where each mod also updates on its own. Updating from inside",
+            "the manager only ever brings the program, never changes your mods.",
             "",
             "**Check your download.** In PowerShell, in the folder you saved it:",
             "",
@@ -209,6 +235,12 @@ jobs:
             $sha,
             '```',
             "",
+            "or for ``$env:NO_MODS_ZIP``:",
+            "",
+            '```',
+            $bare,
+            '```',
+            "",
             $(if ("${{ steps.virustotal.outputs.scan }}" -eq "started") {
               "VirusTotal report for this exact file - sent there by this build, results within a few minutes:"
             } else {
@@ -216,13 +248,15 @@ jobs:
             }),
             "https://www.virustotal.com/gui/file/$sha",
             "",
+            "and for the one without mods: https://www.virustotal.com/gui/file/$bare",
+            "",
             "_Some antivirus flags any newly built PyInstaller program. The launcher",
             "is compiled fresh here rather than taken from PyInstaller's wheel, which",
             "avoids the most common false positive._"
           )
           Add-Content -Path $notes -Value $lines -Encoding utf8
           # --target tags the commit this build came from when the tag is new.
-          gh release create $tag "$env:ZIP_NAME" --title $title --notes-file $notes --target $env:GITHUB_SHA
+          gh release create $tag "$env:ZIP_NAME" "$env:NO_MODS_ZIP" --title $title --notes-file $notes --target $env:GITHUB_SHA
 
       - name: Check for the Nexus Mods settings
         # The same zip goes to the Nexus Mods page too, but only when the
@@ -283,6 +317,7 @@ jobs:
           $repo = "${{ github.server_url }}/${{ github.repository }}"
           $page = "$repo/releases/tag/$tag"
           $zipUrl = "$repo/releases/download/$tag/$env:ZIP_NAME"
+          $bareUrl = "$repo/releases/download/$tag/$env:NO_MODS_ZIP"
           $arrow = [char]0x2192
 
           # This version's "What's new" section of the notes. The notes are
@@ -357,7 +392,7 @@ jobs:
             title = "LID DB Mod Manager - Beta V$version"
             url = $page
             color = 0x2ECC71
-            description = "**[Download from GitHub]($zipUrl)** (``$env:ZIP_NAME``)`n`nUnzip it into a folder you can write to (**not** Program Files) and run ``LID DB Mod Manager.exe``. Nothing else to install. Windows may warn that the build isn't signed: **More info $arrow Run anyway**."
+            description = "**[Download with all the mods]($zipUrl)** (``$env:ZIP_NAME``)`n**[Download with no mods]($bareUrl)** - pick the ones you want in **Get mods**`n`nUnzip it into a folder you can write to (**not** Program Files) and run ``LID DB Mod Manager.exe``. Nothing else to install. Windows may warn that the build isn't signed: **More info $arrow Run anyway**."
             fields = @(
               @{ name = "What's new"; value = $news },
               @{ name = "Updating"; value = "**From 0.11.0 or newer:** close the game, then **Help $arrow Check for updates $arrow Update now**.`n**From 0.10.1 or older:** unzip into a new folder, click **I'm updating** and pick your old folder.`nThen click **Save Mod List** once." },
@@ -382,6 +417,8 @@ jobs:
       version: ${{ steps.label.outputs.version }}
       tar: ${{ steps.pack.outputs.tar }}
       sha256: ${{ steps.pack.outputs.sha256 }}
+      tar_no_mods: ${{ steps.pack.outputs.tar_no_mods }}
+      sha256_no_mods: ${{ steps.pack.outputs.sha256_no_mods }}
 
     steps:
       - name: Check out the repository
@@ -472,16 +509,28 @@ jobs:
           tar="LID-DB-Mod-Manager-${{ steps.label.outputs.version }}-linux.tar.gz"
           tar -C dist -czf "$tar" "$(basename "$folder")"
           sha=$(sha256sum "$tar" | cut -d' ' -f1)
+          # and without the regular mods (see "Zip it up" in the Windows job)
+          bare="$RUNNER_TEMP/no-mods"
+          mkdir -p "$bare"
+          cp -a "$folder" "$bare/"
+          find "$bare/$(basename "$folder")/mods" -mindepth 1 -maxdepth 1 -type d ! -name '_*' -exec rm -rf {} +
+          tar_bare="LID-Mod-Manager-No-Mods-${{ steps.label.outputs.version }}-linux.tar.gz"
+          tar -C "$bare" -czf "$tar_bare" "$(basename "$folder")"
+          sha_bare=$(sha256sum "$tar_bare" | cut -d' ' -f1)
           echo "tar=$tar" >> "$GITHUB_OUTPUT"
           echo "sha256=$sha" >> "$GITHUB_OUTPUT"
-          ls -l "$tar"
-          printf '### SHA-256\n\n`%s`  \n`%s`\n' "$tar" "$sha" >> "$GITHUB_STEP_SUMMARY"
+          echo "tar_no_mods=$tar_bare" >> "$GITHUB_OUTPUT"
+          echo "sha256_no_mods=$sha_bare" >> "$GITHUB_OUTPUT"
+          ls -l "$tar" "$tar_bare"
+          printf '### SHA-256\n\n`%s`  \n`%s`  \n`%s`  \n`%s`\n' "$tar" "$sha" "$tar_bare" "$sha_bare" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Attach it to this run
+      - name: Attach them to this run
         uses: actions/upload-artifact@v6
         with:
           name: LID-DB-Mod-Manager-${{ steps.label.outputs.version }}-linux
-          path: ${{ steps.pack.outputs.tar }}
+          path: |
+            ${{ steps.pack.outputs.tar }}
+            ${{ steps.pack.outputs.tar_no_mods }}
           if-no-files-found: error
 
   linux-release:
@@ -505,8 +554,10 @@ jobs:
           TAG: ${{ needs.build.outputs.tag }}
           TAR: ${{ needs.linux.outputs.tar }}
           SHA: ${{ needs.linux.outputs.sha256 }}
+          TAR_BARE: ${{ needs.linux.outputs.tar_no_mods }}
+          SHA_BARE: ${{ needs.linux.outputs.sha256_no_mods }}
         run: |
-          gh release upload "$TAG" "$TAR" --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" "$TAR" "$TAR_BARE" --repo "$GITHUB_REPOSITORY"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes.md
           {
             echo ""
@@ -520,6 +571,12 @@ jobs:
             echo ""
             echo '```'
             echo "$SHA"
+            echo '```'
+            echo ""
+            echo "Without the regular mods: \`$TAR_BARE\`, whose SHA-256 is:"
+            echo ""
+            echo '```'
+            echo "$SHA_BARE"
             echo '```'
           } >> notes.md
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md

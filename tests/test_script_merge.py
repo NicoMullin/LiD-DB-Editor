@@ -228,6 +228,18 @@ class TheVendingMachineParts(unittest.TestCase):
             parts = [p for p in mod.with_settings(values).patches if p.type == "tfc_installer"]
             self.assertEqual([p.source_rel for p in parts], [source] if source else [], values)
 
+    def test_every_switch_still_has_its_cases(self) -> None:
+        # A switch reads its first case from the bytes after it. 0.4.0 moved
+        # ShopBase.TickASync's switch to the end without it, so on shop state 0
+        # (a shop opening or closing) the game ran past the script and crashed.
+        for choice in ("ammo", "decals", "both"):
+            for o in PP.read(VENDING / "tfc" / choice / PATCH).objects:
+                lines = SM._read(SM._split(o.data)[2]).lines
+                for at, line in enumerate(lines):
+                    if line[4].startswith("switch<"):
+                        self.assertTrue(lines[at + 1][4].startswith(("case ", "default")),
+                                        f"{choice}: the switch at {line[1]:#x} lost its cases")
+
     @unittest.skipUnless(STOCK_UPK.is_file(), "needs the stock 1.92 BrgGame.upk (set LID_STOCK_UPK)")
     def test_they_combine_with_timers_and_stew_multi_pull(self) -> None:
         from lid_db_manager.upk.tfcmod import StockBodies

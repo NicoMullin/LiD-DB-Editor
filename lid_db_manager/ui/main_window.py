@@ -420,7 +420,7 @@ class MainWindow(QMainWindow):
         )
         self._add_action(mods_menu, "Add a mod from a file...", self.add_mod_from_file)
         self._add_action(mods_menu, "Add a mod from a folder...", self.add_mod_from_folder)
-        self._add_action(mods_menu, "Get mods that need a plugin...", self.get_mods)
+        self._add_action(mods_menu, "Get mods...", self.get_mods)
         self._add_action(mods_menu, "Make a radio station...", self.make_radio_station)
         self._add_action(mods_menu, "Edit mod details...", self.edit_selected_mod, "F2")
         self._add_action(mods_menu, "Delete mod...", self.delete_selected_mod)

@@ -124,6 +124,20 @@ class Planning(unittest.TestCase):
         with self.assertRaises(carry_over.CarryOverError):
             carry_over.plan(self.old, self.paths, has_applied_here=True)
 
+    def test_a_mod_updated_past_the_shipped_one_comes_over(self) -> None:
+        # got from the mods repository after this release was made
+        a_mod(self.tmp / "old" / "mods" / "shipped-mod", "3.0.0")
+        write(self.tmp / "old" / "mods" / "shipped-mod" / "new-part.sql", "SELECT 1;")
+        write(self.paths.root / "mods" / "shipped-mod" / "old-part.sql", "SELECT 0;")
+        plan = carry_over.plan(self.old, self.paths, has_applied_here=False)
+        self.assertEqual(plan.own_mods, ["my-own-mod", "shipped-mod"])
+        self.assertEqual(plan.shipped_mods, [])
+        carry_over.carry_over(plan)
+        shipped = self.paths.root / "mods" / "shipped-mod"
+        self.assertEqual(json.loads((shipped / "mod.json").read_text())["version"], "3.0.0")
+        self.assertTrue((shipped / "new-part.sql").is_file())
+        self.assertFalse((shipped / "old-part.sql").exists(), "replaced whole, not mixed")
+
 
 class Copying(unittest.TestCase):
     def setUp(self) -> None:

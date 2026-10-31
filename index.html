@@ -1308,6 +1308,39 @@ New files only, nothing replaced, so no file check is involved.
 
 # Plugin mods
 
+## Getting and updating mods
+
+Every mod that needs no plugin also lives in one place: the
+[LiD-Mods](https://github.com/NicoMullin/LiD-Mods) repository, one download per
+mod. **Get mods...** (top right, or **Mods > Get mods...**), on its **Mods** tab,
+lists every one of them after **Check GitHub for the newest**, with the version
+you have and the newest:
+
+- **Get** adds a mod you do not have, and nothing else.
+- **Update** brings the newest version of one you have; **Update all** does
+  every one you have that has an update.
+- **Show** narrows the list to the mods you have, the ones with an update, or
+  the ones you do not have.
+
+Each download is checked against the SHA-256 the list gives for it, and you see
+what will be written before anything is. A mod you update keeps its settings;
+click **Save Mod List** to apply the new version. A mod that needs a newer
+manager says so on its button instead of downloading.
+
+The manager comes in two downloads: `LID-DB-Mod-Manager-<version>-win64.zip`
+with every one of these mods, and `LID-Mod-Manager-No-Mods-<version>-win64.zip`
+(and the same two for Linux) with none, for an empty list you fill yourself.
+**Help > Check for updates** always brings the program only, so it never
+changes, re-adds or downgrades a mod. Bringing an older copy's mods over
+(**I'm updating**) keeps any you updated past the version in the new download.
+
+**Publishing a mod change** (maintainers): change the mod in LiD-Mods, raise
+`"version"` in its `mod.json` and push. GitHub builds and signs a zip for each
+mod whose version went up and updates `mods-index.json`, the list the manager
+reads (`tools/publish_mods.py`). A mod whose files changed without a new
+version stops the build, because the manager only re-applies a mod when its
+version changes.
+
 ## Mods that need a plugin
 
 ### What a plugin is
@@ -1325,8 +1358,8 @@ Plugin mods do not come with the manager. Each has its own GitHub page, and
 
 ### Getting one with Get mods
 
-**Get mods...** (top right, or **Mods ▸ Get mods that need a plugin...**)
-lists them, shows which you have, and gets one with a click:
+**Get mods...** (top right, or **Mods ▸ Get mods...**), on its **Mods with a plugin**
+tab, lists them, shows which you have, and gets one with a click:
 
 1. It asks GitHub for that mod's newest release and downloads it, keeping it
    only if it matches the SHA-256 checksum GitHub lists for it.
@@ -2602,7 +2635,7 @@ manager's own text, and is remembered.
 | Menu | What is in it |
 |------|---------------|
 | **File** | Choose database, rescan the mods folder, open the mods or logs folder |
-| **Mods** | Enable or disable all, expand or collapse all, load order moves, Build a mod, Create a mod from a modded masters.db, Add a mod from a file or folder, Get mods that need a plugin, Make a radio station, Edit mod details, Delete mod |
+| **Mods** | Enable or disable all, expand or collapse all, load order moves, Build a mod, Create a mod from a modded masters.db, Add a mod from a file or folder, Get mods (every mod, and the ones that need a plugin), Make a radio station, Edit mod details, Delete mod |
 | **Tools** | Validate, Save Mod List, Re-apply All, Scan my database for mods, clean databases, item artwork and game folders, Hash Patcher, Start a new game day, Restore game files, Restore a backup, Check for updates, Bring over from your old version |
 | **View** | Text size |
 | **Help** | Check for updates, Join the Discord server, About |

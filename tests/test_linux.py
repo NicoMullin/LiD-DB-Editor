@@ -12,6 +12,7 @@ import hashlib
 import importlib.util
 import io
 import os
+import re
 import stat
 import sys
 import tarfile
@@ -366,6 +367,29 @@ class PickingTheDownload(unittest.TestCase):
         # not make that two.
         zips = [a for a in (self.windows, self.linux) if a["name"].lower().endswith(".zip")]
         self.assertEqual(len(zips), 1)
+
+    def with_no_mods(self) -> list:
+        return [self.windows, self.linux,
+                asset(f"{U.NO_MODS_NAME}-9.1.0-win64.zip", b"bare zip"),
+                asset(f"{U.NO_MODS_NAME}-9.1.0-linux.tar.gz", b"bare tar")]
+
+    def test_an_update_takes_the_download_without_mods(self) -> None:
+        both = self.with_no_mods()
+        self.assertEqual(U._pick_asset(both, linux=False).name, f"{U.NO_MODS_NAME}-9.1.0-win64.zip")
+        self.assertEqual(U._pick_asset(both, linux=True).name, f"{U.NO_MODS_NAME}-9.1.0-linux.tar.gz")
+
+    def test_copies_from_before_it_still_find_the_one_with_mods(self) -> None:
+        # 0.13.4 and older: every zip (or -linux.tar.gz), and of several the
+        # one with RELEASE_NAME's letters in its name - only one may have them.
+        letters = re.sub(r"[^a-z]", "", U.RELEASE_NAME.lower())
+        self.assertEqual(U._pick_one(self.with_no_mods(), False, letters).name, self.windows["name"])
+        self.assertEqual(U._pick_one(self.with_no_mods(), True, letters).name, self.linux["name"])
+
+    def test_without_one_it_is_the_download_with_mods_as_before(self) -> None:
+        self.assertEqual(U._pick_asset([self.windows, self.linux], linux=False).name,
+                         self.windows["name"])
+        only_linux_bare = [self.windows, self.linux, self.with_no_mods()[3]]
+        self.assertEqual(U._pick_asset(only_linux_bare, linux=False).name, self.windows["name"])
 
 
 class UnpackingTheLinuxRelease(unittest.TestCase):

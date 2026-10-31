@@ -418,5 +418,102 @@ class TheCatalog(unittest.TestCase):
         self.assertEqual(G.CATALOG[0], G.LOADER_OFFER)
 
 
+class FakeModsRepo:
+    """Answers mods-index.json and each mod's zip, as the LiD-Mods release would."""
+
+    def __init__(self):
+        self.mods: list[dict] = []
+        self.files: dict[str, bytes] = {}
+
+    def publish(self, folder: str, version: str, *, digest: str | None = None, **extra) -> dict:
+        body = package_zip(folder, version, mods=[folder])
+        file = f"{folder.lower().replace(' ', '-')}-{version}.zip"
+        self.files[file] = body
+        entry = {"folder": folder, "name": folder, "version": version, "file": file,
+                 "size": len(body), "sha256": digest or hashlib.sha256(body).hexdigest(), **extra}
+        self.mods = [m for m in self.mods if m["folder"] != folder] + [entry]
+        return entry
+
+    def __call__(self, url: str):
+        if url == G.MODS_INDEX_URL:
+            return io.BytesIO(json.dumps({"format": 1, "mods": self.mods}).encode())
+        if url.startswith(G.MODS_DOWNLOADS) and url[len(G.MODS_DOWNLOADS):] in self.files:
+            return io.BytesIO(self.files[url[len(G.MODS_DOWNLOADS):]])
+        raise urllib.error.HTTPError(url, 404, "Not Found", None, None)
+
+
+class TheModsRepository(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        self.mods = root / "mods"
+        self.mods.mkdir()
+        self.work = root / "work"
+        self.repo = FakeModsRepo()
+
+    def listed(self, folder: str) -> G.ListedMod:
+        return next(m for m in G.mods_index(opener=self.repo) if m.folder == folder)
+
+    def test_it_lists_what_the_index_says(self):
+        self.repo.publish("Vending Machine", "0.4.1", author="KSFA", min_manager_version="0.13.4")
+        mod = self.listed("Vending Machine")
+        self.assertEqual((mod.version, mod.author, mod.min_manager_version), ("0.4.1", "KSFA", "0.13.4"))
+        self.assertEqual(mod.asset.url, G.MODS_DOWNLOADS + "vending-machine-0.4.1.zip")
+
+    def test_entries_that_do_not_check_out_are_left_out(self):
+        good = self.repo.publish("Quest Limit", "0.1.1")
+        for bad in ({"folder": "../escape"}, {"folder": "_example"}, {"file": "../x.zip"},
+                    {"file": "Has Spaces.zip"}, {"sha256": "abc"}, {"size": 0}, {"size": "lots"}):
+            self.repo.mods.append(dict(good, **bad))
+        self.assertEqual([m.folder for m in G.mods_index(opener=self.repo)], ["Quest Limit"])
+
+    def test_no_list_yet_or_a_strange_one_says_so(self):
+        with self.assertRaisesRegex(G.GetModsError, "no mods published yet"):
+            G.mods_index(opener=lambda url: (_ for _ in ()).throw(
+                urllib.error.HTTPError(url, 404, "Not Found", None, None)))
+        with self.assertRaisesRegex(G.GetModsError, "update the manager"):
+            G.read_mods_index(b'{"format": 2, "mods": []}')
+
+    def test_getting_one_brings_only_that_mod(self):
+        self.repo.publish("Quest Limit", "0.1.1")
+        self.repo.publish("Vending Machine", "0.4.1")
+        package = G.download_mod(self.listed("Vending Machine"), self.work, opener=self.repo)
+        self.assertEqual(G.install(package, self.mods, None), ["added the mod Vending Machine"])
+        self.assertEqual(G.installed_version(self.mods, "Vending Machine"), "0.4.1")
+        self.assertFalse((self.mods / "Quest Limit").exists())
+
+    def test_a_download_that_does_not_match_its_hash_is_refused(self):
+        self.repo.publish("Vending Machine", "0.4.1", digest="0" * 64)
+        with self.assertRaisesRegex(G.GetModsError, "SHA-256"):
+            G.download_mod(self.listed("Vending Machine"), self.work, opener=self.repo)
+
+    def test_one_needing_a_newer_manager_is_not_downloaded(self):
+        self.repo.publish("Vending Machine", "9.0.0", min_manager_version="99.0.0")
+        mod = self.listed("Vending Machine")
+        self.assertEqual(G.mod_action(mod, ""), "Needs manager 99.0.0")
+        with self.assertRaisesRegex(G.GetModsError, "needs manager 99.0.0"):
+            G.download_mod(mod, self.work, opener=lambda url: self.fail("it went online"))
+
+    def test_the_button_says_what_it_will_do(self):
+        mod = G.ListedMod("Vending Machine", "Vending Machine", "0.4.1", "v.zip", 1, "0" * 64)
+        self.assertEqual(G.mod_action(mod, ""), "Get")
+        self.assertEqual(G.mod_action(mod, "0.4.0"), "Update")
+        self.assertEqual(G.mod_action(mod, "0.4.1"), "Reinstall")
+        self.assertEqual(G.mod_action(mod, "0.5.0"), "Reinstall")       # never offered as an update
+        self.assertEqual(G.mod_action(mod, "?"), "Update")
+
+    def test_updating_replaces_the_old_copy_whole(self):
+        old = self.mods / "Vending Machine"
+        old.mkdir()
+        (old / "mod.json").write_text('{"id": "Vending Machine", "version": "0.4.0"}', encoding="utf-8")
+        (old / "gone.sql").write_text("old", encoding="utf-8")
+        self.repo.publish("Vending Machine", "0.4.1")
+        package = G.download_mod(self.listed("Vending Machine"), self.work, opener=self.repo)
+        self.assertEqual(G.install(package, self.mods, None), ["updated the mod Vending Machine"])
+        self.assertEqual(G.installed_version(self.mods, "Vending Machine"), "0.4.1")
+        self.assertFalse((old / "gone.sql").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

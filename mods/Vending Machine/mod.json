@@ -2,7 +2,7 @@
   "id": "Vending Machine",
   "name": "Vending Machine",
   "description": "Puts the online game's stock back in the Waiting Room vending machine: the faction metals, materials and mushrooms of its daily list and the weekly blueprints, at the online prices, for Kill Coins and Death Metals - or your own list, priced and bundled as you like. With the Vending Machine add-on (Get mods...), it can also take turns as online: a few goods picked each day and a set of blueprints each week. It can also add two entries to the machine's menu, from 3bgdragon's Vending Machine Enhancement: refill a gun's ammo for a fifth of what it cost, and put decals on or take them off. Set it in Configuration.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "author": "KSFA, 3bgdragon",
   "category": "Game content",
   "tags": [

@@ -1,12 +1,15 @@
-"""The "Get mods" window: KSFA's plugin mods, straight from their GitHub releases.
+"""The "Get mods" window: KSFA's mods, straight from GitHub.
 
-Mods that need a plugin DLL do not come with the manager. This lists them,
-says which ones are here already, and gets one with a click: the release
-package is downloaded from that mod's GitHub page, checked against the
-SHA-256 GitHub lists for it, and - once the player has seen exactly what will
-be written where and said yes - the mod goes in the mods folder and the plugin
-in the game's lid-plugins folder, with the Plugin Loader first if it is
-missing. See get_mods.py for the rules.
+Two tabs. **Mods** lists every mod in the mods repository (LiD-Mods): the
+player gets or updates any one of them, or all that have an update, and
+nothing else. **Mods with a plugin** lists the mods that need a plugin DLL,
+each from its own repository's release.
+
+Either way the download is checked against the SHA-256 GitHub (or the mods
+list) gives for it, and - once the player has seen exactly what will be
+written where and said yes - the mod goes in the mods folder, and a plugin in
+the game's lid-plugins folder, with the Plugin Loader first if it is missing.
+Nothing goes online until the player clicks. See get_mods.py for the rules.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ import shutil
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -26,6 +30,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -37,6 +42,30 @@ from .workers import TaskThread
 COLUMNS = ("Mod", "You have", "Newest", "")
 MOD, HAVE, NEWEST, ACTION = range(len(COLUMNS))
 WORK_DIR = ("_update", "get-mods")
+SHOW = ("All mods", "Ones you have", "Ones with an update", "Ones you do not have")
+BLURB = 260                     # characters of a mod's description in its row
+
+
+def _action_cell(button: QPushButton) -> QWidget:
+    holder = QWidget()                  # so the button keeps its own height
+    centred = QHBoxLayout(holder)
+    centred.setContentsMargins(6, 0, 6, 0)
+    centred.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
+    return holder
+
+
+def _table(rows: int) -> QTableWidget:
+    table = QTableWidget(rows, len(COLUMNS))
+    table.setHorizontalHeaderLabels(COLUMNS)
+    table.verticalHeader().setVisible(False)
+    table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+    table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    table.setWordWrap(True)
+    header = table.horizontalHeader()
+    header.setSectionResizeMode(MOD, QHeaderView.ResizeMode.Stretch)
+    for column in (HAVE, NEWEST, ACTION):
+        header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+    return table
 
 
 class GetModsDialog(QDialog):
@@ -45,10 +74,41 @@ class GetModsDialog(QDialog):
         self.manager = manager
         self.opener = opener or G.self_update._open
         self.releases: dict[str, G.Release | G.GetModsError] = {}
+        self.listed: list[G.ListedMod] | G.GetModsError | None = None   # the mods list, once asked
+        self.mod_buttons: dict[str, QPushButton] = {}
         self.task: TaskThread | None = None
         self.changed = False            # a mod was added: the main window rescans
         self.setWindowTitle("Get mods")
         self.resize(940, 700)
+
+        mods_intro = QLabel(
+            "Every mod that needs no plugin, from the "
+            f"<a href='{G.MODS_PAGE}'>mods repository</a>. Get only the ones you want; "
+            "<b>Update</b> brings one mod's newest version without a new manager. Click "
+            "<b>Check GitHub for the newest</b> to see the list. A mod you update keeps its "
+            "settings, and the next <b>Save Mod List</b> applies the new version."
+        )
+        mods_intro.setWordWrap(True)
+        mods_intro.setTextFormat(Qt.TextFormat.RichText)
+        mods_intro.setOpenExternalLinks(True)
+        self.mods_table = _table(0)
+        self.show_box = QComboBox()
+        self.show_box.addItems(SHOW)
+        self.show_box.currentIndexChanged.connect(lambda _index: self.refresh())
+        self.update_all_button = QPushButton("Update all")
+        self.update_all_button.clicked.connect(self.update_all)
+        self.mods_note = QLabel("Not checked yet.")
+        self.mods_note.setWordWrap(True)
+        mods_bar = QHBoxLayout()
+        mods_bar.addWidget(QLabel("Show:"))
+        mods_bar.addWidget(self.show_box)
+        mods_bar.addWidget(self.mods_note, 1)
+        mods_bar.addWidget(self.update_all_button)
+        mods_page = QWidget()
+        mods_layout = QVBoxLayout(mods_page)
+        mods_layout.addWidget(mods_intro)
+        mods_layout.addLayout(mods_bar)
+        mods_layout.addWidget(self.mods_table, 1)
 
         intro = QLabel(
             "These mods need a plugin - a DLL the game loads through the LiD Plugin Loader - so "
@@ -63,16 +123,7 @@ class GetModsDialog(QDialog):
         self.where = QLabel()
         self.where.setWordWrap(True)
 
-        self.table = QTableWidget(len(G.CATALOG), len(COLUMNS))
-        self.table.setHorizontalHeaderLabels(COLUMNS)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setWordWrap(True)
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(MOD, QHeaderView.ResizeMode.Stretch)
-        for column in (HAVE, NEWEST, ACTION):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        self.table = _table(len(G.CATALOG))
         self.buttons: dict[str, QPushButton] = {}
         for row, entry in enumerate(G.CATALOG):
             label = QLabel(f"<b>{html.escape(entry.title)}</b> - {html.escape(entry.blurb)}<br>"
@@ -87,11 +138,15 @@ class GetModsDialog(QDialog):
             button = QPushButton("Get")
             button.clicked.connect(lambda _checked=False, key=entry.key: self.get(key))
             self.buttons[entry.key] = button
-            holder = QWidget()             # so the button keeps its own height
-            centred = QHBoxLayout(holder)
-            centred.setContentsMargins(6, 0, 6, 0)
-            centred.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
-            self.table.setCellWidget(row, ACTION, holder)
+            self.table.setCellWidget(row, ACTION, _action_cell(button))
+        plugin_page = QWidget()
+        plugin_layout = QVBoxLayout(plugin_page)
+        plugin_layout.addWidget(intro)
+        plugin_layout.addWidget(self.where)
+        plugin_layout.addWidget(self.table, 1)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(mods_page, "Mods")
+        self.tabs.addTab(plugin_page, "Mods with a plugin")
 
         self.check_button = QPushButton("Check GitHub for the newest")
         self.check_button.clicked.connect(self.check)
@@ -105,9 +160,7 @@ class GetModsDialog(QDialog):
         footer.addWidget(self.status, 1)
         footer.addWidget(close)
         layout = QVBoxLayout(self)
-        layout.addWidget(intro)
-        layout.addWidget(self.where)
-        layout.addWidget(self.table, 1)
+        layout.addWidget(self.tabs, 1)
         layout.addLayout(footer)
         self.refresh()
 
@@ -167,6 +220,58 @@ class GetModsDialog(QDialog):
                 action = "Update"
             self.buttons[entry.key].setText(action)
         self.table.resizeRowsToContents()
+        self._refresh_mods()
+
+    def _mod_rows(self) -> list[tuple[G.ListedMod, str, str]]:
+        """(mod, the version here, the button's word) for each listed mod, by name."""
+        if not isinstance(self.listed, list):
+            return []
+        rows = []
+        for mod in sorted(self.listed, key=lambda m: m.name.lower()):
+            have = G.installed_version(self.mods_dir, mod.folder)
+            rows.append((mod, have, G.mod_action(mod, have)))
+        return rows
+
+    def updatable(self) -> list[G.ListedMod]:
+        return [mod for mod, have, action in self._mod_rows() if have and action == "Update"]
+
+    def _refresh_mods(self) -> None:
+        show = self.show_box.currentIndex()
+        rows = [(mod, have, action) for mod, have, action in self._mod_rows()
+                if show == 0 or (show == 1 and have) or (show == 2 and have and action == "Update")
+                or (show == 3 and not have)]
+        table = self.mods_table
+        table.setRowCount(len(rows))
+        self.mod_buttons = {}
+        for row, (mod, have, action) in enumerate(rows):
+            blurb = mod.description if len(mod.description) <= BLURB \
+                else mod.description[:BLURB].rsplit(" ", 1)[0] + "..."
+            by = f" by {html.escape(mod.author)}" if mod.author else ""
+            label = QLabel(f"<b>{html.escape(mod.name)}</b>{by} - {html.escape(blurb)}")
+            label.setWordWrap(True)
+            label.setTextFormat(Qt.TextFormat.RichText)
+            label.setContentsMargins(4, 4, 4, 4)
+            label.setToolTip(mod.description)
+            table.setCellWidget(row, MOD, label)
+            table.setItem(row, HAVE, QTableWidgetItem(have or "-"))
+            newest = QTableWidgetItem(mod.version)
+            newest.setToolTip(f"Published {mod.updated}" if mod.updated else "")
+            table.setItem(row, NEWEST, newest)
+            button = QPushButton(action)
+            button.setEnabled(self.task is None and not mod.needs_newer_manager())
+            button.clicked.connect(lambda _checked=False, folder=mod.folder: self.get_mod(folder))
+            self.mod_buttons[mod.folder] = button
+            table.setCellWidget(row, ACTION, _action_cell(button))
+        table.resizeRowsToContents()
+        updates = len(self.updatable())
+        self.update_all_button.setText(f"Update all ({updates})" if updates else "Update all")
+        self.update_all_button.setEnabled(self.task is None and updates > 0)
+        if isinstance(self.listed, G.GetModsError):
+            self.mods_note.setText(f"Could not get the list: {self.listed}")
+        elif isinstance(self.listed, list):
+            here = sum(1 for _, have, _ in self._mod_rows() if have)
+            self.mods_note.setText(f"{len(self.listed)} mods, {here} of them here"
+                                   + (f", {updates} with an update." if updates else "."))
 
     # -- asking GitHub -------------------------------------------------------------
 
@@ -174,6 +279,9 @@ class GetModsDialog(QDialog):
         self.check_button.setEnabled(not busy)
         for button in self.buttons.values():
             button.setEnabled(not busy)
+        for button in self.mod_buttons.values():
+            button.setEnabled(not busy)
+        self.update_all_button.setEnabled(not busy and bool(self.updatable()))
         self.status.setText(message)
 
     def _start(self, work, on_done, message: str) -> None:
@@ -200,19 +308,26 @@ class GetModsDialog(QDialog):
 
     def check(self) -> None:
         def ask():
+            try:
+                listed = G.mods_index(opener=self.opener)
+            except G.GetModsError as exc:
+                listed = exc
             found = {}
             for entry in G.CATALOG:
                 try:
                     found[entry.key] = G.latest(entry, opener=self.opener)
                 except G.GetModsError as exc:
                     found[entry.key] = exc
-            return found
+            return listed, found
 
-        def done(found):
+        def done(result):
+            self.listed, found = result
             self.releases.update(found)
             problems = [r for r in found.values() if isinstance(r, G.GetModsError)]
-            self.status.setText(f"{len(problems)} could not be checked - hover over the ?"
-                                if problems else "Checked.")
+            if isinstance(self.listed, G.GetModsError):
+                problems.append(self.listed)
+            self.status.setText(f"{len(problems)} could not be checked - hover over the ?, or see "
+                                "the Mods tab" if problems else "Checked.")
 
         self._start(ask, done, "Asking GitHub...")
 
@@ -307,6 +422,77 @@ class GetModsDialog(QDialog):
             self.status.setText(f"{entry.title} installed.")
 
         self._start(put, finished, f"Installing {entry.title}...")
+
+    # -- the mods repository ---------------------------------------------------------
+
+    def _listed(self, folder: str) -> G.ListedMod | None:
+        if isinstance(self.listed, list):
+            for mod in self.listed:
+                if mod.folder == folder:
+                    return mod
+        return None
+
+    def get_mod(self, folder: str) -> None:
+        mod = self._listed(folder)
+        if mod is not None:
+            self._get_mods([mod], mod.name)
+
+    def update_all(self) -> None:
+        mods = self.updatable()
+        if mods:
+            self._get_mods(mods, f"{len(mods)} mod update(s)")
+
+    def _get_mods(self, mods: list[G.ListedMod], what: str) -> None:
+        work = self._work_dir()
+
+        def fetch():
+            shutil.rmtree(work, ignore_errors=True)
+            return [(mod, G.download_mod(mod, work, opener=self.opener)) for mod in mods]
+
+        self._start(fetch, lambda got: self._confirm_mods(what, got), f"Downloading {what}...")
+
+    def _confirm_mods(self, what: str, got: list[tuple[G.ListedMod, G.Package]]) -> None:
+        lines = []
+        for mod, _package in got:
+            have = G.installed_version(self.mods_dir, mod.folder)
+            change = f"{have} -> {mod.version}" if have else f"{mod.version}, new"
+            lines.append(f"{mod.name} ({change}) into {self.mods_dir / mod.folder}")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(f"Install {what}?")
+        box.setText(f"<b>{html.escape(what)}</b> downloaded and checked against the SHA-256 the mods "
+                    "list gives for it.")
+        box.setInformativeText(
+            "It will write:<ul>" + "".join(f"<li>{html.escape(line)}</li>" for line in lines) + "</ul>"
+            "A mod already here is replaced by the new copy; its settings are kept, and the next "
+            "<b>Save Mod List</b> applies the new version."
+        )
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+        box.button(QMessageBox.StandardButton.Yes).setText("Install")
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            shutil.rmtree(self._work_dir(), ignore_errors=True)
+            self.status.setText("Nothing was installed.")
+            return
+
+        def put():
+            done = []
+            for _mod, package in got:
+                done += G.install(package, self.mods_dir, None)
+            return done
+
+        def finished(done):
+            for line in done:
+                self.manager.log.info(f"Get mods: {line}")
+            self.changed = True
+            shutil.rmtree(self._work_dir(), ignore_errors=True)
+            ticked = set(self.manager.state.enabled_mods)
+            note = ("\n\nClick Save Mod List to apply the new version."
+                    if any(mod.folder in ticked for mod, _ in got)
+                    else "\n\nTick it in the mod list and click Save Mod List.")
+            QMessageBox.information(self, "Installed", "Done:\n- " + "\n- ".join(done) + note)
+            self.status.setText(f"{what} installed.")
+
+        self._start(put, finished, f"Installing {what}...")
 
     def done(self, result: int) -> None:
         if self.task is not None and self.task.isRunning():
