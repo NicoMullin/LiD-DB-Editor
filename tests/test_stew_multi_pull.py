@@ -1,8 +1,11 @@
 """The Stew Multi-Pull mod: "Purchase xN" in the Mushroom Club's stew menu.
 
-It is a .PackagePatch that replaces seven functions in BrgGame.upk with longer
-copies - six of the stew menu, BrgUIMenu_SkillExchange, and one of the box
-stew's lineup grid - one patch for each count the player can choose.
+It is a .PackagePatch that replaces eight functions in BrgGame.upk with longer
+copies - seven of the stew menu, BrgUIMenu_SkillExchange, and one of the box
+stew's lineup grid - one patch for each count the player can choose. Since
+0.7.0 the menu also lets the player pick a pity decal in a stew's Check
+Lineup (Triangle), and the mod writes each stew's pity pull count for
+lid-stewpull.dll.
 A patch carries both functions whole, so most of what can go wrong - a jump
 landing mid-statement, a token the engine cannot read, a table the patch would
 have to grow - is checked here without the game.
@@ -56,6 +59,8 @@ CHECK = "BrgUIMenu_SkillExchange\\GetStateAfterGacha"
 PRICE_LINE = "BrgUIMenu_SkillExchange\\RenderGachaMenu"
 REQUEST = "BrgUIMenu_SkillExchange\\NetGacha"
 RENDER = "BrgUIMenu_SkillExchange\\Render"
+GUIDE = "BrgUIMenu_SkillExchange\\SetButtonGuide"
+PICKED = "I:BrgUIMenu_SkillExchange\\mGachaResultSkillId"
 COST = "(I:BrgUIMenu_SkillExchange\\mCurrentGachaProperty).BrgUIMenu_SkillExchange\\SkillExchange_GachaProperty\\mCost"
 GRID_LIST = ("I:BrgUIMenu_SkillExchange\\mBOXGachaLineup.{skip=0x9,BrgUIMenu_SkillExchange_BoxGachaLineup"
              "\\mBoxGachaSkillList,0}I:BrgUIMenu_SkillExchange_BoxGachaLineup\\mBoxGachaSkillList")
@@ -80,11 +85,37 @@ def script_text(data: bytes, refs: dict[int, str], names: dict[int, str] | None 
 
 
 class TheMod(unittest.TestCase):
-    def test_it_is_one_package_patch_for_brggame_upk(self) -> None:
+    def test_it_is_one_package_patch_for_brggame_upk_and_the_pity_rows(self) -> None:
         mod = load_mod_folder(MOD)
-        self.assertEqual([p.type for p in mod.patches], ["tfc_installer"])
+        self.assertEqual([p.type for p in mod.patches], ["tfc_installer"] + ["raw_sql"] * 4)
         self.assertEqual(mod.patches[0].transform_targets(), [TARGET])
+        self.assertEqual([p.key for p in mod.patches[1:]],
+                         ["pity-button", "pity-regular", "pity-dm", "pity-fest"])
         self.assertEqual(mod.requires_check_off, ["BrgGame.upk"])
+
+    def test_each_stew_has_its_own_pity(self) -> None:
+        mod = load_mod_folder(MOD)
+        for stew, key, needs in (("regular", "LID_PITY_NORMAL", ()), ("dm", "LID_PITY_DM", ("Death Metals",)),
+                                 ("fest", "LID_PITY_FEST", ("Events and Seasons",))):
+            with self.subTest(stew=stew):
+                switch, pulls = mod.setting(f"pity_{stew}"), mod.setting(f"pity_{stew}_pulls")
+                self.assertEqual((switch.default, pulls.default, pulls.minimum, pulls.maximum), (1, 100, 10, 500))
+                self.assertEqual(switch.needs_mods, needs)
+                self.assertEqual(pulls.needs_mods, needs)
+                self.assertEqual(pulls.when, ((f"pity_{stew}", (1,)),))
+                chosen = mod.with_settings({f"pity_{stew}_pulls": 250})
+                (row,) = [p for p in chosen.patches if p.key == f"pity-{stew}"]
+                self.assertIn(f"('{key}', 250)", row.sql)
+                off = mod.with_settings({f"pity_{stew}": False})
+                self.assertNotIn(f"pity-{stew}", [p.key for p in off.patches])
+
+    def test_the_pity_button_has_a_word_in_every_language(self) -> None:
+        (button,) = [p for p in load_mod_folder(MOD).patches if p.key == "pity-button"]
+        for lang in ("int", "esn", "deu", "fra", "ita", "ptb", "jpn", "chn", "kan", "kor"):
+            for key in ("TXT_LID_PITY", "TXT_LID_PITY_LEFT", "TXT_LID_PITY_NONE"):
+                self.assertIn(f"('MSHR_KAIKAN', '{key}', '', '{lang}', ", button.sql)
+        self.assertEqual(button.sql.count("#0/#1"), 10)
+        self.assertEqual(button.sql.count("#2"), 10)
 
     def test_ten_unless_the_player_chooses(self) -> None:
         mod = load_mod_folder(MOD)
@@ -128,9 +159,9 @@ class ThePatches(unittest.TestCase):
         for n, _, _ in self.each():
             self.assertEqual(apply.unsupported(self.patches[n]), "")
 
-    def test_they_replace_the_seven_functions_and_nothing_else(self) -> None:
+    def test_they_replace_the_eight_functions_and_nothing_else(self) -> None:
         for n, functions, _ in self.each():
-            self.assertEqual(sorted(functions), sorted([MENU, TICK, CHECK, PRICE_LINE, REQUEST, RENDER, DRAW]))
+            self.assertEqual(sorted(functions), sorted([MENU, TICK, CHECK, PRICE_LINE, REQUEST, RENDER, DRAW, GUIDE]))
 
     def test_both_read_back_to_their_end(self) -> None:
         for n, functions, refs in self.each():
@@ -176,9 +207,47 @@ class ThePatches(unittest.TestCase):
         # grid; 0.4.0 (e0a460ee...1973, proven) asks for the run's whole price and
         # can do it in one request; 0.4.1 raises the grid a little (8d4f280d...c7d4, proven); 0.5.2 is
         # the same code rebuilt for game 1.92, whose new names moved every number
+        # (2b49bd3f...9441); 0.7.0 adds the pity pick and the pity line
         import hashlib
         self.assertEqual(hashlib.sha256(PATCHES[10].read_bytes()).hexdigest(),
-                         "2b49bd3f76bb59e8910f2e9c4bb3ea03c548f7f09badd49abfd9a434272d9441")
+                         "ae9ed851c8d1ea2a13a1bf70f66f16787c88852b06aaafd6d12c00bf6ea9ab96")
+
+    def test_triangle_in_check_lineup_picks_the_pity_decal(self) -> None:
+        for n, functions, refs in self.each():
+            tick = script_text(functions[TICK], refs, self.names[n])
+            self.assertIn("mEdgeInput, 128), 0))", tick)
+            self.assertIn(f"{PICKED} = N112(N112(N112('LID_PITY=', (I:BrgUIMenu_SkillExchange\\mCurrentGachaProperty)"
+                          ".BrgUIMenu_SkillExchange\\SkillExchange_GachaProperty\\mGachaid[0,0]), '|'), ", tick)
+            self.assertIn("mSkillListDetailFiltered[", tick)
+            guide = script_text(functions[GUIDE], refs, self.names[n])
+            self.assertIn("mIcon[0,1] = 3b", guide)
+            self.assertIn("'MSHR_KAIKAN.TXT_LID_PITY'", guide)
+            self.assertIn("pcast0x3a(I:BrgUIMenu_Base\\mState), 24)", guide)
+
+    def test_the_pick_goes_with_the_next_pull_and_draws_no_card(self) -> None:
+        for n, functions, refs in self.each():
+            request = script_text(functions[REQUEST], refs, self.names[n])
+            self.assertIn(f"N122(N128({PICKED}, 9), 'LID_PITY=')", request)
+            self.assertIn(f"{PICKED} = ''", request)
+            render = script_text(functions[RENDER], refs, self.names[n])
+            self.assertIn(f"N123(N128({PICKED}, 9), 'LID_PITY=')", render)
+
+    def test_the_stew_menu_shows_how_far_the_pity_is(self) -> None:
+        # in the box stews' "Remaining" line: lid-stewpull.dll's LID_PITY_<stew>
+        # entry, the pick still waiting before the saved one
+        entry = "(I:BrgUIMenu_SkillExchange\\mNowBoxgachas[L:BrgUIMenu_SkillExchange\\RenderGachaMenu\\I])"
+        for n, functions, refs in self.each():
+            line = script_text(functions[PRICE_LINE], refs, self.names[n])
+            self.assertIn("mNowBoxgachas.find(name:mGacha_id,N112('LID_PITY_', ", line)
+            self.assertIn("'MSHR_KAIKAN.TXT_GACHA_LEFT'", line)       # box stews keep theirs
+            self.assertIn("'MSHR_KAIKAN.TXT_LID_PITY_LEFT'", line)
+            self.assertIn("'MSHR_KAIKAN.TXT_LID_PITY_NONE'", line)
+            self.assertIn("'MSHR_KAIKAN.TXT_GACHA_LINEUP'", line)
+            self.assertIn("l__text_v01_num[0,0], ", line)
+            self.assertIn(f"{entry}.BrgGameBase\\BrgNetworkDeclStruct\\BrgDbUserBoxGacha\\mContents[0,0][1])"
+                          ".BrgGameBase\\BrgNetworkDeclStruct\\BrgDbUserBoxGachaContent\\mRest[0,0]", line)
+            self.assertIn(f"N128({PICKED}, N125(N112(N112('LID_PITY=', ", line)
+            self.assertIn("GetSkillNameLocalizeText(", line)
 
     def test_a_run_fills_the_grid_instead_of_showing_cards(self) -> None:
         for n, functions, refs in self.each():

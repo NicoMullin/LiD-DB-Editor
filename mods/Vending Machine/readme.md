@@ -70,12 +70,59 @@ day is put on the machine 3 times, each once a day.
 Death Metal prices need the **Death Metals** mod, which gives you Death Metals
 to spend.
 
+### Rotation (needs the Vending Machine add-on)
+
+Online, the machine drew 8 of the daily goods at random for each player, and 8
+blueprints each Thursday. Offline the game has no random pick: it sells every
+good marked "always in stock". The **Vending Machine add-on** (Get mods...,
+manager 0.13.4 or newer) is a plugin that brings the draw back:
+
+- **Take turns, as online**: off by default (everything on sale every day). On:
+  the seven things the machine always sold stay every day, and the rest take
+  turns.
+- **Goods picked a day**: 8, as online. A new pick at each daily restock.
+- **Blueprints picked a week**: 8, as online, new each Thursday (10:00 UTC).
+
+As online, every good and every blueprint takes turns, so **What it sells**
+and **Weekly blueprints** are greyed out while Rotation is on. With your own list,
+**Your list** is sold every day, and two more lists take turns:
+
+- **Your random pool**: "Goods picked a day" of them are picked each day.
+- **Your weekly list**: "Blueprints picked a week" of them are picked each
+  week. Made for blueprints, but any good can go on it.
+
+On these two, a limit a day means once on a day the good is picked.
+
+Without the add-on, Rotation leaves only the seven; switch it off, or get the
+add-on. The add-on's plugin is switched on and off with this mod.
+
+### Menu
+
+Two more entries for the machine's own menu, both off by default. They are
+**3bgdragon**'s, from
+[Vending Machine Enhancement](https://github.com/3bgdragon/let-it-die-vending-enhancement),
+included with their permission.
+
+- **Refill ammo** adds **Ammo (20% cost)**. It lists your guns that are not
+  full; pick one and its ammo is filled back up, for a fifth of what that
+  weapon costs to buy at its level, rounded up, paid from your safe. Durability
+  is not repaired.
+- **Change decals** adds **Decals**. It opens the Mushroom Stew's decal screen
+  for the fighter you are using, to put decals on or take them off, with the
+  stew's own rules for each kind of decal.
+
+Both change BrgGame.upk, so the game's check of that file has to be off (the
+manager says how when you save). They work beside Timers, which changes the
+same shop code as the ammo refill, and beside Stew Multi Pull, which changes
+the same stew screen as the decals: each mod keeps its change.
+
+They are built for game 1.92. A game update that changes BrgGame.upk may stop
+them until they are rebuilt; the manager then says the package is not the one
+they were made for, and changes nothing.
+
 ## How it differs from online
 
-- **Everything is on sale every day.** Online, the machine drew 8 of the daily
-  goods at random for each player, and 8 blueprints each Thursday. Offline the
-  game has no random pick; it sells every good marked "always in stock". A
-  plugin to bring the daily draw back is planned.
+- **Without the add-on, everything is on sale every day** (see Rotation).
 - **A blueprint can be bought once a day**, not once for good.
 
 ## What it changes
@@ -83,8 +130,23 @@ to spend.
 Adds rows to `master_automaticshop_lineup` on the `COMMON` list, the one the
 offline game fills the Buy tab from: goods 90001 and up as online, 100000 and
 up for your own list. As online with Death Metals in the mix, it also sets the
-three cosmetic armours (goods 26702-26704) to Death Metals. Nothing else, and
-switching it off puts the table back as it was.
+three cosmetic armours (goods 26702-26704) to Death Metals.
+
+With Rotation on, the goods that take turns go on the online game's own
+picking list instead, `AP` (120000 and up for your random pool), and the
+weekly ones on `LID_WEEKLY` (140000 and up for your weekly list), both not
+"always in stock". It sets how many are picked a day in
+`master_automaticshop_schedule` (`purchase_goods_min` and `_max`, as online),
+and a week in `master_const_int` (`LID_VENDING_WEEKLY_COUNT`).
+
+With Refill ammo or Change decals on, it also changes up to 11 functions in
+BrgGame.upk: the machine's menu (`BrgUIMenu_ItemVendingMachine`), the shop's
+sell list it reuses for the ammo (`BrgUIMenu_ShopBase`) and the stew screen it
+opens for the decals (`BrgUIMenu_SkillExchange`). `tools/build_vending_extras.py`
+builds them from 3bgdragon's own reviewed code.
+
+Nothing else, and switching it off puts the tables and the package back as
+they were.
 
 The Bloodnium and R-Point exchanges are unchanged: they still have their online
 lists. The Bloodnium one changes with the day of the week.

@@ -95,9 +95,28 @@ class TheWindow(unittest.TestCase):
         self.assertTrue((G.win64(self.game) / "lid-plugins" / "lid-timers.dll").is_file())
         self.assertTrue((self.paths.mods_dir / "Timers" / "mod.json").is_file())
         self.assertTrue(self.dialog.changed)
-        self.assertEqual(self.dialog.table.item(self.row("timers"), 1).text(), "mod 0.2.0, plugin")
+        # the stand-in plugin has no version in it
+        self.assertEqual(self.dialog.table.item(self.row("timers"), 1).text(), "installed")
         self.assertEqual(self.dialog.buttons["timers"].text(), "Update")
         self.assertFalse(self.dialog._work_dir().exists())     # the download is cleared away
+
+    def test_have_is_the_release_the_plugin_came_from(self) -> None:
+        from test_get_mods import versioned
+
+        plugins = G.win64(self.game) / "lid-plugins"
+        plugins.mkdir()
+        (plugins / "lid-timers.dll").write_bytes(versioned(b"lid-timers.dll", 0, 2, 0))
+        (self.paths.mods_dir / "Timers").mkdir()
+        (self.paths.mods_dir / "Timers" / "mod.json").write_text('{"id": "Timers", "version": "0.3.1"}',
+                                                               encoding="utf-8")
+        self.dialog.refresh()
+        have = self.dialog.table.item(self.row("timers"), 1)
+        self.assertEqual(have.text(), "0.2.0")                   # not the mod's own 0.3.1
+        self.assertIn("Timers mod 0.3.1", have.toolTip())
+        self.assertEqual(self.dialog.buttons["timers"].text(), "Update")
+        self.dialog.check()
+        self.wait()
+        self.assertEqual(self.dialog.buttons["timers"].text(), "Reinstall")   # Newest is 0.2.0 too
 
     def test_saying_no_writes_nothing(self) -> None:
         with mock.patch.object(QMessageBox, "exec", lambda box: QMessageBox.StandardButton.Cancel):

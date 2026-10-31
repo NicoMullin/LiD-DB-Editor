@@ -22,7 +22,9 @@ bundle size by 0 MB. If you add one, measure before you keep it.
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -218,6 +220,44 @@ def rescue_runtime_state(target_dir: Path, into: Path) -> list[str]:
     return saved
 
 
+def _version_text(mod_dir: Path) -> str:
+    try:
+        return str(json.loads((mod_dir / "mod.json").read_text("utf-8")).get("version") or "")
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+def _mod_version(mod_dir: Path) -> tuple[int, ...]:
+    """A mod folder's mod.json version as numbers; () when it has none."""
+    parts = []
+    for piece in _version_text(mod_dir).split("."):
+        digits = "".join(ch for ch in piece if ch.isdigit())
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts)
+
+
+_GAME_VERSIONS = re.compile(r'"game_version"\s*:\s*\[[^\]]*\]')
+
+
+def _carry_game_versions(shipped: Path, installed: Path) -> None:
+    """Give the installed copy the game versions the shipped one names, when
+    they are the same version of the mod: a game update marked as working is
+    no new version, and the installed copy is the one that is kept."""
+    try:
+        new = (shipped / "mod.json").read_text("utf-8")
+        old = (installed / "mod.json").read_text("utf-8")
+        if json.loads(new).get("game_version") == json.loads(old).get("game_version"):
+            return
+    except (OSError, ValueError, AttributeError):
+        return
+    found_new, found_old = _GAME_VERSIONS.findall(new), _GAME_VERSIONS.findall(old)
+    if len(found_new) == 1 and len(found_old) == 1:
+        (installed / "mod.json").write_text(old.replace(found_old[0], found_new[0]), "utf-8")
+        print(f"Brought {installed.name}'s game versions up to the shipped copy's")
+
+
 def restore_runtime_state(target_dir: Path, saved_in: Path, names: list[str]) -> None:
     """Put it back, without overwriting anything the new build wrote."""
     for name in names:
@@ -227,10 +267,17 @@ def restore_runtime_state(target_dir: Path, saved_in: Path, names: list[str]) ->
             continue
         if destination.exists() and source.is_dir():
             # mods/ is the one the build also writes: keep both, and let what
-            # was already installed win, since it may have been edited.
+            # was already installed win, since it may have been edited - unless
+            # the build ships a newer version of that mod.
             for item in source.iterdir():
                 target = destination / item.name
                 if target.exists():
+                    if _mod_version(target) > _mod_version(item):
+                        print(f"Kept the newer shipped {item.name} ({_version_text(target)}, "
+                              f"was {_version_text(item)})")
+                        continue
+                    if item.is_dir() and _mod_version(target) == _mod_version(item):
+                        _carry_game_versions(target, item)
                     shutil.rmtree(target) if target.is_dir() else target.unlink()
                 shutil.move(str(item), str(target))
             shutil.rmtree(source, ignore_errors=True)

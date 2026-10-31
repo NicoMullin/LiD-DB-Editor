@@ -50,7 +50,7 @@ class FakePatch:
     def transform_targets(self) -> list[str]:
         return [TARGET]
 
-    def transform_target(self, target: str, data: bytes) -> bytes:
+    def transform_target(self, target: str, data: bytes, pristine: bytes | None = None) -> bytes:
         self.ran.append(self.label)
         return data + b"|" + self.label.encode()
 

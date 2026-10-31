@@ -25,8 +25,8 @@ from .settings import (
 )
 
 REQUIRED_FIELDS = ("id", "name", "description", "version", "author")
-STRING_LIST_FIELDS = ("requires", "conflicts_with", "raw_sql_files_do_not_touch",
-                      "requires_check_off", "tags")
+STRING_LIST_FIELDS = ("requires", "conflicts_with", "covered_by",
+                      "raw_sql_files_do_not_touch", "requires_check_off", "tags")
 
 # Source layouts, per the detection rule in the spec.
 SOURCE_JSON = "mod.json"
@@ -61,6 +61,9 @@ class Mod:
     game_versions: list[str] = field(default_factory=list)
     requires: list[str] = field(default_factory=list)
     conflicts_with: list[str] = field(default_factory=list)
+    # Mods that already do what this one does. Ticked together they write the
+    # same boxes; the conflict check says so once, as a note, not as a clash.
+    covered_by: list[str] = field(default_factory=list)
     # Game files this mod replaces that the game will refuse unless its file
     # check has been switched off for them. The executable keeps a hash for
     # some of its files; replace one that is still listed and the game stops at
@@ -71,6 +74,9 @@ class Mod:
     # off with the mod on every save (see plugins.follow_mods). A mod may be
     # nothing else - a plugin's own entry in the mod list.
     plugins: list[str] = field(default_factory=list)
+    # The mod works without its plugin (an add-on that gives it more), so a
+    # missing plugin is not warned about.
+    plugin_optional: bool = False
     raw_sql_files_do_not_touch: list[str] = field(default_factory=list)
     # What kind of mod this is, for finding it again: one category and any
     # number of tags. Both are optional and both are free text - see browse.py.
@@ -369,10 +375,12 @@ def load_mod_json(mod_dir: Path) -> Mod:
         game_versions=game_versions,
         requires=_as_string_list(data.get("requires"), mod_ref, "requires"),
         conflicts_with=_as_string_list(data.get("conflicts_with"), mod_ref, "conflicts_with"),
+        covered_by=_as_string_list(data.get("covered_by"), mod_ref, "covered_by"),
         requires_check_off=_as_string_list(
             data.get("requires_check_off"), mod_ref, "requires_check_off"
         ),
         plugins=plugins,
+        plugin_optional=data.get("plugin_optional") is True,
         raw_sql_files_do_not_touch=_as_string_list(
             data.get("raw_sql_files_do_not_touch"), mod_ref, "raw_sql_files_do_not_touch"
         ),

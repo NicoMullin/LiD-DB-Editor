@@ -95,6 +95,7 @@ The full form. Everything the mod list shows comes from here:
 
   "requires": [],
   "conflicts_with": [],
+  "covered_by": [],
   "raw_sql_files_do_not_touch": [],
 
   "patches": [
@@ -116,10 +117,12 @@ The full form. Everything the mod list shows comes from here:
 | `homepage`                   | no       | Clickable in the Details panel                                                                     |
 | `requires`                   | no       | Mod ids that must also be enabled. Applied before yours                                            |
 | `conflicts_with`             | no       | Mod ids that must not be enabled with yours                                                        |
+| `covered_by`                 | no       | Mod ids that already do what yours does; ticked together, the manager says so instead of a clash   |
 | `raw_sql_files_do_not_touch` | no       | Tables your raw SQL leaves alone; see [Conflicts](#conflicts)                                      |
 | `requires_check_off`         | no       | Game files you replace that the game checks; see [Files the game checks](#files-the-game-checks)   |
 | `min_manager_version`        | no       | The oldest manager your mod works with, like `"0.12.0"`; an older one refuses it and says why      |
 | `plugin`                     | no       | Plugin DLL(s) it goes with (a name or a list), switched with the mod; then no patches needed       |
+| `plugin_optional`            | no       | `true`: the mod works without its plugin (an add-on), so a missing one is not warned about         |
 | `patches`                    | yes      | One or more, applied in order                                                                      |
 
 ## Layout 4: `mod.json` plus files
@@ -236,18 +239,18 @@ A copy of this lives in `mods/_example-settings/`.
 
 ### The setting
 
-| Field     | Required | Meaning                                                                                                                |
-|-----------|----------|------------------------------------------------------------------------------------------------------------------------|
-| `id`      | yes      | Lower-case letters, digits and `_`, starting with a letter                                                             |
-| `label`   | no       | What the box is called. Defaults to the id                                                                             |
-| `type`    | no       | `integer` (the default), `number` for decimals, `choice`, `toggle`, `decals`, `pick`, `goods` or `rewards` (see below) |
-| `default` | yes      | What the player gets without touching it                                                                               |
-| `min`     | yes      | The lowest the box allows (numbers only)                                                                               |
-| `max`     | yes      | The highest the box allows (numbers only)                                                                              |
-| `step`    | no       | How far one click of the arrows moves it. Defaults to 1                                                                |
-| `unit`    | no       | `x` shows "x2", `%` shows "40%", anything else follows the number                                                      |
-| `help`    | no       | Shown under the box                                                                                                    |
-| `group`   | no       | A heading over this setting and the ones after it with the same group                                                  |
+| Field     | Required | Meaning                                                                                                                                 |
+|-----------|----------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| `id`      | yes      | Lower-case letters, digits and `_`, starting with a letter                                                                              |
+| `label`   | no       | What the box is called. Defaults to the id                                                                                              |
+| `type`    | no       | `integer` (the default), `number` for decimals, `choice`, `toggle`, `decals`, `pick`, `goods`, `rewards` or `decal_weights` (see below) |
+| `default` | yes      | What the player gets without touching it                                                                                                |
+| `min`     | yes      | The lowest the box allows (numbers only)                                                                                                |
+| `max`     | yes      | The highest the box allows (numbers only)                                                                                               |
+| `step`    | no       | How far one click of the arrows moves it. Defaults to 1                                                                                 |
+| `unit`    | no       | `x` shows "x2", `%` shows "40%", anything else follows the number                                                                       |
+| `help`    | no       | Shown under the box                                                                                                                     |
+| `group`   | no       | A heading over this setting and the ones after it with the same group                                                                   |
 
 ### Using it
 
@@ -437,6 +440,43 @@ item, so a reward of several items makes several. Manager 0.12.5 or newer.
   is the worked example.
 - `{{list_1:label}}` reads "12 rewards", or your `default_label`.
 
+### Decals with weights, each one on or off
+
+A `decal_weights` setting holds a set of decals, each with a weight and a tick
+for whether it is in - a stew's own odds list, say. The player edits it in a
+window of its own that lists the decals, with an on/off tick, a weight and
+the chance it works out to, a search, and "Add decals..." for any other decal
+in their `masters.db`, including ones another mod added. Manager 0.13.4 or
+newer.
+
+```json
+{"id": "stew", "label": "Decals in the stew", "type": "decal_weights",
+ "default_label": "The stew's own decals and odds",
+ "default_sql": "SELECT sklid, odds FROM master_skillgacha_odds WHERE id = 'SKLGACH_NORMAL_OFFLINE' AND odds > 0"}
+```
+
+- `default_sql` (required) is one `SELECT` of (decal id, weight). Until the
+  player edits the list, the placeholder is that query, run afresh each time
+  the mod applies, so it keeps up with the database and with any mod that adds
+  to it - apply your mod below such mods in the load order.
+- Each entry is `decal id/weight`, or `decal id/weight/0` for one switched
+  off (kept on the list, with its weight, to switch back on). Weights are 1 to
+  9,999. Only letters, digits, underscores and the separators get through.
+- Its placeholder goes where a `SELECT` can go: the player's list becomes
+  `VALUES ('id', weight), ...` of the decals switched on, and a list with none
+  on `SELECT NULL, 0`, so skip rows whose id is NULL:
+
+  ```sql
+  WITH wanted(sklid, weight) AS ({{stew}})
+  INSERT INTO ... SELECT ... FROM wanted w
+  WHERE w.sklid IS NOT NULL AND w.sklid IN (SELECT id FROM master_skill)
+  ```
+
+- `{{stew:label}}` reads "12 of 40 decals on", or your `default_label`.
+  The `Stew Multi Pull` mod in the
+  [LiD Stew Multi Pull](https://github.com/NicoMullin/LiD-Stew-Multi-Pull)
+  repository is the worked example.
+
 ### A part that a setting switches on and off
 
 A toggle written into SQL (`WHERE {{x}} = 1`) works for SQL. A part with no
@@ -472,6 +512,36 @@ when it applies at all, with `"when"`:
   "0.12.0"` anyway, for the versions that do check it, and say in your readme
   that the mod needs 0.12.0 or newer.
 
+### A setting that only counts with others
+
+A setting can have a `"when"` of its own, written the same way. While it does
+not hold, the Configuration tab greys the setting out, and its tooltip says
+what it waits for ("Only used when Take turns is On."):
+
+```json
+{"id": "rotation", "label": "Take turns", "type": "toggle", "default": false},
+{"id": "per_day", "label": "Goods picked a day", "type": "integer", "default": 8,
+ "min": 1, "max": 100, "when": {"rotation": true}}
+```
+
+Greying out is only what the player sees: the value is still filled into your
+SQL, so the SQL must not depend on a setting while it is greyed out. A
+setting's `when` can name any other setting, before or after it, but not
+itself. Managers before 0.13.4 ignore it and show every setting.
+
+A setting that is about another mod - a price for that mod's stew, say - can
+name it in `"needs_mods"`, a list of mod ids. Until one of them is ticked too,
+the setting is greyed out the same way ("Only used with the Death Metals mod
+ticked."), and its own `when` still counts once one is:
+
+```json
+{"id": "pity_dm", "label": "The Death Metal stew", "type": "toggle",
+ "default": true, "needs_mods": ["Death Metals"]}
+```
+
+As with `when`, the value is still filled into your SQL either way. Managers
+before 0.13.4 ignore `needs_mods`.
+
 ### The rules
 
 - **Only your own values.** A number is checked against your `min` and `max`
@@ -503,6 +573,15 @@ Three more reach the game without going through the database at all:
 one of the game's config files, and `tfc_installer` reads a `.PackagePatch`. They
 are documented in the root [README](../README.md), because each one comes with
 the game's own file check attached.
+
+Two mods' `.PackagePatch` files may replace the same function, and both changes
+are kept, when each one changes the function the same way: a stock statement
+swapped for a jump of the same size (on disk and in memory) to code added just
+before the function's END, which jumps back, with every other stock statement
+left exactly where it was. That is how `tools/upkpatch.py` writes them, and
+`lid_db_manager/upk/scriptmerge.py` combines them when the mod list is saved.
+A change that moves stock code, or two mods swapping the same statement, is
+still a clash, and the conflict list names it.
 
 ### `update_set` — set columns on matching rows
 
@@ -825,6 +904,14 @@ Write `IF NOT EXISTS` if you can, because it says what you mean. If you forget,
 the manager reads your `CREATE` as though you had written it and says so in the
 log: every save re-runs the whole enabled list, and a bare `CREATE TABLE` would
 fail the second time round on the table the mod itself made.
+
+The same goes for a plain `INSERT`. The first time your mod is applied it runs
+exactly as written, so a row that is already in the database is reported as a
+clash. On later saves, with your rows from last time still there, the manager
+runs it as `INSERT OR REPLACE` on a table with a key, and on a table without
+one it adds only the rows that are not there yet. Write the rows the same way
+every time (from fixed values, not from what the table already holds) and
+saving again leaves them as they were.
 
 This works through the import flow too. Hand the manager a modded `masters.db`
 that has a table vanilla does not, and the generated mod recreates it — schema,

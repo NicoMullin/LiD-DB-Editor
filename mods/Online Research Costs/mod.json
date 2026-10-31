@@ -1,0 +1,49 @@
+{
+  "id": "Online Research Costs",
+  "name": "Online Research Costs",
+  "description": "Puts equipment research back to what it cost in the online game: the materials crafting and upgrades take (mostly two to four times the offline amounts), and their SPLithium.",
+  "version": "0.1.0",
+  "author": "S3er0i9ng",
+  "category": "Economy",
+  "tags": [
+    "research",
+    "crafting",
+    "materials",
+    "splithium",
+    "online",
+    "s3er0i9ng"
+  ],
+  "requires": [],
+  "conflicts_with": [],
+  "min_manager_version": "0.12.0",
+  "settings": [
+    {
+      "id": "materials",
+      "label": "Online material counts",
+      "type": "toggle",
+      "default": true,
+      "help": "How many of each material crafting a part and each upgrade take, as online. For most recipes that is two to four times the offline amount."
+    },
+    {
+      "id": "splithium",
+      "label": "Online SPLithium costs",
+      "type": "toggle",
+      "default": true,
+      "help": "The SPLithium crafting and upgrades cost, as online. Most are double the offline cost; a few are half."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql_file",
+      "path": "materials.sql",
+      "when": {"materials": true},
+      "description": "Online material counts for 1,017 recipes"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "splithium.sql",
+      "when": {"splithium": true},
+      "description": "Online SPLithium costs"
+    }
+  ]
+}

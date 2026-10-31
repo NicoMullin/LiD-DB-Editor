@@ -117,6 +117,49 @@ class DeclaringSettings(unittest.TestCase):
                     parse_settings(raw, "t")
 
 
+class WhenASettingIsUsed(unittest.TestCase):
+    """A setting's own "when": greyed out in Configuration while it does not hold."""
+
+    SWITCH = {"id": "rotation", "label": "Rotation", "type": "toggle", "default": False}
+
+    def test_it_holds_only_with_the_values_it_names(self) -> None:
+        later = {**MULTIPLIER, "when": {"rotation": True}}
+        multiplier, switch = parse_settings([later, self.SWITCH], "t")      # may name one after it
+        self.assertEqual(switch.when, ())
+        self.assertEqual(multiplier.when, (("rotation", (1,)),))
+        self.assertTrue(multiplier.used_with({"rotation": 1, "multiplier": 2}))
+        self.assertFalse(multiplier.used_with({"rotation": 0, "multiplier": 2}))
+        self.assertTrue(switch.used_with({}))
+
+    def test_bad_ones_are_refused(self) -> None:
+        cases = {
+            "unknown setting": {"nothing": True},
+            "itself": {"multiplier": 2},
+            "a value it cannot have": {"rotation": "sometimes"},
+            "empty": {},
+        }
+        for name, when in cases.items():
+            with self.subTest(case=name):
+                with self.assertRaises(ModLoadError):
+                    parse_settings([self.SWITCH, {**MULTIPLIER, "when": when}], "t")
+
+
+class AboutAnotherMod(unittest.TestCase):
+    """A setting's "needs_mods": greyed out in Configuration until one of them is ticked."""
+
+    def test_the_mods_it_names(self) -> None:
+        (setting,) = parse_settings([{**MULTIPLIER, "needs_mods": [" Death Metals ", "Events and Seasons"]}], "t")
+        self.assertEqual(setting.needs_mods, ("Death Metals", "Events and Seasons"))
+        (plain,) = parse_settings([MULTIPLIER], "t")
+        self.assertEqual(plain.needs_mods, ())
+
+    def test_bad_ones_are_refused(self) -> None:
+        for name, value in {"a string": "Death Metals", "an empty name": [""], "a number": [3]}.items():
+            with self.subTest(case=name):
+                with self.assertRaises(ModLoadError):
+                    parse_settings([{**MULTIPLIER, "needs_mods": value}], "t")
+
+
 class LoadingAModWithSettings(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -342,6 +385,28 @@ class CarryingPlayersAcross(unittest.TestCase):
         self.assertEqual(manager.state.applied[new].version, "3.75",
                          "the old version number is what makes the next save an update")
         self.assertTrue(snapshot_path(self.paths.snapshots_dir, new).is_file())
+
+    def test_a_dropped_mod_leaves_the_list_and_the_packs(self) -> None:
+        write_mod(self.paths.mods_dir, "Enemies Left", {"author": "KSFA", "patches": [
+            {"type": "raw_sql", "sql": "UPDATE master_tdm_rank SET idx = idx;"}]})
+        self._state(enabled_mods=["weapon-durability", "Enemies Left"],
+                    modpacks={"mine": ["Enemies Left", "decal-draw-price"]})
+        manager = Manager(self.paths)
+        self.assertEqual(manager.state.enabled_mods, ["weapon-durability"])
+        self.assertEqual(manager.state.modpacks["mine"], ["decal-draw-price"])
+        self.assertEqual(manager.deleted_mods(), [], "it was never applied, so nothing to undo")
+
+    def test_no_dropped_mod_is_still_shipped_or_offered_by_get_mods(self) -> None:
+        """Moving one of those aside would hide a mod the player just got."""
+        from lid_db_manager.get_mods import CATALOG
+
+        shipped = Path(__file__).resolve().parent.parent / "mods"
+        offered = {name for offer in CATALOG for name in offer.mods}
+        for old_id in migrations.DROPPED:
+            with self.subTest(old=old_id):
+                self.assertFalse((shipped / old_id).exists())
+                self.assertNotIn(old_id, offered)
+                self.assertNotIn(old_id, migrations.RETIRED)
 
     def test_every_retired_id_points_at_a_shipped_mod(self) -> None:
         shipped = Path(__file__).resolve().parent.parent / "mods"

@@ -24,7 +24,7 @@ OLD_FIGHTER_BYTES = b"MZ old " + "LiD Fighter Mod".encode("utf-16-le")
 
 
 def package_zip(name, version, *, mods=(), plugins=(), replaces=(), loader=False, extra=None,
-                manifest=None) -> bytes:
+                manifest=None, mod_plugin=None) -> bytes:
     data = manifest if manifest is not None else {
         "format": 1, "name": name, "version": version, "mods": list(mods),
         "plugins": list(plugins), "replaces": list(replaces), "loader": "dinput8.dll" if loader else "",
@@ -33,7 +33,10 @@ def package_zip(name, version, *, mods=(), plugins=(), replaces=(), loader=False
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("lid-package.json", json.dumps(data))
         for mod in mods:
-            archive.writestr(f"mods/{mod}/mod.json", json.dumps({"id": mod, "version": version}))
+            data = {"id": mod, "version": version}
+            if mod_plugin is not None:
+                data["plugin"] = mod_plugin
+            archive.writestr(f"mods/{mod}/mod.json", json.dumps(data))
             archive.writestr(f"mods/{mod}/readme.md", f"{mod} {version}")
         for dll in plugins:
             archive.writestr(f"lid-plugins/{dll}", f"MZ {dll} {version}")
@@ -95,6 +98,52 @@ class Base(unittest.TestCase):
 
     def plugins(self) -> Path:
         return G.win64(self.game) / "lid-plugins"
+
+
+def versioned(name: bytes, *numbers: int) -> bytes:
+    """A stand-in DLL with a VS_FIXEDFILEINFO saying it is version `numbers`."""
+    a, b, c, d = (list(numbers) + [0, 0, 0, 0])[:4]
+    info = G.VERSION_SIGNATURE + (0x00010000).to_bytes(4, "little") + \
+        ((a << 16) | b).to_bytes(4, "little") + ((c << 16) | d).to_bytes(4, "little")
+    return b"MZ " + name + b" padding " + info + b" the rest"
+
+
+class TheReleaseHere(Base):
+    """What Have shows: the release a plugin came from, read from its own
+    version - the same number as Newest, not the bundled mod's own."""
+
+    def test_a_dlls_version(self):
+        path = self.plugins()
+        path.mkdir()
+        dll = path / "x.dll"
+        dll.write_bytes(versioned(b"x", 0, 12, 1))
+        self.assertEqual(G.dll_version(dll), "0.12.1")
+        dll.write_bytes(versioned(b"x", 1, 2, 3, 4))
+        self.assertEqual(G.dll_version(dll), "1.2.3.4")
+        dll.write_bytes(b"MZ no version resource")
+        self.assertEqual(G.dll_version(dll), "")
+        self.assertEqual(G.dll_version(path / "missing.dll"), "")
+
+    def test_the_plugins_release_not_the_mods_version(self):
+        self.plugins().mkdir()
+        (self.mods / "Offline Fixes").mkdir()
+        (self.mods / "Offline Fixes" / "mod.json").write_text('{"version": "0.1.0"}', encoding="utf-8")
+        (self.plugins() / "lid-offlinefixes.dll").write_bytes(versioned(b"lid-offlinefixes.dll", 0, 1, 1))
+        have = G.installed(G.offer("offlinefixes"), self.mods, self.game)
+        self.assertEqual((have.release, have.mods), ("0.1.1", {"Offline Fixes": "0.1.0"}))
+
+    def test_a_switched_off_plugin_and_the_loader(self):
+        self.plugins().mkdir()
+        (self.plugins() / "lid-timers.dll.off").write_bytes(versioned(b"lid-timers.dll", 0, 2, 2))
+        self.assertEqual(G.installed(G.offer("timers"), self.mods, self.game).release, "0.2.2")
+        self.loader().write_bytes(LOADER_BYTES + versioned(b"dinput8.dll", 1, 0, 0))
+        self.assertEqual(G.installed(G.LOADER_OFFER, self.mods, self.game).release, "1.0.0")
+        self.loader().write_bytes(OLD_FIGHTER_BYTES + versioned(b"dinput8.dll", 1, 4, 0))
+        self.assertEqual(G.installed(G.LOADER_OFFER, self.mods, self.game).release, "")   # not ours
+
+    def test_nothing_without_a_game_folder(self):
+        have = G.installed(G.offer("timers"), self.mods, None)
+        self.assertEqual((have.release, have.plugin), ("", False))
 
 
 class AskingGitHub(Base):
@@ -178,6 +227,87 @@ class Installing(Base):
         self.assertEqual((self.plugins() / "lid-deathmetals.dll").read_bytes(),
                          b"MZ lid-deathmetals.dll 0.6.0")
         self.assertEqual([p.name for p in self.mods.iterdir()], ["Death Metals"])   # nothing left behind
+
+    def install_timers(self, version, switched_on, mod_plugin="lid-timers.dll"):
+        entry = G.offer("timers")
+        self.github.publish(entry, f"v{version}", package_zip(
+            "Timers", version, mods=["Timers"], plugins=["lid-timers.dll"], mod_plugin=mod_plugin))
+        release = G.latest(entry, opener=self.github)
+        package = G.unpack(G.download(release, self.work, opener=self.github), self.work / version)
+        return G.install(package, self.mods, self.game, switched_on=switched_on)
+
+    def test_a_new_plugin_waits_switched_off_while_its_mod_is_unticked(self):
+        # a new mod arrives unticked, so its plugin must not load before a save
+        self.publish_loader()
+        self.get(G.LOADER_OFFER)
+        done = self.install_timers("0.2.0", switched_on=set())
+        self.assertFalse((self.plugins() / "lid-timers.dll").exists())
+        self.assertEqual((self.plugins() / "lid-timers.dll.off").read_bytes(), b"MZ lid-timers.dll 0.2.0")
+        self.assertTrue(any("until its mod is ticked" in line for line in done))
+        self.assertTrue(G.installed(G.offer("timers"), self.mods, self.game).plugin)
+
+    def test_a_plugin_goes_in_on_when_a_ticked_mod_names_it(self):
+        self.publish_loader()
+        self.get(G.LOADER_OFFER)
+        (self.plugins() / "lid-timers.dll.off").write_bytes(b"MZ older")
+        self.install_timers("0.2.0", switched_on={"lid-timers.dll"})
+        self.assertEqual((self.plugins() / "lid-timers.dll").read_bytes(), b"MZ lid-timers.dll 0.2.0")
+        self.assertFalse((self.plugins() / "lid-timers.dll.off").exists())
+
+    def test_an_update_while_its_mod_is_unticked_switches_the_plugin_off(self):
+        self.publish_loader()
+        self.get(G.LOADER_OFFER)
+        (self.plugins() / "lid-timers.dll").write_bytes(b"MZ older")
+        self.install_timers("0.2.0", switched_on=set())
+        self.assertFalse((self.plugins() / "lid-timers.dll").exists())
+        self.assertEqual((self.plugins() / "lid-timers.dll.off").read_bytes(), b"MZ lid-timers.dll 0.2.0")
+
+    def test_a_plugin_no_mod_names_keeps_its_state(self):
+        # nothing would ever switch it back on, so it is not switched off here
+        self.publish_loader()
+        self.get(G.LOADER_OFFER)
+        self.install_timers("0.2.0", switched_on=set(), mod_plugin=None)
+        self.assertTrue((self.plugins() / "lid-timers.dll").is_file())
+
+    def test_death_metals_brings_the_stew_plugin_but_not_its_mod(self):
+        # the Death Metal stew runs on lid-stewpull.dll; the Stew Multi Pull mod is another matter
+        self.publish_loader()
+        self.get(G.LOADER_OFFER)
+        entry = G.offer("deathmetals")
+        stew = G.offer("stewpull")
+        self.assertEqual(G.plugins_needed(entry, self.game), [stew])
+        self.github.publish(stew, "v0.5.2", package_zip(
+            "Stew Multi Pull", "0.5.2", mods=["Stew Multi Pull"], plugins=["lid-stewpull.dll"],
+            mod_plugin="lid-stewpull.dll"))
+        release = G.latest(stew, opener=self.github)
+        package = G.plugin_only(G.unpack(G.download(release, self.work, opener=self.github), self.work / "s"))
+        self.assertEqual(G.what_it_writes(package, self.mods, self.game),
+                         [f"lid-stewpull.dll into {self.plugins()}"])
+        G.install(package, self.mods, self.game, switched_on={"lid-deathmetals.dll", "lid-stewpull.dll"})
+        self.assertFalse((self.mods / "Stew Multi Pull").exists())
+        self.assertTrue((self.plugins() / "lid-stewpull.dll").is_file())
+        self.assertEqual(G.plugins_needed(entry, self.game), [])     # there now: not got again
+
+    def test_the_vending_add_on_follows_the_mod_that_comes_with_the_manager(self):
+        # its package has no mod; the Vending Machine mod already here names the plugin
+        self.publish_loader()
+        self.get(G.LOADER_OFFER)
+        entry = G.offer("vending")
+        self.github.publish(entry, "v0.1.0", package_zip("Vending Machine add-on", "0.1.0",
+                                                         plugins=["lid-vending.dll"]))
+        release = G.latest(entry, opener=self.github)
+        package = G.unpack(G.download(release, self.work, opener=self.github), self.work / "v")
+        self.assertEqual(package.named, set())
+        package.named |= {"lid-vending.dll"}        # as the window adds the names the mods here use
+        G.install(package, self.mods, self.game, switched_on=set())
+        self.assertTrue((self.plugins() / "lid-vending.dll.off").is_file())
+        self.assertTrue(G.installed(entry, self.mods, self.game).plugin)
+
+    def test_a_switched_off_stew_plugin_counts_as_there(self):
+        self.plugins().mkdir()
+        (self.plugins() / "lid-stewpull.dll.off").write_bytes(b"MZ")
+        self.assertEqual(G.plugins_needed(G.offer("deathmetals"), self.game), [])
+        self.assertEqual(G.plugins_needed(G.offer("deathmetals"), None), [])
 
     def test_the_old_fighter_name_is_removed(self):
         self.publish_loader()

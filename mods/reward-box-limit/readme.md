@@ -12,7 +12,11 @@ Stock is 50. It cannot go lower, so nothing waiting in the box is lost.
 
 ## What it changes
 
-`master_const_int` `REWARD_BOX_LIMIT`.
+`master_const_int` `REWARD_BOX_LIMIT` and `PRESENT_BOX_LIMIT`, both to the same
+number. The game uses two: the Rewards Box screen counts its slots against
+`REWARD_BOX_LIMIT`, while the game itself says the box is full when it reaches
+`PRESENT_BOX_LIMIT`. Up to v2.0.1 only the first was changed, so the screen said
+250 but the box was full at 50.
 
 It cannot be set below stock, so nothing waiting in the box is lost.
 

@@ -1,0 +1,112 @@
+{
+  "id": "fighter-bonus",
+  "name": "Fighter Bonus Points",
+  "description": "The bonus points a newly bought fighter rolls for each stat come out bigger: always the most, never nothing, or with odds you set.",
+  "version": "0.1.0",
+  "author": "KSFA",
+  "category": "Game content",
+  "tags": [
+    "fighters",
+    "stats",
+    "odds"
+  ],
+  "game_version": [
+    "5.0.4.4.0 - 1.91",
+    "5.0.5.0.0 - 1.92"
+  ],
+  "min_manager_version": "0.12.0",
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "mode",
+      "label": "Bonus points",
+      "type": "choice",
+      "default": "no_zero",
+      "options": [
+        {"value": "no_zero", "label": "Never nothing (stock odds for the rest)"},
+        {"value": "best", "label": "Always the biggest"},
+        {"value": "own", "label": "Your own odds"}
+      ],
+      "help": "Each stat of a fighter you buy rolls a bonus of 0, 5, 10, 15 or 20% of its grade's level cap, which raises that stat's cap until the first limit break. At stock half of all rolls give nothing. 'Never nothing' takes the 0 out and keeps the other odds as they were; 'Always the biggest' gives every stat 20%."
+    },
+    {
+      "id": "w0",
+      "label": "Odds of no bonus",
+      "type": "integer",
+      "default": 50,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "when": {"mode": "own"},
+      "help": "Stock 50. The five odds are shares: each one's chance is its number out of the five added together, so they do not have to add up to 100. 0 means never; all five at 0 means no bonus at all."
+    },
+    {
+      "id": "w5",
+      "label": "Odds of 5%",
+      "type": "integer",
+      "default": 20,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "when": {"mode": "own"},
+      "help": "Stock 20."
+    },
+    {
+      "id": "w10",
+      "label": "Odds of 10%",
+      "type": "integer",
+      "default": 15,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "when": {"mode": "own"},
+      "help": "Stock 15."
+    },
+    {
+      "id": "w15",
+      "label": "Odds of 15%",
+      "type": "integer",
+      "default": 10,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "when": {"mode": "own"},
+      "help": "Stock 10."
+    },
+    {
+      "id": "w20",
+      "label": "Odds of 20%",
+      "type": "integer",
+      "default": 5,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "when": {"mode": "own"},
+      "help": "Stock 5. 20% is the biggest bonus the game can give: the five sizes are built into the game, only their odds are data."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "no-zero",
+      "when": {"mode": "no_zero"},
+      "description": "No stat rolls a bonus of nothing",
+      "sql": "UPDATE master_const_int SET value = 0 WHERE id = 'BODY_BONUS_0';"
+    },
+    {
+      "type": "raw_sql",
+      "id": "best",
+      "when": {"mode": "best"},
+      "description": "Every stat rolls the biggest bonus",
+      "sql": "UPDATE master_const_int SET value = CASE id WHEN 'BODY_BONUS_20' THEN 100 ELSE 0 END WHERE id IN ('BODY_BONUS_0', 'BODY_BONUS_5', 'BODY_BONUS_10', 'BODY_BONUS_15', 'BODY_BONUS_20');"
+    },
+    {
+      "type": "raw_sql",
+      "id": "own",
+      "when": {"mode": "own"},
+      "description": "Bonus odds {{w0}} / {{w5}} / {{w10}} / {{w15}} / {{w20}}",
+      "sql": "UPDATE master_const_int SET value = CASE id WHEN 'BODY_BONUS_0' THEN {{w0}} WHEN 'BODY_BONUS_5' THEN {{w5}} WHEN 'BODY_BONUS_10' THEN {{w10}} WHEN 'BODY_BONUS_15' THEN {{w15}} ELSE {{w20}} END WHERE id IN ('BODY_BONUS_0', 'BODY_BONUS_5', 'BODY_BONUS_10', 'BODY_BONUS_15', 'BODY_BONUS_20');"
+    }
+  ]
+}

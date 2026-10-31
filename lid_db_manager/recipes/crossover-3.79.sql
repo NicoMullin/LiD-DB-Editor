@@ -1,6 +1,6 @@
 -- LET IT DIE Crossover Content Pack v3.79
 -- Database changes only. The artwork comes from the pack itself.
--- Recorded from the pack's own installer on 2026-10-10 by tools/build_crossover_recipe.py - do not edit by hand.
+-- Recorded from the pack's own installer on 2026-10-24 by tools/build_crossover_recipe.py - do not edit by hand.
 
 -- master_asset: 0 updated, 6 added, 0 removed
 INSERT OR REPLACE INTO "master_asset" ("id", "mesh", "stm", "fstm", "pa", "type", "skt", "as", "at", "ef", "gore") VALUES ('ASSET_NF_SPE_HEAD_063', 'CH_Equip_NF_SPE_Head0063.Meshes.SK_CH_Equip_NF_SPE_Head0063', 'CH_Equip_NM_SPE_Head0063.Meshes.SM_CH_Equip_NM_SPE_Head0063', '', 'CH_Equip_NM_SPE_Head0063.physicsassets.PA_CH_Equip_NM_SPE_Head0063', 'ASSETTP_FJ', '', '', '', '', 0);

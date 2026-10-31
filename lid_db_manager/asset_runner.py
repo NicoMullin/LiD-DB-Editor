@@ -448,8 +448,10 @@ def _stacks(earlier, patch) -> bool:
     a package and leave the rest exactly as it was, so any number of them can
     share one. A package patch never adds to the package's tables - those are
     refused - so a second one still finds every name and object it checks for
-    after the first has gone in. Two mods replacing the *same* object is a real
-    clash; the conflict check names it, and the later one in the load order wins.
+    after the first has gone in. Two mods replacing the *same* function each
+    keep their change where the two combine (upk/scriptmerge.py); otherwise it
+    is a real clash, the conflict check names it, and the later one in the load
+    order wins.
     """
     # By type name: patch.py imports this module, so it cannot be imported here.
     parts = [part for part, _ in getattr(earlier[0], "parts", [earlier])] + [patch]
@@ -475,7 +477,14 @@ class _Stacked:
         data = stock
         for part, mod_id in self.parts:
             try:
-                data = part.transform_target(target, data)
+                if getattr(part, "type", None) == "tfc_installer":
+                    # Given the game's own package too, a function an earlier
+                    # mod changed keeps that change as well as this one's,
+                    # where the two combine (upk/scriptmerge.py): Timers and
+                    # Vending Machine both change the shop's TickASync.
+                    data = part.transform_target(target, data, pristine=stock)
+                else:
+                    data = part.transform_target(target, data)
             except Exception as exc:
                 raise ValueError(f"{mod_id}'s change could not be made ({exc})") from exc
         return data
@@ -649,6 +658,49 @@ def bind_tfc_patches_for_validation(mods, game_root: Path) -> None:
         index = texture_index.build(cooked, cache_file)
     for patch in bound:
         patch.bind(tfcmod.packages_changed(patch.tfc, index), {})
+
+
+_STOCK_READ: dict = {}      # the last package stock_bodies read, by path, size and time
+
+
+def stock_bodies(game_root: Path | None, backups_dir: Path):
+    """(package name, export index) -> that export's data in the game's own package.
+
+    For the conflict check, which asks whether two mods' versions of one
+    function combine. The game's own package is the copy kept the first time a
+    mod changed it, or the game's file while none has. None where neither can
+    be read, and then the two are reported as a clash, as before.
+    """
+    from .upk.tfcmod import COOKED, StockBodies
+
+    manifest = _load_manifest(backups_dir)
+    store = _store_dir(backups_dir)
+    found: dict[str, StockBodies | None] = {}
+
+    def body(package: str, export_index: int) -> bytes | None:
+        key = package.lower()
+        if key not in found:
+            found[key] = None
+            path = None
+            for target, entry in manifest.items():
+                if Path(target).name.lower() == key and entry.get("backup"):
+                    path = store / entry["backup"]
+                    break
+            if path is None and game_root is not None:
+                path = Path(game_root) / COOKED / package
+            try:
+                if path and path.is_file():
+                    stat = path.stat()
+                    stamp = (str(path), stat.st_size, stat.st_mtime_ns)
+                    if _STOCK_READ.get("stamp") != stamp:
+                        # BrgGame.upk is 179 MB: read once, not on every tick.
+                        _STOCK_READ.update(stamp=stamp, bodies=StockBodies(path.read_bytes()))
+                    found[key] = _STOCK_READ["bodies"]
+            except OSError:
+                pass
+        bodies = found[key]
+        return bodies(export_index) if bodies is not None else None
+    return body
 
 
 def bind_tfc_patches_for_revert(mods, game_root: Path, backups_dir: Path) -> None:

@@ -1,0 +1,75 @@
+{
+  "id": "bag-size",
+  "name": "Bag Size",
+  "description": "Every fighter's bag holds more: at least as many slots as you pick, or a number you pick more than stock. No fighter ends up with fewer slots than stock, and no bag goes over 60 (70 with the Express Pass).",
+  "version": "1.0.0",
+  "author": "KSFA",
+  "category": "Quality of life",
+  "tags": [
+    "bag",
+    "inventory",
+    "fighters",
+    "limits"
+  ],
+  "game_version": [
+    "5.0.4.4.0 - 1.91",
+    "5.0.5.0.0 - 1.92"
+  ],
+  "min_manager_version": "0.12.0",
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "mode",
+      "label": "How",
+      "type": "choice",
+      "default": "at_least",
+      "options": [
+        {"value": "at_least", "label": "Every fighter gets at least this many"},
+        {"value": "more", "label": "Each fighter gets this many more than stock"}
+      ],
+      "help": "Stock bags are 18 to 54 slots: the class, grade and limit break decide it, and Collectors get the most. 'At least' gives every fighter the same bag unless theirs is already bigger. 'More than stock' keeps those differences and adds to every bag."
+    },
+    {
+      "id": "slots",
+      "label": "Slots, at least",
+      "type": "integer",
+      "default": 60,
+      "min": 20,
+      "max": 60,
+      "step": 5,
+      "unit": "slots",
+      "when": {"mode": "at_least"},
+      "help": "Every fighter's bag holds at least this many. A bag that is already bigger at stock stays as it is. 60 is what the well-known 60-slot bag mod used, and the most: a bigger bag goes wrong in the game. The Express Pass adds its 10 on top, for 70."
+    },
+    {
+      "id": "extra",
+      "label": "Extra slots",
+      "type": "integer",
+      "default": 20,
+      "min": 1,
+      "max": 42,
+      "step": 1,
+      "unit": "slots",
+      "when": {"mode": "more"},
+      "help": "Added to every fighter's stock bag, so a bag still grows with grade and limit break. No bag goes over 60 (a bigger bag goes wrong in the game); the Express Pass adds its 10 on top, for 70."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "at-least",
+      "when": {"mode": "at_least"},
+      "description": "Every fighter's bag holds at least {{slots}}",
+      "sql": "UPDATE master_body_detail SET bag_capacity = {{slots}} WHERE bag_capacity < {{slots}};"
+    },
+    {
+      "type": "raw_sql",
+      "id": "more",
+      "when": {"mode": "more"},
+      "description": "Every fighter's bag holds {{extra}} more",
+      "sql": "UPDATE master_body_detail SET bag_capacity = MIN(bag_capacity + {{extra}}, 60);"
+    }
+  ]
+}

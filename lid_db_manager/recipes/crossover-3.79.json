@@ -1,10 +1,10 @@
 {
   "pack": "LET IT DIE Crossover Content",
   "version": "3.79",
-  "catalog_sha256": "d67651712286fcb8ff17c3691702c7c55212aeb8db0973aca3d3c69d3ae31549",
+  "catalog_sha256": "947d5d81f9bfc8ca0b579bfc4c1bed95f03acacb3d1dbbdc7bcdfd831ddd615f",
   "sql": "crossover-3.79.sql",
-  "recorded": "2026-10-10",
-  "game_version": "5.0.4.4.0 - 1.91",
+  "recorded": "2026-10-24",
+  "game_version": "5.0.5.0.0 - 1.92",
   "author": "S3er0i9ng",
   "source": "https://letitdiemods.pages.dev/",
   "counts": {

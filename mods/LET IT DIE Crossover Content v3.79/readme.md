@@ -5,7 +5,7 @@ Original release: <https://letitdiemods.pages.dev/>
 
 Restores cut crossover content: decals in the Mushroom Club draw pool,
 blueprint quests, and the models and artwork they need. This copy is the one
-for game version 1.91 (Steam build 25767944), from their Mod Manager v1.3.25.
+for game version 1.92 (Steam build 25923506), from their Mod Manager v1.3.31.
 
 The mod has two parts, and both are needed:
 
@@ -31,6 +31,12 @@ Switch it back on and save to get the quests and research back.
 
 Tick it and click **Save Mod List**. Unticking it puts the database back and
 takes the artwork out of the game.
+
+## 3.79.2
+
+- **The same 45 packages refreshed again for game 1.92**, which changed those
+  game files once more. On 1.92 the manager had been leaving them out. The
+  database changes are the same as in 3.79.1.
 
 ## 3.79.1
 

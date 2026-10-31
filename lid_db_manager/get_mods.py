@@ -21,7 +21,8 @@ Getting one (the "Get mods" window):
 4. Put the mod in the manager's mods folder, and the plugin in the game's
    ``Binaries\\Win64\\lid-plugins``. A plugin needs the loader: when it is
    missing the window gets it first. A dinput8.dll that is not the loader
-   is never replaced.
+   is never replaced. The plugin goes in switched on or off to match its
+   mod's tick, as a save would leave it (see plugins.py).
 
 Nothing here goes online on its own: every download is the player's click,
 and the window says what will be written before anything is.
@@ -33,10 +34,11 @@ import json
 import os
 import re
 import shutil
+import struct
 import time
 import urllib.error
 import zipfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 
 from . import self_update
@@ -74,6 +76,9 @@ class Offer:
     mods: tuple[str, ...] = ()          # mod folders its package brings
     plugin: str = ""                    # the DLL it puts in lid-plugins
     is_loader: bool = False
+    # Offers whose plugin (only) comes along when it is missing: a mod here
+    # needs that plugin, not the other mod.
+    plugins_of: tuple[str, ...] = ()
 
     @property
     def package(self) -> str:
@@ -95,14 +100,16 @@ CATALOG: tuple[Offer, ...] = (
     LOADER_OFFER,
     Offer("stewpull", "Stew Multi Pull", "LiD-Stew-Multi-Pull",
           "Purchase x5 to x25 at the stew: every decal shown together at the end, the whole run "
-          "paid for, drawn and saved in one go. Its plugin also runs the Death Metal and festival "
-          "stews.",
+          "paid for, drawn and saved in one go. The regular stew can be a fresh random pick every "
+          "pull, from its own decals or your own weighted list, and every stew can have a pity: "
+          "pick a decal in Check Lineup and it comes after so many pulls. Its plugin also runs the "
+          "Death Metal and festival stews.",
           mods=("Stew Multi Pull",), plugin="lid-stewpull.dll"),
     Offer("deathmetals", "Death Metals", "LiD-Death-Metals",
           "Death Metals back: the Death Metal rewards, the count on screen, Uncle Death's exchange, "
-          "and Express Passes, the Coin Locker and a stew paid in Death Metals (the stew also needs "
-          "Stew Multi Pull's plugin).",
-          mods=("Death Metals",), plugin="lid-deathmetals.dll"),
+          "and Express Passes, the Coin Locker and a stew paid in Death Metals (the stew runs on "
+          "Stew Multi Pull's plugin, which comes along - not the Stew Multi Pull mod).",
+          mods=("Death Metals",), plugin="lid-deathmetals.dll", plugins_of=("stewpull",)),
     Offer("timers", "Timers", "LiD-Timers",
           "Crafting, research and facility upgrades take time again, with Uncle Death's time skip "
           "and the facility countdown.",
@@ -124,10 +131,24 @@ CATALOG: tuple[Offer, ...] = (
           "Fixes the game's own offline mode: no more closing on the spot when a Hater dies as "
           "you take the stairs.",
           mods=("Offline Fixes",), plugin="lid-offlinefixes.dll"),
+    Offer("vending", "Vending Machine add-on", "LiD-Vending-Machine",
+          "The daily random picks back at the vending machine, as online: a few goods a day and a "
+          "set of blueprints each week. For the Vending Machine mod (it comes with the manager): "
+          "turn its Rotation on.",
+          plugin="lid-vending.dll"),
     Offer("borderless", "Borderless Fullscreen", "LiD-Borderless",
           "The game fills your monitor with no title bar or edges, but Alt+Tab is instant. Tick the "
           "mod for borderless, untick it for the game's normal fullscreen.",
           mods=("Borderless Fullscreen",), plugin="lid-borderless.dll"),
+    Offer("dailyquests", "Daily Quests", "LiD-Daily-Quests",
+          "The online game's 808 event quests back as daily quests: a few random ones a day, paying "
+          "Death Metals, and one a day (or as many as you like) a decal you cannot get any other way.",
+          mods=("Daily Quests",), plugin="lid-dailyquests.dll"),
+    Offer("betterdustin5", "Better Dustin5", "LiD-Better-Dustin5",
+          "Dustin5 made easier: every Dustin5 free with no 5-item limit, no waiting at it, and in "
+          "the Rewards Box Triangle sends a present to the Storage Box, L1 sends everything there "
+          "and R1 takes everything.",
+          mods=("Better Dustin5",), plugin="lid-betterdustin5.dll"),
 )
 
 
@@ -234,6 +255,7 @@ class Package:
     plugins: list[str] = field(default_factory=list)
     replaces: list[str] = field(default_factory=list)
     loader: str = ""
+    named: set[str] = field(default_factory=set)    # plugins its mods name (lower case)
 
 
 def unpack(packed: Path, into: Path) -> Package:
@@ -298,6 +320,13 @@ def read_package(folder: Path) -> Package:
             raise GetModsError(f"The package says it holds {dll}, but it does not.")
     if package.loader and (package.loader != LOADER or not (folder / LOADER).is_file()):
         raise GetModsError("The package says it holds the loader, but it does not.")
+    for mod in package.mods:
+        try:
+            raw = json.loads((folder / "mods" / mod / "mod.json").read_text(encoding="utf-8")).get("plugin")
+        except (OSError, ValueError, AttributeError):
+            continue                    # the mod list reports a broken mod.json itself
+        names = [raw] if isinstance(raw, str) else raw if isinstance(raw, list) else []
+        package.named.update(str(name).strip().lower() for name in names if name)
     return package
 
 
@@ -325,11 +354,37 @@ def loader_state(game_root: Path) -> str:
     return "foreign"
 
 
+VERSION_SIGNATURE = struct.pack("<I", 0xFEEF04BD)     # VS_FIXEDFILEINFO's first field
+
+
+def dll_version(path: Path) -> str:
+    """The version in a DLL's version resource ("0.12.1"; a fourth number only
+    when it is not 0), or "" when it has none. Each of KSFA's plugins and the
+    Plugin Loader is built with its release's number there - a release tag
+    must match it - so this is the release it came from, however it got in."""
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return ""
+    at = data.find(VERSION_SIGNATURE)
+    while at >= 0:
+        if at + 16 <= len(data):
+            struc, high, low = struct.unpack_from("<III", data, at + 4)
+            if struc >> 16 == 1:            # dwStrucVersion 1.0
+                parts = [high >> 16, high & 0xFFFF, low >> 16, low & 0xFFFF]
+                if parts[3] == 0:
+                    parts.pop()
+                return ".".join(map(str, parts))
+        at = data.find(VERSION_SIGNATURE, at + 1)
+    return ""
+
+
 @dataclass(frozen=True)
 class Installed:
     mods: dict          # mod folder -> its version, or "" when it is not there
     plugin: bool        # the plugin is in lid-plugins
     loader: str         # loader_state, or "" without a game folder
+    release: str = ""   # the release the plugin (or loader) here came from, by its own version
 
     @property
     def anything(self) -> bool:
@@ -346,13 +401,38 @@ def installed(entry: Offer, mods_dir: Path, game_root: Path | None) -> Installed
         except (OSError, ValueError):
             pass
         versions[mod] = version
-    plugin = bool(game_root and entry.plugin and (
-        (win64(game_root) / PLUGINS / entry.plugin).is_file()
-        or (win64(game_root) / PLUGINS / (entry.plugin + OFF)).is_file()))   # switched off
+    release = ""
+    plugin = False
+    if game_root and entry.plugin:
+        for name in (entry.plugin, entry.plugin + OFF):     # switched off too
+            path = win64(game_root) / PLUGINS / name
+            if path.is_file():
+                plugin = True
+                release = dll_version(path)
+                break
     state = loader_state(game_root) if game_root else ""
     if entry.is_loader:
         plugin = state == "ours"
-    return Installed(versions, plugin, state)
+        release = dll_version(win64(game_root) / LOADER) if plugin else ""
+    return Installed(versions, plugin, state, release)
+
+
+def plugins_needed(entry: Offer, game_root: Path | None) -> list[Offer]:
+    """The offers whose plugin ``entry`` needs and the game folder lacks."""
+    if game_root is None:
+        return []
+    found = []
+    for key in entry.plugins_of:
+        other = offer(key)
+        folder = win64(game_root) / PLUGINS
+        if not ((folder / other.plugin).is_file() or (folder / (other.plugin + OFF)).is_file()):
+            found.append(other)
+    return found
+
+
+def plugin_only(package: Package) -> Package:
+    """The package without its mods: only its plugin goes in."""
+    return replace(package, mods=[], name=f"{package.name}'s plugin")
 
 
 def needs_loader(package: Package, game_root: Path | None) -> bool:
@@ -374,9 +454,14 @@ def what_it_writes(package: Package, mods_dir: Path, game_root: Path | None) -> 
 
 
 def install(package: Package, mods_dir: Path, game_root: Path | None,
-            progress: Progress | None = None) -> list[str]:
+            progress: Progress | None = None, switched_on: set[str] | None = None) -> list[str]:
     """Put the package's mod(s), plugin and loader in place. Returns what was
-    done, for the log. Checks everything it can before writing anything."""
+    done, for the log. Checks everything it can before writing anything.
+
+    ``switched_on`` is the plugins (lower case) a ticked mod names. Given it, a
+    plugin the package's own mods name goes in on or off to match, as the next
+    save would switch it - so a new plugin waits, switched off, until its mod
+    is ticked and saved. Without it, a plugin keeps the state it had."""
     progress = ensure(progress)
     mods_dir = Path(mods_dir)
     needs_game = bool(package.plugins or package.loader)
@@ -435,16 +520,23 @@ def install(package: Package, mods_dir: Path, game_root: Path | None,
     for dll in package.plugins:
         folder = win64(game_root) / PLUGINS
         folder.mkdir(exist_ok=True)
-        parked = folder / (dll + OFF)
-        if parked.is_file() and not (folder / dll).is_file():
-            # switched off in the Plugins window: the update stays off
-            _put_file(package.folder / PLUGINS / dll, parked)
-            done.append(f"put {dll} in {folder}, still switched off ({parked.name})")
+        loaded, parked = folder / dll, folder / (dll + OFF)
+        follows = switched_on is not None and dll.lower() in package.named
+        if follows:
+            on = dll.lower() in switched_on
         else:
-            _put_file(package.folder / PLUGINS / dll, folder / dll)
-            if parked.is_file():
-                _retry(lambda: parked.unlink())     # an old switched-off copy
+            on = loaded.is_file() or not parked.is_file()   # switched off: the update stays off
+        target, other = (loaded, parked) if on else (parked, loaded)
+        _put_file(package.folder / PLUGINS / dll, target)
+        if other.is_file():
+            _retry(lambda: other.unlink())          # the old copy, of the other kind
+        if on:
             done.append(f"put {dll} in {folder}")
+        elif follows:
+            done.append(f"put {dll} in {folder}, switched off ({parked.name}) until its mod is "
+                        "ticked and saved")
+        else:
+            done.append(f"put {dll} in {folder}, still switched off ({parked.name})")
         for old in package.replaces:
             if (folder / old).is_file():
                 _retry(lambda: (folder / old).unlink())

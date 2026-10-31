@@ -9,7 +9,9 @@ A mod names the plugin(s) it goes with (``"plugin": "lid-timers.dll"`` in its
 mod.json); a plugin with nothing else to change gets a mod of its own that is
 only that line. On every save each named plugin is switched to match: on while
 any mod that names it is on, off when none is (see ``follow_mods``). A plugin
-no mod names is left as it is.
+no mod names is left as it is. A mod marked ``"plugin_optional": true`` works
+without its plugin (an add-on that gives it more), so a missing one is not
+warned about.
 
 The game holds a plugin it has loaded, so nothing is renamed while it runs.
 """
@@ -74,6 +76,14 @@ def switch(game_root: Path, name: str, on: bool) -> bool:
     return True
 
 
+def named_by(mods, enabled_ids=None) -> set[str]:
+    """The plugins (lower case) a ticked mod names - the ones a save switches
+    on. Without ``enabled_ids``, the ones any mod names."""
+    enabled = None if enabled_ids is None else set(enabled_ids)
+    return {name.lower() for mod in mods if enabled is None or mod.id in enabled
+            for name in getattr(mod, "plugins", ())}
+
+
 def follow_mods(game_root: Path | None, mods, enabled_ids, log=None) -> list[str]:
     """Each plugin a mod names, switched to match: on while any mod naming it
     is on, off when none is. Returns what changed, for the log. A plugin that
@@ -92,7 +102,8 @@ def follow_mods(game_root: Path | None, mods, enabled_ids, log=None) -> list[str
     for key, naming in wanted.items():
         on_by = [mod.id for mod in naming if mod.id in enabled]
         if key not in there:
-            if on_by and log is not None:
+            if any(not getattr(mod, "plugin_optional", False) for mod in naming if mod.id in enabled) \
+                    and log is not None:
                 log.warn(f"{', '.join(on_by)} goes with the plugin {names[key]}, which is not in "
                          f"{folder(game_root)} - get it with Get mods")
             continue

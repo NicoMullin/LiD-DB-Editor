@@ -1,0 +1,117 @@
+{
+  "id": "Animation Speed",
+  "name": "Animation Speed",
+  "description": "Your fighter eats, kicks chests open, picks things up, puts on gear, catches animals, grills food and whacks vending machines faster. Each one has its own speed. Set it in Configuration.",
+  "version": "0.1.0",
+  "author": "KSFA",
+  "category": "Quality of life",
+  "tags": [
+    "animations",
+    "speed",
+    "eating",
+    "chests",
+    "game-files"
+  ],
+  "game_version": [
+    "5.0.5.0.0 - 1.92"
+  ],
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [],
+  "requires_check_off": [
+    "BrgGame.upk"
+  ],
+  "settings": [
+    {
+      "id": "eat",
+      "label": "Eating",
+      "type": "integer",
+      "default": 150,
+      "min": 50,
+      "max": 300,
+      "step": 10,
+      "unit": "%",
+      "help": "Eating mushrooms, meat and animals, sitting or standing. 100% is the game's own speed, 200% twice as fast. A decal that speeds up eating still adds its own speed on top."
+    },
+    {
+      "id": "chest",
+      "label": "Kicking chests open",
+      "type": "integer",
+      "default": 150,
+      "min": 50,
+      "max": 300,
+      "step": 10,
+      "unit": "%",
+      "help": "The kick that opens a chest. The chest's own lid still opens at its usual speed."
+    },
+    {
+      "id": "pickup",
+      "label": "Picking up items",
+      "type": "integer",
+      "default": 150,
+      "min": 50,
+      "max": 300,
+      "step": 10,
+      "unit": "%",
+      "help": "Bending down for an item on the floor."
+    },
+    {
+      "id": "equip",
+      "label": "Putting on gear",
+      "type": "integer",
+      "default": 150,
+      "min": 50,
+      "max": 300,
+      "step": 10,
+      "unit": "%",
+      "help": "Picking up a weapon or a piece of armour and putting it on: head, arms, body and legs."
+    },
+    {
+      "id": "catch",
+      "label": "Catching animals",
+      "type": "integer",
+      "default": 150,
+      "min": 50,
+      "max": 300,
+      "step": 10,
+      "unit": "%",
+      "help": "Grabbing a frog, rat or other animal, and lifting one up off the floor."
+    },
+    {
+      "id": "cook",
+      "label": "Grilling",
+      "type": "integer",
+      "default": 150,
+      "min": 50,
+      "max": 300,
+      "step": 10,
+      "unit": "%",
+      "help": "Holding a mushroom or animal over a fire to grill it."
+    },
+    {
+      "id": "machine",
+      "label": "Vending machines",
+      "type": "integer",
+      "default": 150,
+      "min": 50,
+      "max": 300,
+      "step": 10,
+      "unit": "%",
+      "help": "Whacking a Tower vending machine to open it, and stepping back after. The machine's own buying and recycling scenes are not your fighter's animations, and keep their speed."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "speeds",
+      "description": "Speeds: eating {{eat}}%, chests {{chest}}%, picking up {{pickup}}%, gear {{equip}}%, catching {{catch}}%, grilling {{cook}}%, vending machines {{machine}}%",
+      "sql": "INSERT OR REPLACE INTO master_const_float (id, value) VALUES ('LID_ANIM_ANI_CH_IDL_Eat', {{eat}} / 100.0), ('LID_ANIM_ANI_CH_IDL_Eat_Stand', {{eat}} / 100.0), ('LID_ANIM_ANI_CH_EVE_Eat_Animal', {{eat}} / 100.0), ('LID_ANIM_ANI_CH_EVE_TreasureOpen', {{chest}} / 100.0), ('LID_ANIM_ANI_CH_IDL_Gather', {{pickup}} / 100.0), ('LID_ANIM_ANI_CH_EVE_Equio_Head', {{equip}} / 100.0), ('LID_ANIM_ANI_CH_EVE_Equip_R', {{equip}} / 100.0), ('LID_ANIM_ANI_CH_EVE_Equip_L', {{equip}} / 100.0), ('LID_ANIM_ANI_CH_EVE_Equip_TypeC', {{equip}} / 100.0), ('LID_ANIM_ANI_CH_EVE_Equip_TypeD', {{equip}} / 100.0), ('LID_ANIM_ANI_CH_EVE_Equip_Body', {{equip}} / 100.0), ('LID_ANIM_ANI_CH_EVE_Equip_Leg', {{equip}} / 100.0), ('LID_ANIM_ANI_CH_EVE_Equip', {{equip}} / 100.0), ('LID_ANIM_ANI_CH_EVE_Catch', {{catch}} / 100.0), ('LID_ANIM_ANI_CH_EVE_Keep_In', {{catch}} / 100.0), ('LID_ANIM_ANI_CH_EVE_Receive_Animal', {{catch}} / 100.0), ('LID_ANIM_ANI_CH_ATK_Burn', {{cook}} / 100.0), ('LID_ANIM_ANI_CH_EVE_VendingMachine', {{machine}} / 100.0), ('LID_ANIM_ANI_CH_EVE_VendingMachine02', {{machine}} / 100.0);"
+    },
+    {
+      "type": "tfc_installer",
+      "id": "rate",
+      "source": "tfc",
+      "description": "Animations play at the speeds above (BrgGame.upk)"
+    }
+  ]
+}

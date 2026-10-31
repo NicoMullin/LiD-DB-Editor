@@ -1,0 +1,25 @@
+{
+  "id": "Pre-Nerf Gear",
+  "name": "Pre-Nerf Gear",
+  "description": "Gear values from before the offline update, as ZeroUnderOne put them back in Tengoku Enjoyer, on their own: the Hell Ride and Strike Bomb Rage moves, the M2G-87's fire attacks, the Red Napalm knife, and the Armor Breaking Flail S.",
+  "version": "1.2.0",
+  "author": "ZeroUnderOne",
+  "category": "Gear",
+  "tags": [
+    "weapons",
+    "rage-moves",
+    "balance",
+    "online",
+    "zerounderone"
+  ],
+  "requires": [],
+  "conflicts_with": [],
+  "covered_by": ["Tengoku Enjoyer"],
+  "patches": [
+    {
+      "type": "raw_sql_file",
+      "path": "gear.sql",
+      "description": "7 gear values from before the offline update"
+    }
+  ]
+}

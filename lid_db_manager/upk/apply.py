@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass
+from typing import Callable
 
+from . import scriptmerge
 from .package import Package
 from .packagepatch import PackagePatch
 
@@ -94,8 +96,14 @@ def unsupported(patch: PackagePatch) -> str:
     return ""
 
 
-def apply(package: Package, patch: PackagePatch) -> tuple[bytes, list[Placement]]:
+def apply(package: Package, patch: PackagePatch,
+          stock_body: Callable[[int], bytes | None] | None = None) -> tuple[bytes, list[Placement]]:
     """The package's decompressed bytes with the patch applied.
+
+    ``stock_body`` gives an export's data in the game's own package. With it, a
+    function an earlier mod already changed keeps that change as well as this
+    one, where the two can be combined (see scriptmerge.py); without it, or
+    where they cannot, this patch's version replaces it, as it always did.
 
     Raises ApplyError, having changed nothing, if the patch does not fit.
     """
@@ -122,6 +130,13 @@ def apply(package: Package, patch: PackagePatch) -> tuple[bytes, list[Placement]
                              "which the package does not have")
         entry = package.exports[update.export_index]
         new = bytearray(update.data)
+        if stock_body is not None and not update.offset_records:
+            current = package.export_data(update.export_index)
+            stock = stock_body(update.export_index)
+            if stock is not None and current != stock:
+                merged = scriptmerge.merge(stock, current, update.data)
+                if merged is not None:
+                    new = bytearray(merged)
         if len(new) <= entry.serial_size:
             start, moved = entry.serial_offset, False
         else:

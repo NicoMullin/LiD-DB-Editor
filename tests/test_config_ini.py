@@ -519,6 +519,56 @@ class WholeSaveTests(unittest.TestCase):
                 configini.get(self.text(), SECTION, f"m{kind}_SpawnWait"), "6")
 
 
+class PartOnlyASettingSwitchesOnTests(unittest.TestCase):
+    """A config file part whose "when" holds only away from the defaults.
+
+    Switching the mod off puts its files back by what the mod changes - and the
+    mod as scanned, at its defaults, has no such part. Found with Better
+    Dustin5, whose menu limit is written only while "Every Dustin5 is free" is
+    off: the file kept the mod's value after the mod was switched off.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.game = build_game_tree(self.root)
+        exe = self.game / "Binaries" / "Win64" / "BrgGame-Steam.exe"
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_bytes(an_executable(
+            [("BrgUIDebugEditParams.ini", hashlib.sha1(b"stock").hexdigest())]))
+        self.paths = AppPaths(self.root / "data").ensure()
+        write_mod(self.paths.mods_dir, "limit", {
+            "requires_check_off": ["BrgUIDebugEditParams.ini"],
+            "settings": [{"id": "paid", "label": "Paid", "type": "toggle", "default": False}],
+            "patches": [{"type": "config_ini", "target": TARGET, "section": SECTION,
+                         "values": {"mCoin_SpawnWait": 9}, "when": {"paid": True}}],
+        })
+        self.manager = Manager(self.paths)
+        self.manager.set_db_path(self.game / "BrgGame" / "Content" / "masters.db")
+        self.manager.switch_file_check_off(["BrgUIDebugEditParams.ini"])
+        self.target = self.game / "BrgGame" / "Config" / "BrgUIDebugEditParams.ini"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_switching_the_mod_off_takes_the_part_out_too(self):
+        self.manager.set_enabled("limit", True)
+        self.manager.set_mod_setting("limit", "paid", True)
+        self.assertTrue(self.manager.save_mod_list().ok)
+        self.assertTrue(self.target.is_file())
+        self.manager.set_enabled("limit", False)
+        self.assertTrue(self.manager.save_mod_list().ok)
+        self.assertFalse(self.target.exists(), "the file the part created is still there")
+
+    def test_setting_it_back_to_the_default_takes_the_part_out(self):
+        self.manager.set_enabled("limit", True)
+        self.manager.set_mod_setting("limit", "paid", True)
+        self.assertTrue(self.manager.save_mod_list().ok)
+        self.manager.set_mod_setting("limit", "paid", False)
+        self.assertTrue(self.manager.save_mod_list().ok)
+        self.assertFalse(self.target.exists())
+
+
 # ---------------------------------------------------------------------------
 # The shipped mod
 # ---------------------------------------------------------------------------

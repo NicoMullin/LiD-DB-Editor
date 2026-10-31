@@ -2,7 +2,7 @@
   "id": "reward-box-limit",
   "name": "Reward Box Limit",
   "description": "The reward box holds {{slots:comma}} instead of 50.",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "author": "KSFA",
   "category": "Economy",
   "tags": [
@@ -13,7 +13,9 @@
   "game_version": [
     "5.0.3.0.0 - 1.87",
     "5.0.4.0.0 - 1.88",
-    "5.0.4.1.0 - 1.89"
+    "5.0.4.1.0 - 1.89",
+    "5.0.4.4.0 - 1.91",
+    "5.0.5.0.0 - 1.92"
   ],
   "requires": [],
   "conflicts_with": [],
@@ -38,7 +40,7 @@
       "set": {
         "value": "{{slots}}"
       },
-      "where": "id = 'REWARD_BOX_LIMIT'"
+      "where": "id IN ('REWARD_BOX_LIMIT', 'PRESENT_BOX_LIMIT')"
     }
   ]
 }

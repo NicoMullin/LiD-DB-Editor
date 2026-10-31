@@ -423,6 +423,65 @@ class TheConfigurationTab(unittest.TestCase):
         self.assertIsNone(editor.combo.itemData(heading))
         self.assertEqual(editor.combo.model().item(heading).flags(), Qt.ItemFlag.NoItemFlags)
 
+    def test_a_setting_its_when_leaves_unused_is_greyed_out(self) -> None:
+        write_mod(self.paths.mods_dir, "greyed", {"plugin": "lid-grey.dll", "settings": [
+            {"id": "rotation", "label": "Take turns", "type": "toggle", "default": False},
+            {"id": "per_day", "label": "A day", "type": "integer", "default": 8, "min": 1, "max": 9,
+             "when": {"rotation": True}},
+            {"id": "stock", "label": "What it sells", "type": "integer", "default": 1, "min": 1, "max": 9,
+             "when": {"rotation": False}},
+        ]})
+        self.window.refresh(rescan=True)
+        view = self._open("greyed")
+        self.assertFalse(view.editor_for("per_day").isEnabled())
+        self.assertEqual(view.editor_for("per_day").toolTip(), "Only used when Take turns is On.")
+        self.assertTrue(view.editor_for("stock").isEnabled())
+        view.editor_for("rotation").check.setChecked(True)
+        self._settle()
+        self.assertEqual(self.manager.state.mod_settings, {"greyed": {"rotation": 1}})
+        self.assertTrue(view.editor_for("per_day").isEnabled())
+        self.assertFalse(view.editor_for("stock").isEnabled())
+        self.assertEqual(view.editor_for("stock").toolTip(), "Only used when Take turns is Off.")
+        # a clicked tick box keeps the focus, so the panel is not rebuilt -
+        # the greying must follow anyway, both ways
+        tick = view.editor_for("rotation")
+        tick.has_focus = lambda: True
+        tick.check.setChecked(False)
+        self._settle()
+        self.assertEqual(self.manager.state.mod_settings, {})          # back to its default
+        self.assertIs(view.editor_for("rotation"), tick)               # not rebuilt
+        self.assertFalse(view.editor_for("per_day").isEnabled())
+        self.assertTrue(view.editor_for("stock").isEnabled())
+        tick.check.setChecked(True)
+        self._settle()
+        self.assertTrue(view.editor_for("per_day").isEnabled())
+        self.assertFalse(view.editor_for("stock").isEnabled())
+
+    def test_a_setting_about_another_mod_is_greyed_out_until_it_is_ticked(self) -> None:
+        write_mod(self.paths.mods_dir, "other-stew", {"patches": []})
+        write_mod(self.paths.mods_dir, "pity", {"plugin": "lid-grey.dll", "settings": [
+            {"id": "mine", "label": "Mine", "type": "toggle", "default": True},
+            {"id": "theirs", "label": "Theirs", "type": "toggle", "default": True,
+             "needs_mods": ["other-stew"]},
+            {"id": "pulls", "label": "Pulls", "type": "integer", "default": 100, "min": 10, "max": 500,
+             "needs_mods": ["other-stew"], "when": {"theirs": True}},
+        ]})
+        self.window.refresh(rescan=True)
+        view = self._open("pity")
+        self.assertTrue(view.editor_for("mine").isEnabled())
+        for setting_id in ("theirs", "pulls"):
+            self.assertFalse(view.editor_for(setting_id).isEnabled())
+            self.assertEqual(view.editor_for(setting_id).toolTip(), "Only used with the other-stew mod ticked.")
+        self.manager.set_enabled("other-stew", True)
+        self.window.refresh()
+        view = self._open("pity")
+        self.assertTrue(view.editor_for("theirs").isEnabled())
+        self.assertTrue(view.editor_for("pulls").isEnabled())
+        view.editor_for("theirs").check.setChecked(False)
+        self._settle()
+        self.assertFalse(view.editor_for("pulls").isEnabled())          # and its own "when" still counts
+        self.assertEqual(view.editor_for("pulls").toolTip(), "Only used when Theirs is On.")
+
     def test_a_short_list_is_not_typed_into(self) -> None:
         self.assertFalse(self._open("class-bonus").editor_for("skill").combo.isEditable())
 

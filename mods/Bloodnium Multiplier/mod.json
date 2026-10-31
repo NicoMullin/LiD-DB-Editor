@@ -1,11 +1,11 @@
 {
   "id": "Bloodnium Multiplier",
   "name": "Bloodnium Multiplier",
-  "description": "Everything you kill in the Tower gives x{{times}} the Bloodnium. Set it in Configuration.",
-  "version": "0.1.0",
+  "description": "Everything you kill in the Tower gives x{{times}} the Bloodnium, and Splattershrooms x{{mushrooms}}. Set it in Configuration.",
+  "version": "0.2.0",
   "author": "KSFA",
   "category": "Quality of life",
-  "tags": ["bloodnium", "multiplier", "farming", "constants"],
+  "tags": ["bloodnium", "multiplier", "farming", "mushrooms", "constants"],
   "game_version": ["5.0.4.1.0 - 1.89", "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)", "5.0.4.4.0 - 1.91", "5.0.5.0.0 - 1.92"],
   "apply": "diff",
   "requires": [],
@@ -20,6 +20,16 @@
       "max": 100,
       "unit": "x",
       "help": "x1 is the game's own amount. Covers enemies, Haters, Screamers, Treasure Tubers, mid-bosses and bosses. The game's own kill-streak, floor-travel and VIP bonuses still go on top."
+    },
+    {
+      "id": "mushrooms",
+      "label": "Splattershrooms",
+      "type": "integer",
+      "default": 1,
+      "min": 1,
+      "max": 100,
+      "unit": "x",
+      "help": "The Bloodnium you get from eating a Splattershroom (10), Big Splattershroom (100) or Mega Splattershroom (1,000). x1 is the game's own amount. Separate from kills."
     }
   ],
   "patches": [
@@ -28,6 +38,12 @@
       "id": "bloodnium",
       "description": "Bloodnium points x{{times}}",
       "sql": "UPDATE master_const_int SET value = value * {{times}} WHERE id IN ('ENEMY_BLOODNIUM_POINT', 'HARD_HATER_BLOODNIUM_POINT', 'SCREAMER_BLOODNIUM_POINT', 'TREASURE_TUBER_BLOODNIUM_POINT', 'MBOSS_BLOODNIUM_POINT', 'BOSS_BLOODNIUM_POINT');"
+    },
+    {
+      "type": "raw_sql",
+      "id": "splattershrooms",
+      "description": "Splattershroom Bloodnium x{{mushrooms}}",
+      "sql": "UPDATE master_mushroom_efc SET val0 = val0 * {{mushrooms}} WHERE type = 'MSREFCTP_BLDMUSH';"
     }
   ]
 }

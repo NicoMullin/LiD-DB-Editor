@@ -100,7 +100,12 @@ def load(folder: Path) -> TfcMod:
         raise TfcModError("it also carries " + "; ".join(extra) + ", which this cannot "
                           "install yet - use TFC Installer for this one")
     mod = TfcMod(folder)
-    for patch in folder.rglob("*" + PATCH_SUFFIX):
+    # Only what is under Game/ goes into the game, as with TFC Installer. The
+    # TFC edition of Vending Machine Enhancement also carries templates its own
+    # tool picks from, named by their checksum, and reading those as package
+    # patches sent players looking for a "BrgGame/CookedPCConsole/4c5e3353..."
+    game = folder / "Game"
+    for patch in (game.rglob("*" + PATCH_SUFFIX) if game.is_dir() else ()):
         package = patch.name[:-len(PATCH_SUFFIX)]
         if package.lower() in mod.patches:
             raise TfcModError(f"two patches for {package} in one mod")
@@ -161,24 +166,29 @@ def cache_targets(mod: TfcMod, installed_as: dict[int, int]) -> list[tuple[Path,
 
 
 def transform(mod: TfcMod, package_name: str, stock: bytes,
-              installed_as: dict[int, int]) -> bytes:
+              installed_as: dict[int, int], pristine: bytes | None = None) -> bytes:
     """One package's new bytes, from its stock bytes.
 
     ``installed_as`` maps each of the pack's own cache numbers to the number it
     went into the game under - Texture2D_0.tfc in the pack might be
     Texture2D_3.tfc in the game, if three are there already.
 
+    ``pristine`` is the game's own package when ``stock`` already holds other
+    mods' changes. A function one of them changed then keeps that change too,
+    where the two can be combined - see scriptmerge.py.
+
     Only the chunks the mod touches are decoded when that can be done; any
     doubt, and the whole package is decoded as it always was. Both give the
     same bytes.
     """
     patch = _read_patch(mod, package_name)
-    packed = _transform_partly(mod, package_name, stock, installed_as, patch)
+    bodies = StockBodies(pristine) if pristine is not None and pristine != stock else None
+    packed = _transform_partly(mod, package_name, stock, installed_as, patch, bodies)
     if packed is not None:
         return packed
     package = P.read(stock)
     flat_before = package.data
-    package = _rebuild(mod, package_name, package, installed_as, patch)
+    package = _rebuild(mod, package_name, package, installed_as, patch, bodies)
     # Written back as chunks when it can be: a change usually touches a few of
     # them, and the rest are copied across still compressed, so the package
     # stays near the size the game shipped instead of two to three times it.
@@ -198,8 +208,38 @@ def _read_patch(mod: TfcMod, package_name: str):
         raise TfcModError(f"{package_name}: {problem}") from None
 
 
+class StockBodies:
+    """Export data from the game's own package, decoding only what is asked for."""
+
+    def __init__(self, raw: bytes):
+        self.raw = raw
+        self._parts: P.PartlyDecoded | None = None
+        self._whole: P.Package | None = None
+        self._front: P.Package | None = None
+
+    def __call__(self, export_index: int) -> bytes | None:
+        try:
+            if self._parts is None and self._whole is None:
+                try:
+                    self._parts = P.PartlyDecoded(self.raw)
+                    self._front = self._parts.package()
+                except P.PackageError:
+                    self._whole = P.read(self.raw)
+            if self._whole is not None:
+                return self._whole.export_data(export_index)
+            if not 0 <= export_index < len(self._front.exports):
+                return None
+            entry = self._front.exports[export_index]
+            self._parts.need(entry.serial_offset, entry.serial_size)
+            start = entry.serial_offset
+            return bytes(self._parts.flat[start:start + entry.serial_size])
+        except (P.PackageError, ValueError, IndexError):
+            return None
+
+
 def _transform_partly(mod: TfcMod, package_name: str, stock: bytes,
-                      installed_as: dict[int, int], patch) -> bytes | None:
+                      installed_as: dict[int, int], patch,
+                      bodies: StockBodies | None = None) -> bytes | None:
     """``transform`` decoding only the chunks the mod touches, or None."""
     try:
         parts = P.PartlyDecoded(stock)
@@ -221,16 +261,17 @@ def _transform_partly(mod: TfcMod, package_name: str, stock: bytes,
     parts.need_last()
     package = parts.package()
     flat_before = package.data
-    package = _rebuild(mod, package_name, package, installed_as, patch)
+    package = _rebuild(mod, package_name, package, installed_as, patch, bodies)
     return bytepatch.write_chunks(stock, flat_before, package.data, decoded=parts.decoded)
 
 
 def _rebuild(mod: TfcMod, package_name: str, package: P.Package,
-             installed_as: dict[int, int], patch) -> P.Package:
+             installed_as: dict[int, int], patch,
+             bodies: StockBodies | None = None) -> P.Package:
     """The package with the mod's patch and textures written in."""
     if patch is not None:
         try:
-            flat, _ = A.apply(package, patch)
+            flat, _ = A.apply(package, patch, bodies)
         except A.ApplyError as problem:
             raise TfcModError(f"{package_name}: {problem}") from None
         package = P.read(flat)

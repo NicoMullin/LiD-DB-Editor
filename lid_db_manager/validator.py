@@ -204,6 +204,7 @@ def validate(
     mods: list[Mod],
     installed_ids: set[str] | None = None,
     game_root: Path | None = None,
+    backups_dir: Path | None = None,
 ) -> ValidationReport:
     """Validate the enabled mod list, in the order it will be applied.
 
@@ -211,6 +212,8 @@ def validate(
     database is not in the game's own layout - a loose copy, or a folder the
     player pointed at by hand - because it cannot be derived from db_path then,
     and without it a mod blocked by the game's file check reads as fine.
+    ``backups_dir`` holds the game files kept the first time a mod changed
+    them, which say whether two mods changing one function combine.
     """
     report = ValidationReport()
     db_path = Path(db_path)
@@ -230,11 +233,15 @@ def validate(
         # With the connection in hand, conflicts are worked out per row rather
         # than per table, so two mods writing different parts of one table stay
         # quiet instead of warning about each other.
-        report.conflicts = analyze(ordered, installed_ids, con)
         # Where the game is, worked out from the database's own place, so a mod
         # that needs the game's file check off can be told apart from one that
         # does not. None for a loose copy, and then nothing is claimed.
         game_root = game_root or asset_runner.game_root_for(db_path)
+        if backups_dir is None:
+            from .paths import AppPaths
+            backups_dir = AppPaths.default().backups_dir
+        report.conflicts = analyze(ordered, installed_ids, con,
+                                   asset_runner.stock_bodies(game_root, backups_dir))
         if game_root is not None:
             # So TFC Installer mods know every package they will rebuild, for
             # the file-check test below. Cheap once the texture index exists.

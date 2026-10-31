@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import tempfile
 import unittest
@@ -831,6 +832,67 @@ class BackupStoreSizeTests(unittest.TestCase):
         asset_runner.apply_asset_patches(mods, self.game, self.backups)
         asset_runner.restore_targets({self.target}, self.game, self.backups)
         self.assertEqual((self.cooked / "Stock_SF.upk").read_bytes(), b"PATCHED_BY_UPDATE")
+
+
+class DroppedShippedModTests(unittest.TestCase):
+    """A bundled mod the manager stopped shipping, left behind by an update.
+
+    Enemies Left left the bundle in 0.12.7, but updating never removes a
+    folder, so it stayed in players' lists and no longer applied on 1.92.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.paths = AppPaths(self.root).ensure()
+        self.game = build_game_tree(self.root)
+        self.db = self.game / "BrgGame" / "Content" / "masters.db"
+        self.cooked = self.game / "BrgGame" / "CookedPCConsole"
+        (self.cooked / "Stock_SF.upk").write_bytes(b"STOCK")
+        folder = write_asset_mod(self.paths.mods_dir, "Enemies Left", {"Stock_SF.upk": b"OLD MOD"})
+        mod = json.loads((folder / "mod.json").read_text(encoding="utf-8"))
+        mod["author"] = "KSFA"
+        (folder / "mod.json").write_text(json.dumps(mod), encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _applied_by_an_old_copy(self) -> None:
+        # Before the fix the folder was still loaded, so an old copy could
+        # tick and apply it; set that up by moving it back in by hand.
+        manager = Manager(self.paths)
+        retired = self.paths.mods_dir / "_retired" / "Enemies Left"
+        shutil.move(str(retired), str(self.paths.mods_dir / "Enemies Left"))
+        manager.rescan()
+        manager.set_db_path(self.db)
+        manager.set_enabled("Enemies Left", True)
+        self.assertTrue(manager.save_mod_list().ok)
+        self.assertEqual((self.cooked / "Stock_SF.upk").read_bytes(), b"OLD MOD")
+
+    def test_the_folder_is_moved_aside_and_unticked(self) -> None:
+        self._applied_by_an_old_copy()
+        manager = Manager(self.paths)
+        self.assertFalse((self.paths.mods_dir / "Enemies Left").exists())
+        self.assertTrue((self.paths.mods_dir / "_retired" / "Enemies Left" / "mod.json").is_file())
+        self.assertNotIn("Enemies Left", manager.state.enabled_mods)
+        self.assertEqual(manager.deleted_mods(), ["Enemies Left"],
+                         "what it applied is still offered to be put back")
+
+    def test_putting_it_back_restores_its_game_files_too(self) -> None:
+        self._applied_by_an_old_copy()
+        manager = Manager(self.paths)
+        results = manager.revert(["Enemies Left"])
+        self.assertTrue(all(result.ok for result in results), results)
+        self.assertEqual((self.cooked / "Stock_SF.upk").read_bytes(), b"STOCK")
+        self.assertEqual(manager.deleted_mods(), [])
+
+    def test_someone_elses_mod_with_that_name_stays(self) -> None:
+        folder = self.paths.mods_dir / "Enemies Left"
+        mod = json.loads((folder / "mod.json").read_text(encoding="utf-8"))
+        mod["author"] = "someone"
+        (folder / "mod.json").write_text(json.dumps(mod), encoding="utf-8")
+        manager = Manager(self.paths)
+        self.assertIn("Enemies Left", manager.installed_ids())
 
 
 class ManagerAssetTests(unittest.TestCase):

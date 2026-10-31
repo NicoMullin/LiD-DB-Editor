@@ -117,7 +117,10 @@ class DiffView(QWidget):
         if mod_id and mod_id == self._config_mod_id and self._editing():
             # Someone is typing in one of these boxes. Rebuilding would destroy
             # it under their cursor, and the window asks for a rebuild after
-            # every toggle - so leave it until they are done.
+            # every toggle - so leave it until they are done. What is greyed
+            # out still follows at once: a tick box just clicked keeps the
+            # focus, and greying touches no box's value.
+            self._grey_out_unused(mod)
             return
         look = (self.dark, self.text_scale)
         if (
@@ -132,6 +135,7 @@ class DiffView(QWidget):
             # scroll position; the boxes only need to show the values.
             for setting in mod.settings:
                 self._editors[setting.id].show_value(mod.values.get(setting.id, setting.default))
+            self._grey_out_unused(mod)
             return
         self._config_look = look
         # Silence the old boxes: one losing focus as it is destroyed reports
@@ -184,6 +188,7 @@ class DiffView(QWidget):
                 reset_all = QPushButton("Put all back to defaults")
                 reset_all.clicked.connect(self._reset_all)
                 layout.addWidget(reset_all, 0, Qt.AlignmentFlag.AlignLeft)
+            self._grey_out_unused(mod)
         layout.addStretch(1)
 
         previous = self.configuration.takeWidget()
@@ -198,6 +203,26 @@ class DiffView(QWidget):
         if not configurable and self.tabs.currentWidget() is self.configuration:
             self.tabs.setCurrentWidget(self.details)
         self.tabs.setTabVisible(self.tabs.indexOf(self.configuration), configurable)
+
+    def _grey_out_unused(self, mod: Mod) -> None:
+        """Grey out each setting its own "when" leaves unused, or that is about
+        a mod that is not ticked, saying why."""
+        values = {s.id: mod.values.get(s.id, s.default) for s in mod.settings}
+        by_id = {s.id: s for s in mod.settings}
+        ticked = set(self.manager.state.enabled_mods) if any(s.needs_mods for s in mod.settings) else set()
+        for setting in mod.settings:
+            editor = self._editors.get(setting.id)
+            if editor is None or not (setting.when or setting.needs_mods):
+                continue
+            if setting.needs_mods and not ticked.intersection(setting.needs_mods):
+                names = " or ".join(setting.needs_mods)
+                editor.set_used(False, f"Only used with the {names} mod ticked.")
+                continue
+            needs = []
+            for name, allowed in setting.when:
+                other = by_id[name]
+                needs.append(f"{other.label} is " + " or ".join(other.display(v) for v in allowed))
+            editor.set_used(setting.used_with(values), "Only used when " + " and ".join(needs) + ".")
 
     def _reset_all(self) -> None:
         for editor in list(self._editors.values()):

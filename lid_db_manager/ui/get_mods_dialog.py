@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import get_mods as G
+from .. import plugins
 from .workers import TaskThread
 
 COLUMNS = ("Mod", "You have", "Newest", "")
@@ -136,15 +137,21 @@ class GetModsDialog(QDialog):
             self.where.setText(f"Game folder: {html.escape(str(game))} - {loader}.")
         for row, entry in enumerate(G.CATALOG):
             have = G.installed(entry, self.mods_dir, game)
-            parts = []
-            if entry.is_loader:
-                parts.append("installed" if have.plugin else "-")
+            # the release it came from, the same number Newest shows (the mod
+            # inside has a version of its own, which only confused)
+            if have.release:
+                text = have.release
+            elif have.plugin:
+                text = "installed"
+            elif any(have.mods.values()):
+                text = "mod only"
             else:
-                parts += [f"mod {v}" for v in have.mods.values() if v]
-                if entry.plugin:
-                    parts.append("plugin" if have.plugin else "")
-            text = ", ".join(p for p in parts if p) or "-"
+                text = "-"
+            details = [f"{folder} mod {v}" for folder, v in have.mods.items() if v]
+            if entry.plugin and have.plugin:
+                details.append(f"{entry.plugin} {have.release or '(no version in it)'}")
             self.table.item(row, HAVE).setText(text)
+            self.table.item(row, HAVE).setToolTip("\n".join(details))
             release = self.releases.get(entry.key)
             if isinstance(release, G.Release):
                 self.table.item(row, NEWEST).setText(release.version)
@@ -152,7 +159,13 @@ class GetModsDialog(QDialog):
             elif isinstance(release, G.GetModsError):
                 self.table.item(row, NEWEST).setText("?")
                 self.table.item(row, NEWEST).setToolTip(str(release))
-            self.buttons[entry.key].setText("Update" if have.anything else "Get")
+            if not have.anything:
+                action = "Get"
+            elif isinstance(release, G.Release) and have.release == release.version:
+                action = "Reinstall"
+            else:
+                action = "Update"
+            self.buttons[entry.key].setText(action)
         self.table.resizeRowsToContents()
 
     # -- asking GitHub -------------------------------------------------------------
@@ -228,14 +241,16 @@ class GetModsDialog(QDialog):
             wanted = [entry]
             if entry.plugin and G.loader_state(game) != "ours":
                 wanted.insert(0, G.LOADER_OFFER)
+            plugin_only = G.plugins_needed(entry, game)     # their plugin, not their mod
             packages = []
-            for item in wanted:
+            for item in wanted + plugin_only:
                 release = self.releases.get(item.key)
                 if not isinstance(release, G.Release):
                     release = G.latest(item, opener=self.opener)
                     self.releases[item.key] = release
                 packed = G.download(release, work, opener=self.opener)
-                packages.append(G.unpack(packed, work / item.key))
+                package = G.unpack(packed, work / item.key)
+                packages.append(G.plugin_only(package) if item in plugin_only else package)
             return packages
 
         self._start(fetch, lambda packages: self._confirm(entry, packages),
@@ -262,10 +277,17 @@ class GetModsDialog(QDialog):
             self.status.setText("Nothing was installed.")
             return
 
+        # a plugin goes in on only when a ticked mod names it, as a save would
+        # leave it - a new mod arrives unticked, so its plugin waits switched off
+        switched_on = plugins.named_by(self.manager.scan.mods, self.manager.state.enabled_mods)
+        # a plugin for a mod already here (the Vending Machine add-on) follows that mod too
+        named_here = plugins.named_by(self.manager.scan.mods)
+
         def put():
             done = []
             for package in packages:
-                done += G.install(package, self.mods_dir, game)
+                package.named |= named_here
+                done += G.install(package, self.mods_dir, game, switched_on=switched_on)
             return done
 
         def finished(done):
@@ -276,7 +298,11 @@ class GetModsDialog(QDialog):
             QMessageBox.information(
                 self, f"{entry.title} installed",
                 "Done:\n- " + "\n- ".join(done)
-                + ("\n\nTick it in the mod list and click Save Mod List." if entry.mods else "")
+                + ("\n\nTick it in the mod list and click Save Mod List."
+                   + (" Its plugin is switched on and off with it." if entry.plugin else "")
+                   if entry.mods else "")
+                + ("\n\nTick Vending Machine, turn its Rotation on and click Save Mod List."
+                   if entry.key == "vending" else "")
             )
             self.status.setText(f"{entry.title} installed.")
 

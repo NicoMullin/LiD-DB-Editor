@@ -1,0 +1,180 @@
+{
+  "id": "Tengoku Enjoyer",
+  "name": "Tengoku Enjoyer",
+  "description": "Tengoku goes on past 450F to 1000F: 550 more floors, with their escalators, drops, bosses and Haters, plus ZeroUnderOne's retuned Haters, enemies and bosses on the floors below and gear values from before the offline update. Two versions, Original and Route Pure, or pick and choose the parts you want.",
+  "version": "1.2.0",
+  "author": "ZeroUnderOne",
+  "category": "Game content",
+  "tags": [
+    "tengoku",
+    "floors",
+    "haters",
+    "bosses",
+    "weapons",
+    "zerounderone"
+  ],
+  "game_version": [
+    "5.0.5.0.0 - 1.92"
+  ],
+  "requires": [],
+  "conflicts_with": [],
+  "min_manager_version": "0.12.0",
+  "settings": [
+    {
+      "id": "version",
+      "label": "Version",
+      "type": "choice",
+      "default": "original",
+      "options": [
+        {"value": "original", "label": "Original"},
+        {"value": "route_pure", "label": "Route Pure"},
+        {"value": "pick", "label": "Pick and choose"}
+      ],
+      "help": "Original and Route Pure are the whole mod; they differ only in the Haters - in Route Pure every Hater carries at least one weapon from its tower's route. Pick and choose: switch each part below on or off."
+    },
+    {
+      "id": "haters",
+      "label": "Haters",
+      "type": "choice",
+      "default": "original",
+      "group": "Pick and choose",
+      "when": {"version": "pick"},
+      "options": [
+        {"value": "original", "label": "Original"},
+        {"value": "route_pure", "label": "Route Pure"}
+      ],
+      "help": "Which version's Haters roam the floors the parts below give them: Original, or Route Pure, where every Hater carries at least one weapon from its tower's route."
+    },
+    {
+      "id": "tower",
+      "label": "Tengoku to 1000F",
+      "type": "toggle",
+      "default": true,
+      "group": "Pick and choose",
+      "when": {"version": "pick"},
+      "help": "550 more floors: the tower goes on past 450F to 1000F, and the four routes from 140F to 250F, with their escalators, drops, bosses and Haters."
+    },
+    {
+      "id": "old_floors",
+      "label": "New Haters on floors 51 to 451",
+      "type": "toggle",
+      "default": true,
+      "group": "Pick and choose",
+      "when": {"version": "pick"},
+      "help": "ZeroUnderOne's Haters on the floors the game already has (51F to 451F, and the routes up to 140F), a little stronger than the game's, and what they drop on the routes."
+    },
+    {
+      "id": "enemies",
+      "label": "Tougher enemies on floors 145 to 450",
+      "type": "toggle",
+      "default": true,
+      "group": "Pick and choose",
+      "when": {"version": "pick"},
+      "help": "Enemies hit harder and take more on 62 of the floors from 145F to 450F."
+    },
+    {
+      "id": "bosses",
+      "label": "Retuned bosses",
+      "type": "toggle",
+      "default": true,
+      "group": "Pick and choose",
+      "when": {"version": "pick"},
+      "help": "The bosses' strength at their higher levels, and the Four Forcemen's, retuned to lead into the new floors' bosses - mostly a little stronger."
+    },
+    {
+      "id": "gear",
+      "label": "Gear from before the offline update",
+      "type": "toggle",
+      "default": true,
+      "group": "Pick and choose",
+      "when": {"version": "pick"},
+      "help": "Hell Ride and Strike Bomb take one Rage bar, Hell Ride hits harder, the M2G-87's fire attack is stronger, the Red Napalm knife uses half the ammo and durability, and the Armor Breaking Flail S grows faster."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql_file",
+      "path": "haters-original.sql",
+      "when": {"version": "original"},
+      "description": "The Original version's Haters"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "haters-original.sql",
+      "when": {"version": "pick", "haters": "original"},
+      "description": "The Original version's Haters"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "haters-route-pure.sql",
+      "when": {"version": "route_pure"},
+      "description": "Route Pure's Haters"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "haters-route-pure.sql",
+      "when": {"version": "pick", "haters": "route_pure"},
+      "description": "Route Pure's Haters"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "tower.sql",
+      "when": {"version": ["original", "route_pure"]},
+      "description": "Tengoku to 1000F and the routes to 250F"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "tower.sql",
+      "when": {"version": "pick", "tower": true},
+      "description": "Tengoku to 1000F and the routes to 250F"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "old-floors.sql",
+      "when": {"version": ["original", "route_pure"]},
+      "description": "New Haters on floors 51 to 451"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "old-floors.sql",
+      "when": {"version": "pick", "old_floors": true},
+      "description": "New Haters on floors 51 to 451"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "enemies.sql",
+      "when": {"version": ["original", "route_pure"]},
+      "description": "Tougher enemies on floors 145 to 450"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "enemies.sql",
+      "when": {"version": "pick", "enemies": true},
+      "description": "Tougher enemies on floors 145 to 450"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "bosses.sql",
+      "when": {"version": ["original", "route_pure"]},
+      "description": "Retuned bosses"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "bosses.sql",
+      "when": {"version": "pick", "bosses": true},
+      "description": "Retuned bosses"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "gear.sql",
+      "when": {"version": ["original", "route_pure"]},
+      "description": "Gear from before the offline update"
+    },
+    {
+      "type": "raw_sql_file",
+      "path": "gear.sql",
+      "when": {"version": "pick", "gear": true},
+      "description": "Gear from before the offline update"
+    }
+  ]
+}

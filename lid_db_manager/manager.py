@@ -44,7 +44,7 @@ from . import snapshot as snapshot_module
 from .conflict import ConflictReport, analyze
 from .errors import ModManagerError
 from .mod import Mod
-from .mod_loader import ScanResult, scan_mods
+from .mod_loader import ModLoadError, ScanResult, load_mod_folder, scan_mods
 from .paths import AppPaths
 from .patch import DiffPreview
 from .progress import Progress, ensure as ensure_progress
@@ -908,7 +908,8 @@ class Manager:
             except sqlite3.Error:
                 con = None
         try:
-            report = analyze(enabled, self.installed_ids(), con)
+            report = analyze(enabled, self.installed_ids(), con,
+                             asset_runner.stock_bodies(self.asset_game_root, self.paths.backups_dir))
         finally:
             if con is not None:
                 con.close()
@@ -951,7 +952,8 @@ class Manager:
             self.last_validation = report
             return report
         self.last_validation = validate(
-            self.db_path, self.enabled_mods(), self.installed_ids(), self.asset_game_root
+            self.db_path, self.enabled_mods(), self.installed_ids(), self.asset_game_root,
+            self.paths.backups_dir,
         )
         return self.last_validation
 
@@ -1203,8 +1205,25 @@ class Manager:
             return [RevertResult(mod_id=m, error="no database selected") for m in mod_ids]
 
         asset_targets: set[str] = set()
-        reverting = [self.scan.get(mod_id) for mod_id in mod_ids]
-        reverting = [mod for mod in reverting if mod is not None]
+        mods_by_id = dict(self.scan.by_id)
+        # A mod moved aside into _retired/ still says which game files it
+        # changed, so undoing it puts those back too, not only its rows.
+        for mod_id in mod_ids:
+            folder = None if mod_id in mods_by_id else migrations.retired_folder(
+                self.paths.mods_dir, mod_id)
+            if folder is not None:
+                try:
+                    mods_by_id[mod_id] = load_mod_folder(folder)
+                except ModLoadError as exc:
+                    self.log.warn(f"could not read the retired {mod_id} ({exc})")
+        # As it was applied: a part a setting switched on (a "when" that only
+        # holds away from the defaults) changed game files too, and the mod as
+        # scanned, at its defaults, does not have that part.
+        for mod_id in mod_ids:
+            mod, record = mods_by_id.get(mod_id), self.state.applied.get(mod_id)
+            if mod is not None and record is not None and record.values and mod.settings:
+                mods_by_id[mod_id] = mod.with_settings(record.values)
+        reverting = [mods_by_id[mod_id] for mod_id in mod_ids if mod_id in mods_by_id]
         # A TFC Installer mod only knows every file it changed once it has seen
         # the game folder: its textures sit in packages it never names.
         if self.asset_game_root is not None:
@@ -1225,7 +1244,7 @@ class Manager:
             self.db_path,
             mod_ids,
             snapshots_dir=self.paths.snapshots_dir,
-            mods_by_id=self.scan.by_id,
+            mods_by_id=mods_by_id,
             log=self.log,
             record_after=lambda reverted: db_record.from_applied(
                 {k: v for k, v in self.state.applied.items() if k not in reverted}

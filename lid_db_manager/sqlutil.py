@@ -6,6 +6,7 @@ import hashlib
 import re
 import sqlite3
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 # A table reference, optionally schema-qualified ("main"."master_part",
@@ -529,6 +530,39 @@ def if_not_exists(statement: str) -> str:
     if not match:
         return statement
     return statement[: match.end()] + "IF NOT EXISTS " + statement[match.end() :]
+
+
+# A bare INSERT - not INSERT OR IGNORE / OR REPLACE, not REPLACE INTO - as the
+# statement itself, after any WITH clause. Anchored at the start, so the INSERT
+# inside a CREATE TRIGGER's body is never taken for the statement.
+_BARE_INSERT_RE = re.compile(
+    rf"""^\s*(?:with\b.*?)?\b(?P<insert>insert)\s+into\s+(?P<ref>{_TABLE_REF})""",
+    re.IGNORECASE | re.VERBOSE | re.DOTALL,
+)
+_ANY_INSERT_RE = re.compile(r"\b(?:insert|replace)\b", re.IGNORECASE)
+
+
+@dataclass
+class BareInsert:
+    table: str
+    insert_end: int       # just after the word INSERT
+    ref_start: int        # the table reference, schema and quotes included
+    ref_end: int
+
+
+def bare_insert(statement: str) -> BareInsert | None:
+    """Where a plain INSERT statement names its table, or None for anything else.
+
+    Every save runs the whole enabled list again on a database that already
+    holds last time's rows, and a plain INSERT is the one common statement that
+    cannot take that: on a table with a key it fails (UNIQUE constraint
+    failed), on one without it adds the rows a second time.
+    """
+    text = mask_literals(statement)
+    match = _BARE_INSERT_RE.match(text)
+    if match is None or _ANY_INSERT_RE.search(text, 0, match.start("insert")):
+        return None
+    return BareInsert(match.group("table"), match.end("insert"), match.start("ref"), match.end("ref"))
 
 
 def tables_created_by(sql: str) -> set[str]:

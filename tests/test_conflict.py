@@ -223,6 +223,26 @@ class ConflictTests(unittest.TestCase):
         )
         self.assertEqual([c.kind for c in report.conflicts], [KIND_DECLARED])
 
+    def test_a_mod_covered_by_another_gets_one_note_instead_of_clashes(self) -> None:
+        from lid_db_manager.conflict import KIND_COVERED, SERIOUS
+
+        report = self._analyze_with_db(
+            ("big-mod", {"patches": update_set("master_skill", "buy_money")["patches"]
+                         + update_set("master_skill", "val0")["patches"]}),
+            ("small-mod", {**update_set("master_skill", "buy_money"), "covered_by": ["big-mod"]}),
+        )
+        self.assertEqual([c.kind for c in report.conflicts], [KIND_COVERED])
+        self.assertNotEqual(report.conflicts[0].severity, SERIOUS)
+        self.assertEqual(report.conflicts[0].message(),
+                         "big-mod already does what small-mod does, so small-mod does not need to be ticked as well")
+
+    def test_covered_by_says_nothing_when_they_share_no_box(self) -> None:
+        report = self._analyze_with_db(
+            ("big-mod", update_set("master_skill", "val0")),
+            ("small-mod", {**update_set("master_skill", "buy_money"), "covered_by": ["big-mod"]}),
+        )
+        self.assertEqual(report.conflicts, [])
+
     def test_missing_requirement_distinguishes_disabled_from_absent(self) -> None:
         write_mod(self.mods, "installed-dep", update_set("master_skill", "val0"))
         write_mod(

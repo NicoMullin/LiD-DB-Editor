@@ -282,8 +282,11 @@ def apply_mods(
                             "asked to apply as a difference from vanilla, but there is no "
                             "vanilla copy to compare against - ran its SQL directly instead"
                         )
+                    # Already on this database: its rows from the last save are
+                    # still there, which a plain INSERT cannot be run over twice.
+                    again = mod.id in (keep_snapshots or set())
                     for patch in mod.patches:
-                        patch_result = patch.apply(con, mod.id)
+                        patch_result = patch.apply(con, mod.id, again=again)
                         result.rows_changed += patch_result.rows_changed
                         result.warnings.extend(patch_result.warnings)
                 result.ok = True

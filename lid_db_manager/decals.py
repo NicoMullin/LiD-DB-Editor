@@ -146,6 +146,30 @@ def _details(con: sqlite3.Connection) -> dict[str, tuple]:
     }
 
 
+def default_weights(db_path: Path, default_sql: str) -> list[tuple[str, int]]:
+    """The (decal, weight) pairs a decal weight setting's own query gives in this
+    database, in order, the first of any repeat kept; weights held to 1 and up.
+    [] if it cannot be run - the editor then starts empty."""
+    try:
+        con = _connect(db_path)
+    except sqlite3.Error:
+        return []
+    found: dict[str, int] = {}
+    try:
+        for row in con.execute(default_sql):
+            if row and row[0] and str(row[0]) not in found:
+                try:
+                    weight = int(row[1]) if len(row) > 1 and row[1] is not None else 1
+                except (TypeError, ValueError):
+                    weight = 1
+                found[str(row[0])] = max(1, weight)
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+    return list(found.items())
+
+
 def default_ids(db_path: Path, default_sql: str) -> list[str]:
     """The decals a setting's own default query picks in this database ([] if
     it cannot be run - the picker then starts with nothing ticked)."""

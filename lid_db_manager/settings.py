@@ -84,6 +84,22 @@ as often as one with weight 1. Its placeholder belongs inside ``VALUES``, as
 rows of ('id', weight); an empty list is one row with a NULL id, for the mod
 to skip.
 
+An eighth holds a set of decals, each with a weight and an on/off tick - a
+stew's own odds list, say - edited in a window that lists the decals and lets
+any other in the player's masters.db be added:
+
+    {"id": "stew", "type": "decal_weights", "default_label": "The game's own stew",
+     "default_sql": "SELECT sklid, odds FROM master_skillgacha_odds WHERE ..."}
+
+Each entry is ``decal id/weight``, or ``decal id/weight/0`` for one switched
+off (kept on the list, with its weight, to switch back on); weights are 1 to
+9,999. Until the player edits anything it is the mod's ``default_sql``, one
+SELECT of (decal id, weight), run afresh each time, so decals another mod adds
+are in it. Its placeholder belongs where a SELECT can go, typically
+``WITH wanted(sklid, weight) AS ({{stew}})``: the player's list becomes
+``VALUES ('id', weight), ...`` of the decals switched on, and a list with
+none on ``SELECT NULL, 0``, for the mod to skip.
+
 A placeholder may ask for a number style, because game text is written the way
 each language writes numbers:
 
@@ -100,7 +116,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -114,10 +130,11 @@ KIND_DECALS = "decals"
 KIND_PICK = "pick"
 KIND_GOODS = "goods"
 KIND_REWARDS = "rewards"
+KIND_DECAL_WEIGHTS = "decal_weights"
 KINDS = (KIND_INTEGER, KIND_NUMBER, KIND_CHOICE, KIND_TOGGLE, KIND_DECALS, KIND_PICK, KIND_GOODS,
-         KIND_REWARDS)
+         KIND_REWARDS, KIND_DECAL_WEIGHTS)
 # The kinds whose value is a list picked in a window of their own.
-LIST_KINDS = (KIND_DECALS, KIND_PICK, KIND_GOODS, KIND_REWARDS)
+LIST_KINDS = (KIND_DECALS, KIND_PICK, KIND_GOODS, KIND_REWARDS, KIND_DECAL_WEIGHTS)
 NUMBER_KINDS = (KIND_INTEGER, KIND_NUMBER)
 
 STYLE_PLAIN = ""
@@ -154,6 +171,12 @@ REWARD_ENTRY = r"[A-Za-z0-9_]{1,64}/[0-9]{1,3}"
 REWARD_LIST = re.compile(rf"^{REWARD_ENTRY}(?:,{REWARD_ENTRY})*$")
 MOST_REWARDS = 1000
 MOST_WEIGHT = 100
+# A decal weight list's value: entries "decal id/weight", or "decal id/weight/0"
+# for one switched off, comma-separated. The game's stew odds go well past 100,
+# hence its own ceiling.
+DECAL_WEIGHT_ENTRY = r"[A-Za-z0-9_]{1,64}/[0-9]{1,4}(?:/0)?"
+DECAL_WEIGHT_LIST = re.compile(rf"^{DECAL_WEIGHT_ENTRY}(?:,{DECAL_WEIGHT_ENTRY})*$")
+MOST_DECAL_WEIGHT = 9999
 
 _TRUE_WORDS = {"1", "on", "true", "yes"}
 _FALSE_WORDS = {"0", "off", "false", "no"}
@@ -264,6 +287,47 @@ def parse_rewards(value: Any, label: str) -> list[RewardEntry]:
 
 
 @dataclass(frozen=True)
+class DecalWeight:
+    """One line of a decal weight list: a decal, how often it comes up, and
+    whether it is in at all."""
+
+    id: str
+    weight: int = 1         # 3 comes up three times as often as 1
+    on: bool = True         # off: kept on the list with its weight, but not in
+
+    def text(self) -> str:
+        return f"{self.id}/{self.weight}" + ("" if self.on else "/0")
+
+
+def parse_decal_weights(value: Any, label: str) -> list[DecalWeight]:
+    """A decal weight list's entries, each checked; ValueError (for a player) if not.
+
+    A decal listed twice is kept once, as first given. "" is an empty list.
+    """
+    if isinstance(value, (list, tuple)):
+        value = ",".join(e.text() if isinstance(e, DecalWeight) else str(e) for e in value)
+    if not isinstance(value, str):
+        raise ValueError(f"{label} is a list of decals and weights, not {value!r}")
+    text = ",".join(part.strip() for part in value.split(",")) if value.strip() else ""
+    if not text:
+        return []
+    if not DECAL_WEIGHT_LIST.match(text):
+        raise ValueError(f"{label}: that is not a list of decals and weights (decal id/weight)")
+    entries: list[DecalWeight] = []
+    seen: set[str] = set()
+    for part in text.split(","):
+        decal, weight, *off = part.split("/")
+        if not 1 <= int(weight) <= MOST_DECAL_WEIGHT:
+            raise ValueError(f"{label}: {decal}'s weight is 1 to {MOST_DECAL_WEIGHT:,}")
+        if decal not in seen:
+            seen.add(decal)
+            entries.append(DecalWeight(decal, int(weight), not off))
+    if len(entries) > MOST_DECALS:
+        raise ValueError(f"{label}: {len(entries):,} decals is more than the {MOST_DECALS:,} allowed")
+    return entries
+
+
+@dataclass(frozen=True)
 class ModSetting:
     """One value a mod lets the player choose."""
 
@@ -293,6 +357,17 @@ class ModSetting:
     default_goods: str = ""
     # A reward list's default, the same way.
     default_rewards: str = ""
+    # When this setting is used, as (setting id, values it may have) pairs - a
+    # setting's own "when", like a part's. While it does not hold, the
+    # Configuration tab greys the setting out.
+    when: tuple[tuple[str, tuple], ...] = ()
+    # Other mods this setting is about, by id: the Configuration tab greys it
+    # out until one of them is ticked too ("needs_mods" in mod.json).
+    needs_mods: tuple[str, ...] = ()
+
+    def used_with(self, values: dict) -> bool:
+        """Whether this setting counts with the other settings at ``values``."""
+        return when_holds(dict(self.when), values)
 
     @property
     def is_number(self) -> bool:
@@ -330,7 +405,16 @@ class ModSetting:
         A goods list becomes rows for ``VALUES``: (place, 'id', bundle,
         currency 0 or 1, price, a day). An empty one is a single row whose id is
         NULL, since ``VALUES`` cannot be empty - a mod skips it by its id.
-        A reward list becomes rows of ('id', weight) the same way."""
+        A reward list becomes rows of ('id', weight) the same way.
+        A decal weight list becomes a whole ``VALUES`` of the decals switched
+        on, ``SELECT NULL, 0`` for none, or the mod's own query."""
+        if self.kind == KIND_DECAL_WEIGHTS:
+            if not str(value or "").strip():
+                return self.default_sql
+            on = [e for e in parse_decal_weights(value, self.label) if e.on]
+            if not on:
+                return "SELECT NULL, 0"
+            return "VALUES " + ", ".join(f"('{e.id}', {e.weight})" for e in on)
         if self.kind == KIND_REWARDS:
             entries = self.rewards(value)
             if not entries:
@@ -372,6 +456,8 @@ class ModSetting:
             return ",".join(e.text() for e in parse_goods(value, self.label))
         if self.kind == KIND_REWARDS:
             return ",".join(e.text() for e in parse_rewards(value, self.label))
+        if self.kind == KIND_DECAL_WEIGHTS:
+            return ",".join(e.text() for e in parse_decal_weights(value, self.label))
         if self.kind == KIND_PICK:
             # Checked like decal ids, then held to the mod's own list: one the
             # mod no longer lists is dropped (and none left is the default).
@@ -425,6 +511,12 @@ class ModSetting:
             count = len(parse_rewards(value, self.label))
             noun = self.noun or "reward"
             return f"{count:,} {noun}{'s' if count != 1 else ''}"
+        if self.kind == KIND_DECAL_WEIGHTS:
+            if not str(value or "").strip():
+                return self.default_label or "The mod's own list"
+            entries = parse_decal_weights(value, self.label)
+            on = sum(1 for e in entries if e.on)
+            return f"{on:,} of {len(entries):,} decals on"
         if self.kind == KIND_PICK:
             count = len(self.decal_ids(value))
             if not count:
@@ -453,7 +545,7 @@ def is_setting_value(value: Any) -> bool:
         return math.isfinite(value)
     return isinstance(value, str) and bool(
         CHOICE_VALUE.match(value) or DECAL_LIST.match(value) or GOODS_LIST.match(value)
-        or REWARD_LIST.match(value))
+        or REWARD_LIST.match(value) or DECAL_WEIGHT_LIST.match(value))
 
 
 def _as_decals(value: Any, label: str) -> str:
@@ -628,11 +720,17 @@ def parse_settings(raw: Any, mod_ref: str, mod_dir: Path | None = None) -> list[
                 mod_ref, f"setting {setting_id!r} has type {kind!r}; use one of {', '.join(KINDS)}"
             )
         label = str(entry.get("label") or setting_id).strip()
+        needs_mods = entry.get("needs_mods", [])
+        if not isinstance(needs_mods, list) or not all(
+                isinstance(name, str) and name.strip() for name in needs_mods):
+            raise ModLoadError(
+                mod_ref, f"setting {setting_id!r}: 'needs_mods' is a list of mod ids, like [\"Death Metals\"]")
         common = {
             "id": setting_id,
             "label": label,
             "help": str(entry.get("help") or "").strip(),
             "group": str(entry.get("group") or "").strip(),
+            "needs_mods": tuple(name.strip() for name in needs_mods),
         }
         if kind == KIND_TOGGLE:
             try:
@@ -678,6 +776,24 @@ def parse_settings(raw: Any, mod_ref: str, mod_dir: Path | None = None) -> list[
                     kind=kind, default="", minimum=0, maximum=0, default_rewards=default_rewards,
                     default_label=str(entry.get("default_label") or "").strip(), noun=noun,
                     **common,
+                )
+            )
+            seen.add(setting_id)
+            continue
+        if kind == KIND_DECAL_WEIGHTS:
+            default_sql = entry.get("default_sql")
+            if not isinstance(default_sql, str) or not DEFAULT_SQL.match(default_sql):
+                raise ModLoadError(
+                    mod_ref,
+                    f"setting {setting_id!r} is a decal weight list, so it needs a 'default_sql': "
+                    "one SELECT of (decal id, weight) for the list before a player edits it",
+                )
+            found.append(
+                ModSetting(
+                    kind=kind, default="", minimum=0, maximum=0,
+                    default_sql=" ".join(default_sql.split()),
+                    default_label=str(entry.get("default_label") or "").strip(),
+                    noun="decal", **common,
                 )
             )
             seen.add(setting_id)
@@ -778,6 +894,17 @@ def parse_settings(raw: Any, mod_ref: str, mod_dir: Path | None = None) -> list[
             )
         )
         seen.add(setting_id)
+    # A setting's "when" can name any other setting, so it is read once they
+    # are all known.
+    for position, entry in enumerate(raw):
+        if "when" not in entry:
+            continue
+        setting = found[position]
+        where = f"setting {setting.id!r}"
+        conditions = parse_when(entry["when"], found, mod_ref, where)
+        if setting.id in conditions:
+            raise ModLoadError(mod_ref, f"{where}: 'when' cannot name the setting itself")
+        found[position] = replace(setting, when=tuple(conditions.items()))
     return found
 
 

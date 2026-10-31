@@ -421,6 +421,7 @@ class MainWindow(QMainWindow):
         self._add_action(mods_menu, "Add a mod from a file...", self.add_mod_from_file)
         self._add_action(mods_menu, "Add a mod from a folder...", self.add_mod_from_folder)
         self._add_action(mods_menu, "Get mods that need a plugin...", self.get_mods)
+        self._add_action(mods_menu, "Make a radio station...", self.make_radio_station)
         self._add_action(mods_menu, "Edit mod details...", self.edit_selected_mod, "F2")
         self._add_action(mods_menu, "Delete mod...", self.delete_selected_mod)
 
@@ -2477,6 +2478,21 @@ class MainWindow(QMainWindow):
     def _on_update_at_start_toggled(self, enabled: bool) -> None:
         self.manager.state.settings.check_for_updates = enabled
         self.manager.state.save()
+
+    def make_radio_station(self) -> None:
+        """The player's own .ogg files as a radio station mod (see radio_maker.py)."""
+        from .radio_maker_dialog import RadioMakerDialog
+
+        dialog = RadioMakerDialog(self.manager.paths.mods_dir, self.manager.asset_game_root,
+                                  self.manager.db_path, self)
+        if not dialog.exec() or dialog.made is None:
+            return
+        self.refresh(rescan=True)
+        QMessageBox.information(
+            self, "Radio mod made",
+            f"Your songs are the mod {dialog.made.name}. Tick it and click Save Mod List, "
+            "then pick their channels on the radio in the game (its readme lists them).",
+        )
 
     def get_mods(self) -> None:
         """KSFA's plugin mods, from their GitHub releases (see get_mods.py)."""

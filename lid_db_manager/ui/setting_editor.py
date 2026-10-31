@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 from ..decals import DecalReadError
 from ..settings import (
     KIND_CHOICE,
+    KIND_DECAL_WEIGHTS,
     KIND_GOODS,
     KIND_INTEGER,
     KIND_PICK,
@@ -206,7 +207,8 @@ class SettingEditor(QWidget):
         row = QHBoxLayout(box)
         row.setContentsMargins(0, 0, 0, 0)
         noun = (self.setting.noun or "item") if self.setting.kind == KIND_PICK else "decal"
-        text = "Edit the list..." if self.setting.kind in (KIND_GOODS, KIND_REWARDS) else f"Choose {noun}s..."
+        listed = (KIND_GOODS, KIND_REWARDS, KIND_DECAL_WEIGHTS)
+        text = "Edit the list..." if self.setting.kind in listed else f"Choose {noun}s..."
         button = QPushButton(text)
         button.clicked.connect(self._choose_decals)
         summary = QLabel(self.setting.display(value))
@@ -236,6 +238,20 @@ class SettingEditor(QWidget):
                 f"Pick your masters.db first (Browse, at the top): the list of {what} "
                 "comes from it.",
             )
+            return
+        if self.setting.kind == KIND_DECAL_WEIGHTS:
+            from .decal_weights_editor import DecalWeightsEditor
+
+            try:
+                editor = DecalWeightsEditor(self.setting, self._decals_value, Path(self.db_path), self)
+            except DecalReadError as exc:
+                QMessageBox.warning(self, self.setting.label, f"The decals could not be read: {exc}")
+                return
+            if editor.exec():
+                self.set_value(editor.result_value)
+                self._commit()
+            else:
+                self.finished.emit()
             return
         if self.setting.kind == KIND_REWARDS:
             from ..rewards import RewardsReadError
@@ -361,6 +377,11 @@ class SettingEditor(QWidget):
             self.spin.selectAll()
         elif self.combo is not None and self.combo.isEditable():
             self.combo.lineEdit().selectAll()
+
+    def set_used(self, used: bool, why: str = "") -> None:
+        """Greyed out while the mod's other settings leave this one unused."""
+        self.setEnabled(used)
+        self.setToolTip("" if used else why)
 
     def block_signals(self) -> None:
         """Silence it for good - it is about to be thrown away."""

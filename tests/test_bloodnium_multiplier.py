@@ -1,6 +1,8 @@
-"""The Bloodnium Multiplier mod: every kill's Bloodnium points times a setting.
+"""The Bloodnium Multiplier mod: every kill's Bloodnium points times a setting,
+and the Splattershrooms' times another.
 
-The points are six rows of master_const_int. The checks run the mod through
+The points are six rows of master_const_int, the mushrooms three of
+master_mushroom_efc. The checks run the mod through
 the manager on a copy of the real vanilla database: the six rows multiplied,
 nothing else touched (the Bloodnium a fighter needs to level up is a cost, not
 an earning), a second save not multiplying again, and switching it off putting
@@ -31,6 +33,7 @@ POINTS = {
     "MBOSS_BLOODNIUM_POINT": 100,
     "BOSS_BLOODNIUM_POINT": 150,
 }
+MUSHROOMS = {"MSREFC_BLDMUSH_01": 10, "MSREFC_BLDMUSH_02": 100, "MSREFC_BLDMUSH_03": 1000}
 
 
 class TheMod(unittest.TestCase):
@@ -53,6 +56,7 @@ class OnTheVanillaDatabase(unittest.TestCase):
         shutil.copy2(VANILLA_DB, self.db)
         self.stock_consts = self.rows("SELECT * FROM master_const_int")
         self.stock_levels = self.rows("SELECT * FROM master_bodylvl_exp")
+        self.stock_effects = self.rows("SELECT * FROM master_mushroom_efc")
         self.manager = Manager(self.paths)
         self.manager.set_db_path(self.db)
         self.manager.set_enabled(MOD_ID, True)
@@ -76,6 +80,9 @@ class OnTheVanillaDatabase(unittest.TestCase):
         report = self.manager.save_mod_list()
         self.assertTrue(report.ok, report)
 
+    def mushrooms(self) -> dict:
+        return dict(self.rows("SELECT id, val0 FROM master_mushroom_efc WHERE type = 'MSREFCTP_BLDMUSH'"))
+
     def test_the_stock_points_are_what_the_mod_expects(self) -> None:
         stock = dict(self.stock_consts)
         for name, value in POINTS.items():
@@ -91,6 +98,17 @@ class OnTheVanillaDatabase(unittest.TestCase):
         changed = set(self.rows("SELECT * FROM master_const_int")) ^ set(self.stock_consts)
         self.assertEqual({row[0] for row in changed}, set(POINTS))
         self.assertEqual(self.rows("SELECT * FROM master_bodylvl_exp"), self.stock_levels)
+        self.assertEqual(self.mushrooms(), MUSHROOMS)       # x1 unless asked
+
+    def test_the_splattershrooms_have_their_own_number(self) -> None:
+        self.assertEqual(self.mushrooms(), MUSHROOMS)
+        self.save(times=2, mushrooms=10)
+        self.assertEqual(self.mushrooms(), {k: v * 10 for k, v in MUSHROOMS.items()})
+        self.assertEqual(self.points()["BOSS_BLOODNIUM_POINT"], 300)
+        changed = set(self.rows("SELECT * FROM master_mushroom_efc")) ^ set(self.stock_effects)
+        self.assertEqual({row[0] for row in changed}, set(MUSHROOMS))
+        self.save(times=2, mushrooms=10)
+        self.assertEqual(self.mushrooms()["MSREFC_BLDMUSH_03"], 10000)
 
     def test_saving_again_does_not_multiply_twice(self) -> None:
         self.save(times=3)
@@ -100,11 +118,12 @@ class OnTheVanillaDatabase(unittest.TestCase):
         self.assertEqual(self.points()["BOSS_BLOODNIUM_POINT"], 300)
 
     def test_switching_it_off_puts_the_stock_numbers_back(self) -> None:
-        self.save(times=10)
+        self.save(times=10, mushrooms=5)
         self.manager.set_enabled(MOD_ID, False)
         report = self.manager.save_mod_list()
         self.assertTrue(report.ok, report)
         self.assertEqual(self.rows("SELECT * FROM master_const_int"), self.stock_consts)
+        self.assertEqual(self.rows("SELECT * FROM master_mushroom_efc"), self.stock_effects)
 
 
 if __name__ == "__main__":

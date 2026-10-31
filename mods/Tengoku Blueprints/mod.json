@@ -1,0 +1,49 @@
+{
+  "id": "Tengoku Blueprints",
+  "name": "Tengoku Blueprints",
+  "description": "In Tengoku, {{share}}% of the blueprints medium chests give are Tengoku (H4) blueprints, instead of about 1 in 400. Set it in Configuration.",
+  "version": "0.1.0",
+  "author": "KSFA",
+  "category": "Game content",
+  "tags": ["tengoku", "blueprints", "chests", "drops", "farming"],
+  "game_version": ["5.0.4.1.0 - 1.89", "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)", "5.0.4.4.0 - 1.91", "5.0.5.0.0 - 1.92"],
+  "min_manager_version": "0.12.0",
+  "apply": "diff",
+  "requires": [],
+  "conflicts_with": [],
+  "settings": [
+    {
+      "id": "share",
+      "label": "Tengoku blueprint share",
+      "type": "integer",
+      "default": 25,
+      "min": 0,
+      "max": 90,
+      "step": 5,
+      "unit": "%",
+      "help": "How many of the blueprints a Tengoku medium chest gives are Tengoku blueprints (the ones for Tengoku's own gear, their id ending in H4). The game's own share is about 1 in 400. Every chest list keeps its total, and every other blueprint stays in it. 0 leaves them alone."
+    },
+    {
+      "id": "most_chests",
+      "label": "The most medium chests on every floor",
+      "type": "toggle",
+      "default": false,
+      "help": "On: every Tengoku floor that can have medium chests gets the most it can (3, where the game rolls 1 to 3). Off: the game's own roll."
+    }
+  ],
+  "patches": [
+    {
+      "type": "raw_sql",
+      "id": "tengoku-blueprints",
+      "description": "Tengoku medium chests: {{share}}% Tengoku (H4) blueprints",
+      "sql": "WITH h AS (SELECT DISTINCT grp FROM master_item WHERE itemtype = 'ITTP_RMAP' AND itemid LIKE '%H4'), r AS MATERIALIZED (SELECT flrid, areaid, refareaid, grp, freq, grp IN (SELECT grp FROM h) AS g FROM master_floor_drop_gen WHERE flrid LIKE 'HVN%' AND type = 'PTGENTP_TRBOX_M' AND {{share}} > 0), l AS (SELECT flrid, areaid, refareaid, SUM(freq) AS t, SUM(CASE WHEN g THEN freq ELSE 0 END) AS gs, SUM(CASE WHEN g THEN 0 ELSE freq END) AS ns, SUM(1 - g) AS nn FROM r GROUP BY flrid, areaid, refareaid HAVING gs > 0 AND ns > 0), x AS (SELECT flrid, areaid, refareaid, t, gs, ns, MIN(MAX(1, t * {{share}} / 100), t - nn) AS f FROM l), n AS (SELECT r.flrid, r.areaid, r.refareaid, r.grp, MAX(1, r.freq * (x.t - x.f) / x.ns) AS f FROM r JOIN x USING (flrid, areaid, refareaid) WHERE NOT r.g), lg AS (SELECT x.flrid, x.areaid, x.refareaid, x.gs, x.t - COALESCE((SELECT SUM(n.f) FROM n WHERE n.flrid = x.flrid AND n.areaid = x.areaid AND n.refareaid = x.refareaid), 0) AS gt FROM x), gr AS (SELECT r.flrid, r.areaid, r.refareaid, r.grp, r.freq * lg.gt / lg.gs AS f, ROW_NUMBER() OVER (PARTITION BY r.flrid, r.areaid, r.refareaid ORDER BY r.freq DESC, r.grp) AS rn FROM r JOIN lg USING (flrid, areaid, refareaid) WHERE r.g), nw AS MATERIALIZED (SELECT flrid, areaid, refareaid, grp, f FROM n UNION ALL SELECT gr.flrid, gr.areaid, gr.refareaid, gr.grp, MAX(1, gr.f + CASE WHEN gr.rn = 1 THEN lg.gt - (SELECT SUM(y.f) FROM gr y WHERE y.flrid = gr.flrid AND y.areaid = gr.areaid AND y.refareaid = gr.refareaid) ELSE 0 END) FROM gr JOIN lg USING (flrid, areaid, refareaid)) UPDATE master_floor_drop_gen SET freq = nw.f FROM nw WHERE master_floor_drop_gen.flrid = nw.flrid AND master_floor_drop_gen.areaid = nw.areaid AND master_floor_drop_gen.refareaid = nw.refareaid AND master_floor_drop_gen.type = 'PTGENTP_TRBOX_M' AND master_floor_drop_gen.grp = nw.grp;"
+    },
+    {
+      "type": "raw_sql",
+      "id": "most-chests",
+      "when": {"most_chests": true},
+      "description": "Tengoku floors: always the most medium chests",
+      "sql": "UPDATE master_floor SET mtbmin = mtbmax WHERE id LIKE 'HVN%' AND mtbmax > 0;\nUPDATE master_tmpfloor_stage SET mtbmin = mtbmax WHERE id LIKE 'HVN%' AND mtbmax > 0;"
+    }
+  ]
+}

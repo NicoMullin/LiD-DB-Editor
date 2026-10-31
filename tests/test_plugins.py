@@ -184,6 +184,46 @@ class SavingSwitchesThePlugins(unittest.TestCase):
         self.assertFalse(any(self.dir.glob("lid-timers*")))
 
 
+class AnOptionalPlugin(unittest.TestCase):
+    """A mod that works without its plugin (the Vending Machine and its add-on)."""
+
+    class Log:
+        def __init__(self):
+            self.warnings = []
+
+        def warn(self, text):
+            self.warnings.append(text)
+
+        def info(self, text):
+            pass
+
+    def setUp(self) -> None:
+        from types import SimpleNamespace
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.game = Path(self._tmp.name)
+        P.folder(self.game).mkdir(parents=True)
+        self.vending = SimpleNamespace(id="Vending Machine", plugins=["lid-vending.dll"], plugin_optional=True)
+        self.timers = SimpleNamespace(id="Timers", plugins=["lid-timers.dll"], plugin_optional=False)
+
+    def test_missing_is_not_warned_about(self) -> None:
+        log = self.Log()
+        P.follow_mods(self.game, [self.vending, self.timers], ["Vending Machine", "Timers"], log=log)
+        self.assertEqual(len(log.warnings), 1)
+        self.assertIn("Timers", log.warnings[0])
+
+    def test_there_it_follows_its_mod_as_any_other(self) -> None:
+        (P.folder(self.game) / "lid-vending.dll").write_bytes(b"MZ")
+        P.follow_mods(self.game, [self.vending], [])
+        self.assertTrue((P.folder(self.game) / "lid-vending.dll.off").is_file())
+
+    def test_named_by(self) -> None:
+        mods = [self.vending, self.timers]
+        self.assertEqual(P.named_by(mods, ["Timers"]), {"lid-timers.dll"})
+        self.assertEqual(P.named_by(mods), {"lid-timers.dll", "lid-vending.dll"})
+
+
 class TheBorderlessMod(unittest.TestCase):
     """The Borderless Fullscreen mod (LiD Borderless repo): Windowed plus the plugin, or neither."""
 

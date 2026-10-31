@@ -86,6 +86,20 @@ RETIRED: dict[str, Retired] = {
 }
 
 
+# Shipped mods that left the bundle with nothing in it to take their place,
+# and why, for the log. Updating, in place or by unzipping over the old copy,
+# never removes a folder, so these stayed in the list - and a mod made for an
+# older game build no longer applies ("Nothing was applied"). They are moved
+# aside like the ones above and unticked; one that is still applied is left to
+# the "Mods were removed - put the rows back?" offer, which finds the folder in
+# _retired/ to know which game files to put back. Never list a mod Get mods
+# still installs under the same name (Stew Multi Pull, Death Metals, HUD...).
+DROPPED: dict[str, str] = {
+    "Enemies Left": "its counter is part of the HUD plugin mod now (Get mods...)",
+    "Console Only Decals": "the Crossover Content pack shows those decals' info boxes",
+}
+
+
 def _is_ours(folder: Path, old_id: str, author: str = SHIPPED_AUTHOR) -> bool:
     """A folder this project shipped under that name, not someone's own mod."""
     try:
@@ -103,9 +117,12 @@ def retire_shipped_folders(mods_dir: Path, log=None) -> list[str]:
     """Move retired shipped mod folders out of the list. Returns what moved."""
     mods_dir = Path(mods_dir)
     moved: list[str] = []
-    for old_id in RETIRED:
+    reasons = {old_id: f"was replaced by {retired.new_id}" for old_id, retired in RETIRED.items()}
+    reasons.update({old_id: f"no longer comes with the manager: {why}" for old_id, why in DROPPED.items()})
+    for old_id, reason in reasons.items():
         folder = mods_dir / old_id
-        if not folder.is_dir() or not _is_ours(folder, old_id, RETIRED[old_id].author):
+        author = RETIRED[old_id].author if old_id in RETIRED else SHIPPED_AUTHOR
+        if not folder.is_dir() or not _is_ours(folder, old_id, author):
             continue
         store = mods_dir / RETIRED_DIRNAME
         store.mkdir(parents=True, exist_ok=True)
@@ -122,11 +139,14 @@ def retire_shipped_folders(mods_dir: Path, log=None) -> list[str]:
             continue
         moved.append(old_id)
         if log:
-            log.info(
-                f"{old_id} was replaced by {RETIRED[old_id].new_id}; its folder is kept in "
-                f"{RETIRED_DIRNAME}/"
-            )
+            log.info(f"{old_id} {reason}; its folder is kept in {RETIRED_DIRNAME}/")
     return moved
+
+
+def retired_folder(mods_dir: Path, mod_id: str) -> Path | None:
+    """Where a mod moved aside above now is, for putting its game files back."""
+    folder = Path(mods_dir) / RETIRED_DIRNAME / mod_id
+    return folder if (folder / "mod.json").is_file() else None
 
 
 def _move_snapshot(snapshots_dir: Path, old_id: str, new_id: str) -> None:
@@ -189,6 +209,19 @@ def migrate_state(state, installed_ids: set[str], snapshots_dir: Path, log=None)
             if log:
                 shown = ", ".join(f"{k} {v:,}" for k, v in retired.values.items())
                 log.info(f"{old_id} is now {new_id}" + (f" ({shown})" if shown else ""))
+
+    # A dropped mod is unticked and leaves the packs. What it applied stays on
+    # record, so deleted_mods() still offers to put it back.
+    for old_id in DROPPED:
+        if old_id in installed_ids:
+            continue
+        if old_id in state.enabled_mods:
+            state.enabled_mods.remove(old_id)
+            changed = True
+        for pack, mod_ids in state.modpacks.items():
+            if old_id in mod_ids:
+                state.modpacks[pack] = [m for m in mod_ids if m != old_id]
+                changed = True
     return changed
 
 

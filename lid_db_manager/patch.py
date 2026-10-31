@@ -27,6 +27,7 @@ from .asset_runner import forbidden_target_reason
 from .errors import ApplyError, ModLoadError, ValidationError
 from .settings import render_text
 from .sqlutil import (
+    bare_insert,
     column_names,
     compile_only,
     count_where,
@@ -216,7 +217,9 @@ class Patch:
     def preview(self, con: sqlite3.Connection) -> DiffPreview:
         raise NotImplementedError
 
-    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+    def apply(self, con: sqlite3.Connection, mod_id: str, *, again: bool = False) -> PatchResult:
+        """Write the change. ``again``: this mod is already applied to this
+        database, and its rows from last time are (as far as is known) there."""
         raise NotImplementedError
 
     # -- shared helpers --------------------------------------------------
@@ -437,7 +440,7 @@ class UpdateSetPatch(Patch):
             note = f"... and {total - len(rows)} more row(s)"
         return DiffPreview(self.summary(), self.table, total, rows, note)
 
-    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+    def apply(self, con: sqlite3.Connection, mod_id: str, *, again: bool = False) -> PatchResult:
         assignments = ", ".join(f"{quote_ident(c)} = ?" for c in self.columns)
         sql = f"UPDATE {quote_ident(self.table)} SET {assignments}"
         if self.where:
@@ -571,7 +574,7 @@ class TextReplacePatch(Patch):
         note = f"... and {total - len(rows)} more row(s)" if total > len(rows) else ""
         return DiffPreview(self.summary(), self.table, total, rows, note)
 
-    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+    def apply(self, con: sqlite3.Connection, mod_id: str, *, again: bool = False) -> PatchResult:
         clause, params = self._where()
         try:
             rows = con.execute(
@@ -948,14 +951,18 @@ class RawSqlPatch(Patch):
                 found.add((table, _unquote_ident(column.group("column"))))
         return found or None
 
-    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+    def apply(self, con: sqlite3.Connection, mod_id: str, *, again: bool = False) -> PatchResult:
         changed = 0
         for statement in self.statements():
             # Every save re-runs the whole enabled list, so a bare CREATE would
             # fail the second time round on a table the mod itself made.
             statement = if_not_exists(statement)
+            steps = _once_more(con, statement) if again else [(statement, True)]
             try:
-                cursor = con.execute(statement)
+                for step, counts in steps:
+                    cursor = con.execute(step)
+                    if counts and cursor.rowcount and cursor.rowcount > 0:
+                        changed += cursor.rowcount
             except sqlite3.Error as exc:
                 short = _statement_gist(statement)
                 raise ApplyError(
@@ -963,9 +970,50 @@ class RawSqlPatch(Patch):
                     f"{self.source_label()} failed ({exc}){self._why(con, statement, exc)}"
                     f" in: {short}",
                 ) from exc
-            if cursor.rowcount and cursor.rowcount > 0:
-                changed += cursor.rowcount
         return PatchResult(rows_changed=changed)
+
+
+_AGAIN_TABLE = "_lid_again"
+_CREATE_TABLE_NAME_RE = re.compile(
+    r"^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:\"[^\"]+\"|\[[^\]]+\]|`[^`]+`|'[^']+'|\w+)",
+    re.IGNORECASE,
+)
+
+
+def _once_more(con: sqlite3.Connection, statement: str) -> list[tuple[str, bool]]:
+    """A statement to run on a database that already has this mod's rows, as
+    (SQL, counts toward rows changed) steps.
+
+    A plain INSERT is the one that cannot be run twice. Into a table with a
+    key it would fail on its own rows from last time - ikibo's "UNIQUE
+    constraint failed: master_quest.qid" on every save after the first, with
+    Quality Of Death - so it becomes INSERT OR REPLACE, which writes those rows
+    as they were. Into a table with no key it would add them all a second
+    time, so its rows go into a temporary copy of the table first and only
+    those not already there are added. Anything else runs as it is.
+    """
+    found = bare_insert(statement)
+    if found is None:
+        return [(statement, True)]
+    keyed = any(row[5] for row in con.execute(f"PRAGMA table_info({quote_ident(found.table)})")) or any(
+        row[2] for row in con.execute(f"PRAGMA index_list({quote_ident(found.table)})"))
+    if keyed:
+        return [(statement[:found.insert_end] + " OR REPLACE" + statement[found.insert_end:], True)]
+    row = con.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ? COLLATE NOCASE",
+                      (found.table,)).fetchone()
+    clone = _CREATE_TABLE_NAME_RE.sub(f'CREATE TEMP TABLE "{_AGAIN_TABLE}"', row[0], count=1) if row else ""
+    if not clone.startswith("CREATE TEMP TABLE"):
+        return [(statement, True)]
+    table, copy = quote_ident(found.table), f'temp."{_AGAIN_TABLE}"'
+    same = " AND ".join(f"o.{quote_ident(c)} IS n.{quote_ident(c)}" for c in column_names(con, found.table))
+    return [
+        (f"DROP TABLE IF EXISTS {copy}", False),
+        (clone, False),
+        (statement[:found.ref_start] + copy + statement[found.ref_end:], False),
+        (f"INSERT INTO {table} SELECT * FROM {copy} AS n "
+         f"WHERE NOT EXISTS (SELECT 1 FROM {table} AS o WHERE {same})", True),
+        (f"DROP TABLE {copy}", False),
+    ]
 
 
 class RawSqlFilePatch(RawSqlPatch):
@@ -1031,10 +1079,10 @@ class RawSqlFilePatch(RawSqlPatch):
             )
         return super().validate(con, mod_id)
 
-    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+    def apply(self, con: sqlite3.Connection, mod_id: str, *, again: bool = False) -> PatchResult:
         if not self.path.is_file():
             raise ApplyError(mod_id, f"SQL file {self.rel_path!r} is missing from the mod folder")
-        return super().apply(con, mod_id)
+        return super().apply(con, mod_id, again=again)
 
 
 def _clean_game_relative(raw: str, label: str, mod_ref: str) -> str:
@@ -1180,7 +1228,7 @@ class AssetFilePatch(Patch):
             note = f"... and {len(files) - len(rows)} more file(s)"
         return DiffPreview(self.summary(), self.target, len(files), rows, note)
 
-    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+    def apply(self, con: sqlite3.Connection, mod_id: str, *, again: bool = False) -> PatchResult:
         # Files are copied by asset_runner after the DB transaction commits;
         # nothing happens against the connection.
         return PatchResult(rows_changed=0)
@@ -1291,7 +1339,7 @@ class ExeChecksumPatch(Patch):
             note="Twenty bytes in a table of file hashes. No code is changed.",
         )
 
-    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+    def apply(self, con: sqlite3.Connection, mod_id: str, *, again: bool = False) -> PatchResult:
         # Nothing happens in the database transaction; the asset runner carries
         # this out after it commits, like every other game-file change.
         return PatchResult(rows_changed=0)
@@ -1404,9 +1452,10 @@ class TfcInstallerPatch(Patch):
     def asset_targets(self) -> set[str]:
         return set(self.transform_targets()) | {target for _, target in self.pairs()}
 
-    def transform_target(self, target: str, stock: bytes) -> bytes:
+    def transform_target(self, target: str, stock: bytes, pristine: bytes | None = None) -> bytes:
+        """``pristine`` is the game's own package, when ``stock`` holds other mods' changes."""
         from .upk import tfcmod
-        return tfcmod.transform(self.tfc, Path(target).name, stock, self._installed_as)
+        return tfcmod.transform(self.tfc, Path(target).name, stock, self._installed_as, pristine)
 
     def changed_objects(self) -> dict[str, dict[tuple, str]]:
         """package name (lower case) -> {object it replaces: its name}.
@@ -1432,6 +1481,23 @@ class TfcInstallerPatch(Patch):
                 }
             self._changed = found
         return self._changed
+
+    def changed_bodies(self) -> dict[str, dict[tuple, bytes]]:
+        """package name (lower case) -> {object it replaces: the new data}.
+
+        So the conflict check can ask whether two mods' versions of one function
+        combine - see upk/scriptmerge.py.
+        """
+        from .upk import packagepatch as PP
+        found: dict[str, dict[tuple, bytes]] = {}
+        for package, patch_file in self.tfc.patches.items():
+            try:
+                patch = PP.read(patch_file)
+            except (PP.PatchError, OSError):
+                continue
+            found[package.lower()] = {("export", update.export_index): update.data
+                                      for update in patch.objects if not update.offset_records}
+        return found
 
     def changed_textures(self) -> dict[str, str]:
         """Texture path (lower case) -> as the pack writes it, for every texture it replaces."""
@@ -1486,7 +1552,7 @@ class TfcInstallerPatch(Patch):
             f"... and {len(targets) - len(rows)} more package(s)"
         return DiffPreview(self.summary(), "BrgGame/CookedPCConsole", len(targets), rows, note)
 
-    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+    def apply(self, con: sqlite3.Connection, mod_id: str, *, again: bool = False) -> PatchResult:
         # Game files are rebuilt by the asset runner after the database commits.
         return PatchResult(rows_changed=0)
 
@@ -1599,7 +1665,7 @@ class ConfigIniPatch(Patch):
         note = "" if len(items) <= len(rows) else f"... and {len(items) - len(rows)} more"
         return DiffPreview(self.summary(), Path(self.target).name, len(items), rows, note)
 
-    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+    def apply(self, con: sqlite3.Connection, mod_id: str, *, again: bool = False) -> PatchResult:
         # The config file is written by the asset runner after the database
         # commits, so it goes through the same backup and rollback as the rest.
         return PatchResult(rows_changed=0)
@@ -1765,7 +1831,7 @@ class PackageBytesPatch(Patch):
                 for edit in self.edits[:PREVIEW_ROW_LIMIT]]
         return DiffPreview(self.summary(), Path(self.target).name, len(self.edits), rows, "")
 
-    def apply(self, con: sqlite3.Connection, mod_id: str) -> PatchResult:
+    def apply(self, con: sqlite3.Connection, mod_id: str, *, again: bool = False) -> PatchResult:
         # Game files are written by the asset runner after the database commits.
         return PatchResult(rows_changed=0)
 

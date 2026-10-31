@@ -431,6 +431,13 @@ class ShippedModTests(unittest.TestCase):
         "Faster Floor Results",
         "Skip Intro",
         "Mushroom Timers",
+        "Tengoku Blueprints",
+        "Online Research Costs",
+        "Tengoku Enjoyer",
+        "Pre-Nerf Gear",
+        "bag-size",
+        "Animation Speed",
+        "fighter-bonus",
     }
 
     # By S3er0i9ng, shipped with their permission. Named exactly as a drop of
@@ -445,7 +452,9 @@ class ShippedModTests(unittest.TestCase):
     # validated against a real vanilla database instead.
     REAL_SCHEMA = BUNDLED | {"fighter-passives", "Events and Seasons", "Vending Machine",
                                "Golden Beasts", "Bloodnium Multiplier",
-                               "Mushroom Timers"}
+                               "Mushroom Timers", "Tengoku Blueprints",
+                               "Online Research Costs", "Tengoku Enjoyer", "Pre-Nerf Gear",
+                               "bag-size", "Animation Speed", "fighter-bonus"}
     VANILLA_DB = PROJECT_ROOT / "LiD Vanilla DB" / "5.0.4.0" / "masters.db"
 
     # Pairs that are the same change at two strengths. They are meant to

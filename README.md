@@ -643,6 +643,7 @@ touch it.
 |-----------------------|-----------------------------------------------------------------------|-----------|-------------------|
 | `revive-cost`         | Every grade's revive costs the same price                             | 1 KC      | 1 to 1,000,000 KC |
 | `fighter-tier-prices` | Every fighter tier unlock costs the same price                        | 1 KC      | 1 to 1,000,000 KC |
+| `fighter-bonus`       | A bought fighter's stat bonuses never come out as nothing             | never 0   | max, or own odds  |
 | `decal-draw-price`    | A draw from the Mushroom Club decal pool costs this instead of 50,000 | 10,000 KC | 1 to 1,000,000 KC |
 | `nitro-boost-exp`     | Nitro Boost and Turbo-charged Engine EXP bonus, descriptions to match | 100,000%  | 1 to 1,000,000%   |
 | `tdm-rewards`         | Every Kill Coin and SP payout from Tokyo Death Metro, multiplied      | x2        | x1 to x100        |
@@ -651,13 +652,17 @@ touch it.
 
 | Mod                | What it does                                     | Default  | You can choose  |
 |--------------------|--------------------------------------------------|----------|-----------------|
+| `bag-size`         | Every fighter's bag holds at least this many     | 60       | 20 to 60        |
+|                    | … or this many more than stock, up to 60         | +20      | +1 to +42       |
 | `bank-limit`       | Both banks hold more, all 99 levels              | x10      | x1 to x100      |
-| `reward-box-limit` | The reward box holds this many instead of 50     | 250      | 50 to 9,999     |
+| `reward-box-limit` | The reward box holds this many instead of 50     | 250      | 50 to 500       |
 | `storage-limit`    | The Coin Locker expands to this instead of 2,000 | 10,000   | 2,000 to 20,000 |
 |                    | … and how many slots each purchase adds (part)   | 100      | 1 to 1,000      |
 |                    | … and what one purchase costs (part)             | 1,000 KC | 1 to 200,000 KC |
 
 `storage-limit`'s last two rows are **parts, switched off until you tick them** — look under the mod in the list. Slots per purchase is the one that makes a big locker usable: at stock, filling a 10,000-slot locker means buying the expansion a thousand times.
+
+`bag-size` never leaves a fighter with fewer slots than stock (18 to 54, by class, grade and limit break), so a Collector's big bag stays big. Pick **at least** for one size for everyone, or **more than stock** to keep the differences. No bag goes over 60: that is what the well-known 60-slot mod gives, tested in game, and bigger bags go wrong. The Express Pass adds its 10 on top, for 70. Empty the extra slots before switching it off.
 
 ### Durability and ammo
 
@@ -702,10 +707,11 @@ load order, and still able to be switched off. The old folders are moved into
 
 ### Game rules
 
-| Mod             | What it does                                                                         | Default | You can choose                          |
-|-----------------|--------------------------------------------------------------------------------------|---------|-----------------------------------------|
-| `fall-damage`   | Falls hurt this much of what they normally do                                        | 0%      | 0% to 100%                              |
-| `Golden Beasts` | Golden beasts turn up more often and on every floor, or nearly every beast is golden | x3      | x1 to x50; or nearly every beast golden |
+| Mod                  | What it does                                                                         | Default | You can choose                          |
+|----------------------|--------------------------------------------------------------------------------------|---------|-----------------------------------------|
+| `fall-damage`        | Falls hurt this much of what they normally do                                        | 0%      | 0% to 100%                              |
+| `Golden Beasts`      | Golden beasts turn up more often and on every floor, or nearly every beast is golden | x3      | x1 to x50; or nearly every beast golden |
+| `Tengoku Blueprints` | More of Tengoku's medium-chest blueprints are Tengoku (H4) ones                      | 25%     | 0% to 90%; the most medium chests       |
 
 At 0% nobody takes fall damage, the same as everyone wearing Super Shock
 Absorber. Haters land by the same rules as your fighter, so it applies to them
@@ -720,6 +726,12 @@ of each beast's odds to its golden twin. Whatever the setting, each list adds up
 to the same total as before and every normal beast stays in at a weight of at
 least 1: the game crashes on the way into a floor if a list's weights add up to
 more than they did, or if a list has golden beasts but no normal ones left.
+
+In Tengoku a medium chest that holds a blueprint gives a Tengoku one, for
+Tengoku's own gear, about once in 400. `Tengoku Blueprints` gives those your
+share of each floor's medium-chest list, keeping each list's total and every
+other blueprint in it at a weight of at least 1. Its second setting gives every
+Tengoku floor that can have medium chests the most it can (3).
 
 ### Not in the database
 
@@ -804,9 +816,9 @@ the game kept their names and rewards but not their targets.
 
 ### The vending machine
 
-| Mod               | What it does                                       | Default                  | You can choose                                                                                      |
-|-------------------|----------------------------------------------------|--------------------------|-----------------------------------------------------------------------------------------------------|
-| `Vending Machine` | The online Buy tab back, or your own list of goods | As online, all 113 goods | As online or your own list; KC, DM or both; what it sells, each one's bundle, price and daily limit |
+| Mod               | What it does                                       | Default                  | You can choose                                                                                                                                     |
+|-------------------|----------------------------------------------------|--------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Vending Machine` | The online Buy tab back, or your own list of goods | As online, all 113 goods | As online or your own list; KC, DM or both; what it sells, each one's bundle, price and daily limit; menu entries to refill ammo and change decals |
 
 Offline, the Waiting Room's vending machine sells only the seven things it
 always had. The online server sent the rest - a daily list of faction metals,
@@ -833,8 +845,9 @@ Switch the mod off for the machine exactly as the game has it.
 | `LET IT DIE Crossover Content v3.79` | Restores cut crossover gear: Mushroom Club decals, blueprint quests, and 287 artwork packages |
 | `Colored PlayStation Buttons v1.5`   | Colored PlayStation button prompts. Needs the game's file check off for that one package      |
 | `Tower Static Radio`                 | A new radio station, Tower Static, on channel 501 with four tracks                            |
+| `Online Research Costs`              | Research takes the materials and SPLithium it did online, mostly two to four times as much    |
 
-All three are included with their author's permission; the originals are at
+All of them are included with their author's permission; the originals are at
 <https://letitdiemods.pages.dev/>. See
 [The Crossover Content pack](#the-crossover-content-pack) and
 [Mods that replace artwork the game checks](#mods-that-replace-artwork-the-game-checks).
@@ -844,6 +857,34 @@ Nitro Boost, used to show a "both write table" warning. It no longer does: they
 share a table but never the same box — the pack switches hidden gear on and adds
 new rows, while those mods change other columns of other rows. See
 [Only the same box is reported](#only-the-same-box-is-reported).
+
+`Online Research Costs` puts back the research costs the online game had,
+which S3er0i9ng read from its 4.18 parameters: what crafting and upgrades take
+in materials and in SPLithium, each a switch of its own. Tick it with
+`Pre-Nerf Gear` (below) for the online game's gear and costs together.
+
+### By ZeroUnderOne
+
+| Mod               | What it does                                                                                       |
+|-------------------|----------------------------------------------------------------------------------------------------|
+| `Tengoku Enjoyer` | Tengoku goes on to 1000F, plus retuned Haters, enemies, bosses and pre-nerf gear. Pick and choose  |
+| `Pre-Nerf Gear`   | Only the gear part of Tengoku Enjoyer: two Rage moves, the M2G-87, the Red Napalm knife, a flail   |
+
+Both are included with ZeroUnderOne's permission. `Tengoku Enjoyer` is picked
+under **Version** in Configuration: **Original** or **Route Pure** (every Hater
+carries a weapon from its tower's route) for the whole mod, or **Pick and
+choose** for only the parts you tick: the tower to 1000F, the new Haters on
+floors 51 to 451, tougher enemies on floors 145 to 450, retuned bosses, and the
+gear from before the offline update, with either version's Haters.
+
+`Pre-Nerf Gear` is that gear part on its own, for players who want only that.
+Tick it with `Tengoku Enjoyer` and the manager notes that `Tengoku Enjoyer`
+already does it.
+
+Do not switch `Tengoku Enjoyer` (or its tower part) off while a fighter is past
+451F, or past 140F on a route: bring the fighter home first. With `Tengoku
+Blueprints` on as well, its share applies to floors 51 to 451; the new floors
+keep `Tengoku Enjoyer`'s own blueprint lists.
 
 ## Mods that need a plugin
 
@@ -855,7 +896,7 @@ its own GitHub page, where GitHub builds and tests every release:
 
 | Mod                    | Repository                                                                             | What it does                                                                              |
 |------------------------|----------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
-| Stew Multi Pull        | [LiD-Stew-Multi-Pull](https://github.com/NicoMullin/LiD-Stew-Multi-Pull)               | Purchase x5 to x25 at the stew, all decals shown together, the whole run in one request   |
+| Stew Multi Pull        | [LiD-Stew-Multi-Pull](https://github.com/NicoMullin/LiD-Stew-Multi-Pull)               | Purchase x5 to x25 in one request; the regular stew random or from your own weighted list |
 | Death Metals           | [LiD-Death-Metals](https://github.com/NicoMullin/LiD-Death-Metals)                     | Death Metal rewards, the count on screen, the exchange, and things paid in Death Metals   |
 | Timers                 | [LiD-Timers](https://github.com/NicoMullin/LiD-Timers)                                 | Crafting, research and facility upgrades take time again, with Uncle Death's time skip    |
 | Login Bonus            | [LiD-Login-Bonus](https://github.com/NicoMullin/LiD-Login-Bonus)                       | A random daily login bonus, from the online rewards for your floor or your own lists      |
@@ -863,6 +904,9 @@ its own GitHub page, where GitHub builds and tests every release:
 | Offline Fixes          | [LiD-Offline-Fixes](https://github.com/NicoMullin/LiD-Offline-Fixes)                   | Bugs in the game's own offline mode, such as closing when a Hater dies as you take stairs |
 | HUD                    | [LiD-HUD](https://github.com/NicoMullin/LiD-HUD)                                       | Durability, enemies, floor info, rage, bag, mushroom timers, run totals, minimap, bow arc |
 | Borderless Fullscreen  | [LiD-Borderless](https://github.com/NicoMullin/LiD-Borderless)                         | Borderless fullscreen: fills the monitor with no title bar, and Alt+Tab is instant        |
+| Vending Machine add-on | [LiD-Vending-Machine](https://github.com/NicoMullin/LiD-Vending-Machine)               | For the Vending Machine mod: a few goods picked a day and blueprints a week, as online    |
+| Daily Quests           | [LiD-Daily-Quests](https://github.com/NicoMullin/LiD-Daily-Quests)                     | The online event quests back: a few random ones a day, paying DM and an unearnable decal  |
+| Better Dustin5         | [LiD-Better-Dustin5](https://github.com/NicoMullin/LiD-Better-Dustin5)                 | Free Dustin5s with no 5-item limit, no waiting, Rewards Box to Storage Box, take-all      |
 
 **Get mods...** (top right, or Mods > Get mods that need a plugin) lists them,
 shows which you have, and gets one with a click:
@@ -876,8 +920,12 @@ shows which you have, and gets one with a click:
    A `dinput8.dll` that is not the Plugin Loader is never replaced.
 
 Close the game first: a running game holds its plugins open. Then tick the mod
-and **Save Mod List** as usual. A mod you already have is replaced by the new
-copy, with its settings kept.
+and **Save Mod List** as usual. A new plugin waits, switched off, until then:
+a plugin is on only while a mod that names it is ticked. A mod you already
+have is replaced by the new copy, with its settings kept. Death Metals brings
+Stew Multi Pull's plugin along for its Death Metal stew, without the Stew
+Multi Pull mod; the Vending Machine add-on is only a plugin, for the Vending
+Machine mod that comes with the manager.
 
 By hand works too: each release's `LiD-<name>.zip` holds `mods/` for the
 manager and `lid-plugins/` for the game's `Binaries\Win64`.
@@ -1114,10 +1162,10 @@ the content has to be a mod in the list to survive.
 
 ### Updates
 
-The manager ships v3.79 as refreshed for game version 1.91 (from S3er0i9ng's
-Mod Manager v1.3.25): 45 of its packages are copies of game files that 1.91
-changed, and the pack's installer now also corrects three decal descriptions.
-The manager calls it 3.79.1, so a copy already switched on is updated on the
+The manager ships v3.79 as refreshed for game version 1.92 (from S3er0i9ng's
+Mod Manager v1.3.31): 45 of its packages are copies of game files that 1.91 and
+1.92 changed, and the pack's installer also corrects three decal descriptions.
+The manager calls it 3.79.2, so a copy already switched on is updated on the
 next save. When the pack gets an update, the manager has to be updated to
 include it — a new release of this program will carry it.
 
@@ -2173,6 +2221,9 @@ PySide6 is not installed.
   texture-pack formats this reads, used with their permission.
 - **Claudia-diva** - LID-Patches (MIT), where the drop-delay finding and the
   way a package chunk is rebuilt in place come from.
+- **3bgdragon** - [Vending Machine Enhancement](https://github.com/3bgdragon/let-it-die-vending-enhancement),
+  whose ammo refill and decal entries the Vending Machine mod includes, with
+  their permission.
 
 ## License
 

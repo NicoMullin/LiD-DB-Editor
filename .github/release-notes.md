@@ -36,6 +36,200 @@ compares it with a clean copy of the same game build, says which mods it can
 already see in there, and offers to take them over. The moment you pick a
 database it also keeps a permanent `masters.db.original` copy.
 
+### What's new in Beta V0.13.4
+
+**New: put your own music on the radio.** **Mods → Make a radio station...** turns
+your own songs into a mod that adds them to the in-game radio, each on a
+channel of its own from 600 up, listed under its artist, the way the game's
+songs are. With VLC installed, MP3, FLAC, WAV, M4A and anything else VLC plays
+is converted as you add it; without it, .ogg files at 44100 Hz stereo go in.
+Titles and artists come from the files' tags or names like "Artist - Title"
+and can be typed over, and a switch also puts them in the OBS Needle Sounds
+shuffle. Each song is built from your own copy of the game's first radio song,
+so no game data goes into the mod.
+
+**Plugins from Get mods wait for their mod.** A plugin used to go in switched
+on straight away, so it ran in the game even while its mod was unticked. Now
+it goes in switched off until you tick its mod and click **Save Mod List**,
+and an update to a mod you have unticked keeps its plugin off.
+
+**Death Metals brings the stew plugin with it.** Get mods now puts in
+`lid-stewpull.dll` along with Death Metals, so the Death Metal stew works
+without the Stew Multi Pull mod. The plugin is switched on and off with Death
+Metals.
+
+**The vending machine can take turns again, as online.** The Vending Machine
+mod (0.3.0) has a new **Take turns, as online** setting, for the new
+**Vending Machine add-on** in Get mods. With it, the seven things the machine
+always sold stay every day, 8 goods are picked at random each day, and 8
+blueprints each week from Thursday; both numbers are yours to set. With your
+own list, you choose what is sold every day, what takes turns each day, and
+what each week. Without the add-on the mod is as before: everything on sale
+every day.
+
+**Refill ammo and change decals at the vending machine.** Vending Machine 0.4.0
+can add two entries to the machine's menu, both from 3bgdragon's Vending
+Machine Enhancement and included with their permission. **Ammo (20% cost)**
+fills a gun's ammo back up for a fifth of what the weapon costs, paid from
+your safe. **Decals** opens the Mushroom Stew's decal screen, to put decals on
+your fighter or take them off. Both are off to begin with: switch them on
+under Menu in the mod's Configuration.
+
+**Two mods can change the same part of BrgGame.upk.** When two mods changed
+the same piece of the game's code, the later one in the load order replaced
+the earlier one's change. Now the manager keeps both wherever they can be
+combined, which is what lets the ammo refill run beside Timers and the decals
+beside Stew Multi Pull. Where two changes cannot be combined, the conflict list
+still says so.
+
+**Settings that do nothing are greyed out.** On a mod's Configuration tab, a
+setting that only counts with other choices is greyed out until they are made,
+and its tooltip says what it waits for. In the Vending Machine mod, turning
+Rotation on greys out **What it sells** and **Weekly blueprints**, since every
+good then takes turns.
+
+**Get mods shows the release you have.** The **Have** column used to show
+the version of the mod inside a package, which never matched the release
+number in **Newest**, so an update looked as if it had not worked. It now
+shows the release your plugin came from, read from the plugin itself, even
+one you put in by hand. Hover over it for the mod's own version. When you
+already have the newest, the button says **Reinstall**.
+
+**New mod: Tengoku Blueprints.** In Tengoku, a medium chest's blueprint is a
+Tengoku one, for Tengoku's own gear, only about once in 400. This mod sets
+their share (25% by default, up to 90%), keeping every other blueprint in the
+list. A second setting gives every Tengoku floor that can have medium chests
+the most it can.
+
+**Crossover Content 3.79.2.** On game 1.92 the manager had been leaving out 45
+of the pack's files (the 12 Warpig outfit pieces and the 33 No More Heroes
+decal icons) as "made for a different game build". S3er0i9ng's refresh for
+1.92 is now included, so they go in again. Switched on already? The next
+**Save Mod List** updates it.
+
+**New mod: Online Research Costs**, from S3er0i9ng's data. Equipment research
+got much cheaper when the game went offline. This puts 1,017 recipes back to
+their online costs: the materials (mostly two to four times as many) and the
+SPLithium, each a switch of its own.
+
+**New mod: Tengoku Enjoyer**, by ZeroUnderOne. Tengoku goes on past 450F to
+1000F: 550 more floors, with their escalators, drops, bosses and Haters, and the
+routes go on to 250F. It also brings ZeroUnderOne's Haters, tougher enemies and
+retuned bosses to the floors below, and gear values from before the offline
+update. Under Version: Original or Route Pure (every Hater carries a weapon from
+its tower's route) for the whole mod, or Pick and choose for only the parts you
+want. Bring your fighter home before switching it off.
+
+**New mod: Pre-Nerf Gear**, by ZeroUnderOne: only Tengoku Enjoyer's gear part,
+for players who want just that. Hell Ride and Strike Bomb take one Rage bar,
+Hell Ride hits harder, the M2G-87's fire attack is stronger, the Red Napalm
+knife uses half the ammo and durability, and the Armor Breaking Flail S grows
+faster. Ticked with Tengoku Enjoyer, the manager notes that it is not needed.
+
+**New mod: Bag Size.** Bigger fighter bags, the size up to you: every fighter
+gets at least the number you pick (60 to begin with), or each gets a number of
+slots more than stock, so bags still grow with grade and limit break. No fighter
+ends up with fewer slots than stock, and no bag goes over 60, the size tested
+in game; the Express Pass adds its 10 on top, for 70.
+
+**New mod: Animation Speed.** Your fighter eats, kicks chests open, picks
+things up, puts on gear, catches animals, grills food and whacks vending
+machines open faster, each at its
+own speed (150% to begin with, from 50% to 300%). The action ends when its
+animation does, so it is a shorter wait, and nothing else about it changes.
+Enemies, Haters and animals keep their own speed. It is a small change to
+BrgGame.upk that stacks with the other BrgGame.upk mods.
+
+**New mod: Fighter Bonus Points.** Each stat of a fighter you buy rolls a bonus
+of 0, 5, 10, 15 or 20% of its grade's level cap, and at stock half of those
+rolls give nothing. Pick **Never nothing** (the default), **Always the
+biggest** (a grade 6 fighter gets +5 in all six stats), or your own odds for
+each size. Only fighters bought after it is on are affected.
+
+**Bloodnium Multiplier 0.2.0: Splattershrooms.** A second number multiplies the
+Bloodnium you get from eating a Splattershroom (10), Big Splattershroom (100)
+or Mega Splattershroom (1,000), separately from kills. It starts at x1, so
+nothing changes until you raise it.
+
+**Daily Quests** in Get mods. The online game's 808 one-off event quests come
+back as daily quests: a few random ones a day (5 to begin with, up to 30),
+paying Death Metals, and one of them a day (a setting, 0 to all) a decal you
+cannot get any other way offline. A new set comes each game day, including one
+started with Start a new game day, and their names start with [DAILY] on the
+quest board. It comes with its own plugin.
+
+**Better Dustin5** in Get mods. Every Dustin5 free, with no 5-item limit (or
+keep them paid, at your price and number of items), no waiting at Dustin5, and
+three new buttons in the Rewards Box: Triangle sends the picked present to the
+Storage Box, L1 sends everything that fits there, and R1 takes everything that
+fits. Each asks Yes/No first, the button guide shows all three (for the pad or
+keyboard you use), and the Storage Box shows what arrived as soon as you open
+it. It comes with its own plugin.
+
+**Stew Multi Pull 0.7.0** in Get mods: the regular stew can be a fresh random
+pick every pull instead of the list the game rolls ahead and keeps in your
+save, with or without repeats in a Purchase xN, and from the stew's own decals
+or a list of your own: tick which decals are in and set how often each comes
+up.
+
+**Pity at the stew.** Also in Stew Multi Pull 0.7.0: in a stew's Check Lineup,
+press Triangle on the decal you want. After a number of pulls without it (100
+to begin with, 10 to 500), the next pull gives it. The regular stew, the Death
+Metal stew and the Super Stew Festival each count on their own, the picks and
+counts are kept in your save, and changing your pick keeps the count. The
+stew's purchase menu shows how far you are, like "Pity 37/100: Super Shock
+Absorber". Its plugin is 0.2.0.
+
+**Settings that wait for another mod.** A mod's setting can name the mods it
+is about; it is greyed out until one of them is ticked, and its tooltip says
+which. Stew Multi Pull's Death Metal and festival pity settings use it (see
+mods/README.md).
+
+**A new kind of mod setting: decals with weights.** A window listing a set of
+decals, each with an on/off tick and a weight, the chance each works out to,
+a search, and Add decals for any other decal in your database. Stew Multi Pull
+uses it; mod makers can too (see mods/README.md).
+
+**Fixed: a game file a setting switched on stayed after the mod was switched
+off.** When a mod changed a game file only because of a setting chosen away
+from its default, switching the mod off left that change in the game. It is
+now put back too.
+
+**Fixed: a mod that adds rows with plain SQL broke every save after the
+first.** Each save applies every ticked mod again, and a mod's plain `INSERT`
+then met the rows it had added last time: "UNIQUE constraint failed" (seen
+with Quality Of Death's quests) as soon as anything else was ticked or
+changed. The only way out was reverting everything and restoring a backup.
+Into a table with no key, the rows went in a second time on every save
+instead. Now a mod applied again writes its rows as they were, once. The
+first time it is applied nothing changes, so a clash with rows that were
+already there is still reported.
+
+**Fixed: a TFC Installer mod with extra files failed with "... is not in the
+game folder".** The manager read every `.PackagePatch` anywhere in the mod, and
+the TFC edition of Vending Machine Enhancement also carries its own tool's
+spare copies, named by a long code, so it went looking for a game file by that
+name. Only what is under the mod's `Game` folder goes in now, as with TFC
+Installer.
+
+**Fixed: Reward Box Limit stopped at 50.** The Rewards Box showed the bigger
+number, but the game still called the box full at 50, because the game keeps
+the limit in two places and the mod changed only one. Reward Box Limit 2.0.2
+changes both. Switched on already? The next **Save Mod List** puts it right.
+
+**Marked as working on game 1.92:** Armor Durability, Bank Limit, Decal Draw
+Price, Events and Seasons, Fall Damage, Fighter Tier Prices, Instant Drops,
+Nitro Boost EXP, Revive Cost, Reward Box Limit, Reward Pickup, Storage Limit,
+TDM Rewards, Tower Static Radio, Weapon Ammo, Weapon Durability and Weapon
+Magazine no longer warn that they were built for an older game.
+
+**Fixed: Enemies Left stayed in the list.** It left the manager in 0.12.7,
+when its counter moved into the HUD plugin mod, but updating never removed
+its folder, and on game 1.92 it no longer applies ("Nothing was applied"). It
+is now moved into `mods\_retired` and unticked. If it was applied, the manager
+offers to put back what it changed, `BrgGame.upk` included. For the counter,
+get **HUD** in Get mods.
+
 ### What's new in Beta V0.13.3
 
 **Linux: opening folders works** from the Linux download. The file manager was

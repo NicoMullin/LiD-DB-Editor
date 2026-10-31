@@ -206,6 +206,103 @@ class OnTheVanillaDatabase(unittest.TestCase):
         self.assertTrue(self.manager.save_mod_list().ok)
         self.assertEqual(self.table(), self.stock)
 
+    # -- Rotation: the add-on plugin's picks ------------------------------------
+
+    def lineups(self) -> dict:
+        """lineup -> (rows, is_stable values, freq values) for the mod's rows."""
+        return {lineup: (n, stable, freq) for lineup, n, stable, freq in self.rows(
+            f"SELECT lineup_id, COUNT(*), GROUP_CONCAT(DISTINCT is_stable), GROUP_CONCAT(DISTINCT freq) "
+            f"FROM {TABLE} WHERE goods_id >= 90001 GROUP BY lineup_id")}
+
+    def schedule(self) -> list:
+        return self.rows("SELECT DISTINCT purchase_lineup_id, purchase_goods_min, purchase_goods_max "
+                         "FROM master_automaticshop_schedule")
+
+    def weekly_count(self) -> list:
+        return self.rows("SELECT value FROM master_const_int WHERE id = 'LID_VENDING_WEEKLY_COUNT'")
+
+    def test_without_rotation_nothing_takes_turns(self) -> None:
+        self.save()
+        self.assertEqual(self.lineups(), {"COMMON": (234, "1", "0")})
+        self.assertEqual(self.schedule(), [("AP", 7, 7)])     # the game's own, never read offline
+        self.assertEqual(self.weekly_count(), [])
+
+    def test_rotation_as_online(self) -> None:
+        self.save(rotation=True)
+        # the goods take turns from AP, the blueprints from LID_WEEKLY, each drawn alike
+        self.assertEqual(self.lineups(), {"AP": (194, "0", "1"), "LID_WEEKLY": (40, "0", "1")})
+        self.assertEqual(self.rows(f"SELECT DISTINCT substr(type_id, 1, 5) FROM {TABLE} "
+                                   "WHERE lineup_id = 'LID_WEEKLY'"), [("ITMP_",)])
+        # 8 a day and 8 a week, as online; the always-stocked seven stay as they are
+        self.assertEqual(self.schedule(), [("AP", 8, 8)])
+        self.assertEqual(self.weekly_count(), [(8,)])
+        self.assertEqual(self.rows(f"SELECT COUNT(*) FROM {TABLE} WHERE lineup_id = 'COMMON'"), [(7,)])
+
+    def test_rotation_ignores_what_is_greyed_out(self) -> None:
+        # "What it sells" and "Weekly blueprints" are greyed out with Rotation on: they pick nothing
+        self.save(rotation=True, stock="ITMT_WOOD_4", blueprints=False)
+        self.assertEqual(self.lineups(), {"AP": (194, "0", "1"), "LID_WEEKLY": (40, "0", "1")})
+
+    def test_each_setting_says_when_it_is_used(self) -> None:
+        settings = {s.id: s for s in load_mod_folder(MOD).settings}
+        used = lambda **values: sorted(s for s, setting in settings.items() if setting.used_with(
+            {**{k: v.default for k, v in settings.items()}, **values}))
+        # the menu entries count whatever the machine sells
+        menu = ["decals", "refill_ammo"]
+        self.assertEqual(used(), sorted(["blueprints", "mode", "pay", "rotation", "stock", *menu]))
+        self.assertEqual(used(rotation=1), sorted(["mode", "pay", "per_day", "per_week", "rotation", *menu]))
+        self.assertEqual(used(mode="custom"), sorted(["custom", "mode", "rotation", *menu]))
+        self.assertEqual(used(mode="custom", rotation=1),
+                         sorted(["custom", "custom_random", "custom_weekly", "mode", "per_day", "per_week",
+                                 "rotation", *menu]))
+
+    def test_rotation_counts(self) -> None:
+        self.save(rotation=True, per_day=5, per_week=0)
+        self.assertEqual(self.schedule(), [("AP", 5, 5)])
+        self.assertEqual(self.weekly_count(), [(0,)])
+
+    def test_rotation_with_your_own_lists(self) -> None:
+        self.save(mode="custom", rotation=True, custom="ITMT_WOOD_4/1/k/0/0",
+                  custom_random="MSR_053/1/k/0/0,ITMT_WOOD_5/5/d/3/2,PT_ARM_WP001_001/1/k/0/0",
+                  custom_weekly="ITMP_ARM_WP038_001/1/d/0/1")
+        self.assertEqual(self.rows(
+            f"SELECT goods_id, entity_type, type_id, currency_type, stock, pack_count, pack_money, pack_metal, "
+            f"is_stable, freq, lineup_id FROM {TABLE} WHERE goods_id >= 90001 ORDER BY goods_id"), [
+            # Your list: every day
+            (100033, "ITEM", "ITMT_WOOD_4", KC, 0, 1, 0, 0, 1, 0, "COMMON"),
+            # the random pool: one row each, taking turns; a limit a day means once a day
+            (120032, "MUSHROOM", "MSR_053", KC, 0, 1, 0, 0, 0, 1, "AP"),
+            (120064, "ITEM", "ITMT_WOOD_5", DM, 1, 5, 0, 3, 0, 1, "AP"),
+            # (a weapon part is not an item or a mushroom, so it is skipped)
+            # the weekly list
+            (140032, "ITEM", "ITMP_ARM_WP038_001", DM, 1, 1, 0, 0, 0, 1, "LID_WEEKLY"),
+        ])
+        self.assertEqual(self.schedule(), [("AP", 8, 8)])
+
+    def test_your_own_lists_without_rotation(self) -> None:
+        self.save(mode="custom", custom="ITMT_WOOD_4/1/k/0/0", custom_random="MSR_053/1/k/0/0")
+        self.assertEqual(self.lineups(), {"COMMON": (1, "1", "0")})
+
+    def test_rotation_off_again_puts_everything_back(self) -> None:
+        self.save(rotation=True)
+        self.save(rotation=False)
+        self.assertEqual(self.lineups(), {"COMMON": (234, "1", "0")})
+        self.assertEqual(self.schedule(), [("AP", 7, 7)])
+        self.assertEqual(self.weekly_count(), [])
+        self.save(rotation=True)
+        self.manager.set_enabled(MOD_ID, False)
+        self.assertTrue(self.manager.save_mod_list().ok)
+        self.assertEqual(self.table(), self.stock)
+        self.assertEqual(self.schedule(), [("AP", 7, 7)])
+        self.assertEqual(self.weekly_count(), [])
+
+
+class TheAddOn(unittest.TestCase):
+    def test_the_mod_names_its_plugin_as_optional(self) -> None:
+        mod = load_mod_folder(MOD)
+        self.assertEqual(mod.plugins, ["lid-vending.dll"])
+        self.assertTrue(mod.plugin_optional)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -33,12 +33,17 @@ import sqlite3
 from .mod import Mod
 from .mod_loader import out_of_order_requirements
 from .patch import RawSqlPatch, TextReplacePatch, UpdateSetPatch
+from .upk import scriptmerge
 
 KIND_COLUMN = "column"
 KIND_TEXT = "text"
 KIND_DECLARED = "declared"
 KIND_ASSET = "asset"
 KIND_OBJECT = "object"
+# One mod already does what another does (the second names it in "covered_by"),
+# so ticking both is harmless but pointless - said once, instead of as a clash
+# for every box they share.
+KIND_COVERED = "covered"
 
 # How bad a clash is. Every clash found here is SERIOUS by now: the same cells,
 # or the same file, written by both mods, so one mod's values are provably lost.
@@ -59,6 +64,10 @@ class Conflict:
     severity: str = WARNING
 
     def message(self) -> str:
+        if self.kind == KIND_COVERED:
+            # first is the mod that is covered, second the one that covers it
+            return (f"{self.second} already does what {self.first} does, "
+                    f"so {self.first} does not need to be ticked as well")
         return f"{self.first} and {self.second} both write {self.detail} - {self.second} wins"
 
 
@@ -171,6 +180,8 @@ class _ModFootprint:
     copied: set[str] = field(default_factory=set)
     # Inside those packages: package name (lower case) -> {what: its name}.
     objects: dict[str, dict[tuple, str]] = field(default_factory=dict)
+    # ...and the new data a package patch puts in each, for the ones it replaces.
+    bodies: dict[str, dict[tuple, bytes]] = field(default_factory=dict)
     textures: dict[str, str] = field(default_factory=dict)
 
     def add_rows(self, table: str, rowids: set[int] | None) -> None:
@@ -196,11 +207,26 @@ def _layers(left: _ModFootprint, right: _ModFootprint, target: str) -> bool:
     return bool(left.layered.get(target)) and bool(right.layered.get(target))
 
 
-def _same_objects(left: _ModFootprint, right: _ModFootprint, target: str) -> list[str]:
-    """The objects in ``target`` both mods change, by name."""
+def _same_objects(left: _ModFootprint, right: _ModFootprint, target: str,
+                  stock_body=None) -> list[str]:
+    """The objects in ``target`` both mods change, by name.
+
+    Not a function both replace where the two changes combine, which is what
+    the asset runner then does (upk/scriptmerge.py). That needs the game's own
+    function to compare with, from ``stock_body``; without it, it is a clash.
+    """
     package = target.replace("\\", "/").rsplit("/", 1)[-1].lower()
     mine, theirs = left.objects.get(package, {}), right.objects.get(package, {})
-    return sorted(mine[key] for key in mine.keys() & theirs.keys())
+    same = []
+    for key in mine.keys() & theirs.keys():
+        a = left.bodies.get(package, {}).get(key)
+        b = right.bodies.get(package, {}).get(key)
+        if a is not None and b is not None and stock_body is not None and key[0] == "export":
+            stock = stock_body(package, key[1])
+            if stock is not None and scriptmerge.merge(stock, a, b) is not None:
+                continue
+        same.append(mine[key])
+    return sorted(same)
 
 
 def _shown(names: list[str], limit: int = 3) -> str:
@@ -236,6 +262,10 @@ def footprint(mod: Mod, con: sqlite3.Connection | None = None) -> _ModFootprint:
         if callable(changed):
             for package, found in changed().items():
                 result.objects.setdefault(package, {}).update(found)
+        bodies = getattr(patch, "changed_bodies", None)
+        if callable(bodies):
+            for package, found in bodies().items():
+                result.bodies.setdefault(package, {}).update(found)
         textures = getattr(patch, "changed_textures", None)
         if callable(textures):
             result.textures.update(textures())
@@ -279,11 +309,14 @@ def analyze(
     enabled: list[Mod],
     installed_ids: set[str] | None = None,
     con: sqlite3.Connection | None = None,
+    stock_body=None,
 ) -> ConflictReport:
     """Compare every enabled mod against every other, in apply order.
 
     Pass a read-only connection to get row-level precision: two mods that write
     the same table in rows that never overlap then produce no warning at all.
+    ``stock_body`` - asset_runner.stock_bodies - lets two mods changing the same
+    function in ways that combine go unreported too.
     """
     report = ConflictReport()
     installed_ids = installed_ids if installed_ids is not None else {mod.id for mod in enabled}
@@ -318,14 +351,27 @@ def analyze(
                     )
                 )
 
-            for table, column in sorted(left.columns & right.columns):
+            # A mod that says another already does its job: when both write the
+            # same boxes, say that once instead of listing each box as a clash.
+            # When they share nothing (the covering mod's part switched off),
+            # there is nothing to say.
+            if first.id in second.covered_by:
+                covered, covering = second.id, first.id
+            elif second.id in first.covered_by:
+                covered, covering = first.id, second.id
+            else:
+                covered = covering = ""
+            boxes = [(table, column) for table, column in sorted(left.columns & right.columns)
+                     if _shared_rows(left, right, table)]
+            if covered and boxes:
+                report.conflicts.append(Conflict(KIND_COVERED, covered, covering, "", WARNING))
+                boxes = []
+
+            for table, column in boxes:
                 shared = _shared_rows(left, right, table)
-                if not shared:
-                    # No row in common, or it cannot be shown that there is one.
-                    # The same column of different rows is two mods minding their
-                    # own business, and guessing otherwise is the noise.
-                    continue
-                # Same table, same rows, same column: the same box.
+                # Same table, same rows, same column: the same box. (No row in
+                # common, or no way to show one, is two mods minding their own
+                # business, and guessing otherwise is the noise.)
                 report.conflicts.append(
                     Conflict(
                         KIND_COLUMN,
@@ -346,7 +392,7 @@ def analyze(
             # other in the same package are not a conflict.
             for target in sorted(left.asset_targets & right.asset_targets):
                 if _layers(left, right, target):
-                    same = _same_objects(left, right, target)
+                    same = _same_objects(left, right, target, stock_body)
                     if same:
                         name = target.replace("\\", "/").rsplit("/", 1)[-1]
                         report.conflicts.append(
