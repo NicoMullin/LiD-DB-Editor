@@ -43,6 +43,25 @@ compares it with a clean copy of the same game build, says which mods it can
 already see in there, and offers to take them over. The moment you pick a
 database it also keeps a permanent `masters.db.original` copy.
 
+### What's new in Beta V0.13.6
+
+**Fix: Storage Limit's price and slots per purchase did nothing.** Storage
+Limit 2.2.0. "Slots per purchase" and "Price per purchase" were parts you had
+to tick under the mod in the list, and changing their numbers alone left the
+game as it was. Each now has an On/Off switch beside it in Configuration:
+**Change slots per purchase** and **Change the price**, Off to begin with. The
+number is greyed out until its switch is On. Ticked the old parts already?
+They become their switches, On, the first time this version starts.
+
+Already on 0.13.5? Storage Limit 2.2.0 is in **Get mods** too, on the **Mods**
+tab.
+
+**Fix: an update could fail to unpack.** When OneDrive or a virus scanner was
+still holding files from an earlier try, **Update now** stopped with an error.
+It now unpacks into a fresh folder beside the old one, and if even that is not
+possible it says which folder to delete. The leftovers are removed the next
+time the manager starts.
+
 ### What's new in Beta V0.13.5
 
 **Get only the mods you want, and update each one on its own.** Every mod that

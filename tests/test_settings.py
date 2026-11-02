@@ -9,6 +9,7 @@ load at all.
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import tempfile
 import unittest
@@ -407,6 +408,28 @@ class CarryingPlayersAcross(unittest.TestCase):
                 self.assertFalse((shipped / old_id).exists())
                 self.assertNotIn(old_id, offered)
                 self.assertNotIn(old_id, migrations.RETIRED)
+
+    def test_a_ticked_storage_part_becomes_its_switch_on(self) -> None:
+        shipped = Path(__file__).resolve().parent.parent / "mods" / "storage-limit"
+        shutil.copytree(shipped, self.paths.mods_dir / "storage-limit")
+        self._state(enabled_mods=["storage-limit"],
+                    enabled_patches={"storage-limit": ["per-buy"]},
+                    mod_settings={"storage-limit": {"per_buy": 20}})
+        manager = Manager(self.paths)
+        self.assertEqual(manager.state.mod_settings["storage-limit"],
+                         {"per_buy": 20, "change_per_buy": True})
+        self.assertEqual(manager.state.enabled_patches.get("storage-limit", []), [])
+        described = [p.description for p in manager.configured_mod("storage-limit").patches]
+        self.assertIn("Each purchase adds 20 slots instead of 10", described)
+        self.assertFalse(any("costs" in d for d in described), "the price part was not ticked")
+
+    def test_an_old_storage_copy_keeps_its_ticked_part(self) -> None:
+        write_mod(self.paths.mods_dir, "storage-limit", {"patches": [
+            {"type": "raw_sql", "id": "per-buy", "ships_on": False,
+             "sql": "UPDATE master_tdm_rank SET idx = idx;"}]})
+        self._state(enabled_patches={"storage-limit": ["per-buy"]})
+        manager = Manager(self.paths)
+        self.assertEqual(manager.state.enabled_patches["storage-limit"], ["per-buy"])
 
     def test_every_retired_id_points_at_a_shipped_mod(self) -> None:
         shipped = Path(__file__).resolve().parent.parent / "mods"

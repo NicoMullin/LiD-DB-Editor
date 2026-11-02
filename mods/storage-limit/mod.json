@@ -1,8 +1,8 @@
 {
   "id": "storage-limit",
   "name": "Storage Limit",
-  "description": "The Coin Locker expands to {{slots:comma}} instead of 2,000. Two optional parts change how many slots each purchase adds and what it costs.",
-  "version": "2.1.0",
+  "description": "The Coin Locker expands to {{slots:comma}} instead of 2,000. Two optional switches change how many slots each purchase adds and what it costs.",
+  "version": "2.2.0",
   "author": "KSFA",
   "category": "Economy",
   "tags": [
@@ -19,6 +19,7 @@
     "5.0.4.4.0 - 1.91",
     "5.0.5.0.0 - 1.92"
   ],
+  "min_manager_version": "0.13.4",
   "requires": [],
   "conflicts_with": [],
   "settings": [
@@ -34,6 +35,13 @@
       "help": "Stock is 2,000. It cannot go lower, so nothing already stored is stranded. Capped at 20,000 (10x stock) - no similar count/slot field anywhere in the stock game goes anywhere near as high as the old 99,999 ceiling did."
     },
     {
+      "id": "change_per_buy",
+      "label": "Change slots per purchase",
+      "type": "toggle",
+      "default": false,
+      "help": "On: each purchase adds the number of slots below instead of the game's 10."
+    },
+    {
       "id": "per_buy",
       "label": "Slots per purchase",
       "type": "integer",
@@ -42,7 +50,17 @@
       "max": 1000,
       "step": 10,
       "unit": "slots",
-      "help": "Stock is 10, so filling a 10,000-slot locker means buying the expansion a thousand times. At 100 it is a hundred times; at 1,000 it is ten. Only used while the 'Slots per purchase' part is ticked."
+      "help": "Stock is 10, so filling a 10,000-slot locker means buying the expansion a thousand times. At 100 it is a hundred times; at 1,000 it is ten.",
+      "when": {
+        "change_per_buy": true
+      }
+    },
+    {
+      "id": "change_price",
+      "label": "Change the price",
+      "type": "toggle",
+      "default": false,
+      "help": "On: each purchase costs the price below instead of the game's 10,000 KC."
     },
     {
       "id": "price",
@@ -53,7 +71,10 @@
       "max": 200000,
       "step": 100,
       "unit": "KC",
-      "help": "The game lists two prices for this one expansion - 10,000 KC and 1,000 KC - and this sets both, since which one you are charged is decided in code rather than in the database. Roughly cost-neutral is 100 KC per slot, so 100 slots a purchase balances at 10,000. Capped at 200,000 - the highest this same price field is ever set to anywhere in the stock game. Only used while the 'Price per purchase' part is ticked."
+      "help": "The game lists two prices for this one expansion - 10,000 KC and 1,000 KC - and this sets both (the 10,000 one is what the game charges). Roughly cost-neutral is 100 KC per slot, so 100 slots a purchase balances at 10,000. Capped at 200,000 - the highest this same price field is ever set to anywhere in the stock game.",
+      "when": {
+        "change_price": true
+      }
     }
   ],
   "patches": [
@@ -71,8 +92,10 @@
     {
       "type": "update_set",
       "id": "per-buy",
+      "when": {
+        "change_per_buy": true
+      },
       "description": "Each purchase adds {{per_buy:comma}} slots instead of 10",
-      "ships_on": false,
       "table": "master_const_int",
       "set": {
         "value": "{{per_buy}}"
@@ -83,8 +106,10 @@
     {
       "type": "update_set",
       "id": "price",
+      "when": {
+        "change_price": true
+      },
       "description": "Each purchase costs {{price:comma}} KC",
-      "ships_on": false,
       "table": "master_shop_product_price",
       "set": {
         "price": "{{price}}"

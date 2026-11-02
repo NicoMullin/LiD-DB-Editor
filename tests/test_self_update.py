@@ -167,6 +167,16 @@ class Fetching(unittest.TestCase):
         self.assertEqual([p.name for p in self.parent.iterdir()], [self.folder.name],
                          "nothing is made beside the program folder")
 
+    def test_a_leftover_that_cannot_be_removed_is_unpacked_beside(self) -> None:
+        # OneDrive holding an earlier try's files: the folder will not go away.
+        stuck = self.folder / U.UPDATE_DIR / "9.1.0"
+        stuck.parent.mkdir()
+        stuck.write_bytes(b"held")
+        with mock.patch.object(U.shutil, "rmtree"):
+            new = self.fetch(GitHub())
+        self.assertEqual(new, self.folder / U.UPDATE_DIR / "9.1.0-1" / TOP)
+        self.assertEqual((new / EXE).read_bytes(), b"new exe")
+
     def test_a_download_that_does_not_match_its_hash_is_not_used(self) -> None:
         with self.assertRaises(U.UpdateError):
             self.fetch(GitHub(digest="sha256:" + "0" * 64))

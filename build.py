@@ -374,6 +374,10 @@ def main() -> int:
         result = target_dir
     if saved and rescue is not None:
         result.mkdir(parents=True, exist_ok=True)
+        # The shipped mods go in first: the fresh build has no mods/ yet, and
+        # with nothing to compare against, the installed folder would come back
+        # whole and a newer shipped version of a mod would never replace it.
+        stage_mods(result)
         restore_runtime_state(result, rescue, saved)
         shutil.rmtree(rescue, ignore_errors=True)
         print(f"Put back {', '.join(saved)}")

@@ -100,6 +100,15 @@ DROPPED: dict[str, str] = {
 }
 
 
+# Optional parts that became On/Off settings, by mod: part key -> setting id.
+# Changing a part's number did nothing until the part was ticked in the list,
+# which players kept missing; a switch beside the number in Configuration
+# cannot be missed. Someone who had ticked the part gets the switch On.
+PARTS_NOW_SWITCHES: dict[str, dict[str, str]] = {
+    "storage-limit": {"per-buy": "change_per_buy", "price": "change_price"},
+}
+
+
 def _is_ours(folder: Path, old_id: str, author: str = SHIPPED_AUTHOR) -> bool:
     """A folder this project shipped under that name, not someone's own mod."""
     try:
@@ -222,6 +231,29 @@ def migrate_state(state, installed_ids: set[str], snapshots_dir: Path, log=None)
             if old_id in mod_ids:
                 state.modpacks[pack] = [m for m in mod_ids if m != old_id]
                 changed = True
+    return changed
+
+
+def switch_on_ticked_parts(state, mods_by_id: dict, log=None) -> bool:
+    """Turn a ticked old part into its new setting switched On.
+
+    Only once the installed mod has the setting: an older copy of the mod,
+    still with the part, keeps the tick. Returns True if anything changed.
+    """
+    changed = False
+    for mod_id, switches in PARTS_NOW_SWITCHES.items():
+        mod = mods_by_id.get(mod_id)
+        ticked = state.enabled_patches.get(mod_id)
+        if mod is None or not ticked:
+            continue
+        for part_key, setting_id in switches.items():
+            if part_key not in ticked or mod.setting(setting_id) is None:
+                continue
+            ticked.remove(part_key)
+            state.mod_settings.setdefault(mod_id, {})[setting_id] = True
+            changed = True
+            if log:
+                log.info(f"{mod_id}: the ticked part {part_key} is now the setting {setting_id}, On")
     return changed
 
 

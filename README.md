@@ -657,10 +657,10 @@ touch it.
 | `bank-limit`       | Both banks hold more, all 99 levels              | x10      | x1 to x100      |
 | `reward-box-limit` | The reward box holds this many instead of 50     | 250      | 50 to 500       |
 | `storage-limit`    | The Coin Locker expands to this instead of 2,000 | 10,000   | 2,000 to 20,000 |
-|                    | … and how many slots each purchase adds (part)   | 100      | 1 to 1,000      |
-|                    | … and what one purchase costs (part)             | 1,000 KC | 1 to 200,000 KC |
+|                    | … and how many slots each purchase adds (switch) | 100      | 1 to 1,000      |
+|                    | … and what one purchase costs (switch)           | 1,000 KC | 1 to 200,000 KC |
 
-`storage-limit`'s last two rows are **parts, switched off until you tick them** — look under the mod in the list. Slots per purchase is the one that makes a big locker usable: at stock, filling a 10,000-slot locker means buying the expansion a thousand times.
+`storage-limit`'s last two rows each have **an On/Off switch in Configuration, Off to start** — the number is greyed out until you switch it On. Slots per purchase is the one that makes a big locker usable: at stock, filling a 10,000-slot locker means buying the expansion a thousand times.
 
 `bag-size` never leaves a fighter with fewer slots than stock (18 to 54, by class, grade and limit break), so a Collector's big bag stays big. Pick **at least** for one size for everyone, or **more than stock** to keep the differences. No bag goes over 60: that is what the well-known 60-slot mod gives, tested in game, and bigger bags go wrong. The Express Pass adds its 10 on top, for 70. Empty the extra slots before switching it off.
 

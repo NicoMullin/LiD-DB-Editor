@@ -197,9 +197,10 @@ class Manager:
         # the scan, then point the saved state at their replacements.
         migrations.retire_shipped_folders(self.paths.mods_dir, self.log)
         self.rescan()
-        if migrations.migrate_state(
+        migrated = migrations.migrate_state(
             self.state, self.installed_ids(), self.paths.snapshots_dir, self.log
-        ):
+        )
+        if migrations.switch_on_ticked_parts(self.state, self.scan.by_id, self.log) or migrated:
             self.state.save()
 
     # -- database selection ----------------------------------------------

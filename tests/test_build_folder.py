@@ -78,6 +78,33 @@ class VersionedFolder(unittest.TestCase):
         self.assertEqual((self.versioned / "state.json").read_text(), "mine")
         self.assertEqual((self.versioned / EXE).read_text(), "new build")
 
+    def _shipped(self, version: str) -> None:
+        (self.root / "mods" / "Shipped" / "mod.json").write_text(f'{{"version": "{version}"}}')
+
+    def _installed(self) -> str:
+        return (self.versioned / "mods" / "Shipped" / "mod.json").read_text()
+
+    def test_a_rebuild_ships_a_newer_version_of_a_mod(self) -> None:
+        self._shipped("2.1.0")
+        self.run_build()
+        self._shipped("2.2.0")
+        self.run_build()
+        self.assertIn("2.2.0", self._installed())
+
+    def test_a_rebuild_keeps_an_edited_mod_of_the_same_version(self) -> None:
+        self._shipped("2.1.0")
+        self.run_build()
+        (self.versioned / "mods" / "Shipped" / "mod.json").write_text('{"version": "2.1.0", "x": 1}')
+        self.run_build()
+        self.assertIn('"x": 1', self._installed())
+
+    def test_a_rebuild_keeps_a_mod_the_player_added(self) -> None:
+        self.run_build()
+        (self.versioned / "mods" / "Mine").mkdir()
+        (self.versioned / "mods" / "Mine" / "mod.json").write_text("{}")
+        self.run_build()
+        self.assertTrue((self.versioned / "mods" / "Mine" / "mod.json").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

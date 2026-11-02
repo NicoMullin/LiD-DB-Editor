@@ -299,6 +299,11 @@ def fetch(
     progress.stage("Unpacking it...", 80, 100)
     try:
         return unpack(packed, work / stem, exe, progress)
+    except OSError as exc:
+        raise UpdateError(
+            f"The download could not be unpacked ({exc}). OneDrive or a virus scanner may be "
+            f"holding files in {work}. Close {APP_NAME}, delete that folder and try again."
+        ) from exc
     finally:
         packed.unlink(missing_ok=True)
 
@@ -333,9 +338,7 @@ def unpack(packed: Path, into: Path, exe: str, progress: Progress | None = None)
     """Unpack a release zip (or Linux tar.gz) into ``into`` (emptied first).
     Returns the folder in it that holds ``exe`` and ``_internal``."""
     progress = ensure(progress)
-    if into.exists():
-        shutil.rmtree(into)
-    into.mkdir(parents=True)
+    into = _empty_folder(into)
     if Path(packed).name.lower().endswith(LINUX_SUFFIX):
         _untar(Path(packed), into, progress)
         return _program_folder(into, exe)
@@ -364,6 +367,25 @@ def unpack(packed: Path, into: Path, exe: str, progress: Progress | None = None)
     except zipfile.BadZipFile as exc:
         raise UpdateError("The download is not a zip the program can open.") from exc
     return _program_folder(into, exe)
+
+
+def _empty_folder(path: Path, tries: int = 20) -> Path:
+    """``path``, new and empty. What an earlier try left there is removed; if
+    some of it cannot be (OneDrive and virus scanners hold on to files they are
+    busy with), a new name beside it is used instead - "0.13.5-1" - and the
+    leftovers go at the next start."""
+    for n in range(tries):
+        folder = path if n == 0 else path.with_name(f"{path.name}-{n}")
+        shutil.rmtree(folder, ignore_errors=True)
+        try:
+            folder.mkdir(parents=True)
+            return folder
+        except OSError:
+            continue
+    raise UpdateError(
+        f"What earlier updates left in {path.parent} could not be removed. Close {APP_NAME}, "
+        "delete that folder and try again."
+    )
 
 
 def _untar(packed: Path, into: Path, progress: Progress) -> None:
