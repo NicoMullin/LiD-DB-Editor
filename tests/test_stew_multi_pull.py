@@ -207,10 +207,11 @@ class ThePatches(unittest.TestCase):
         # grid; 0.4.0 (e0a460ee...1973, proven) asks for the run's whole price and
         # can do it in one request; 0.4.1 raises the grid a little (8d4f280d...c7d4, proven); 0.5.2 is
         # the same code rebuilt for game 1.92, whose new names moved every number
-        # (2b49bd3f...9441); 0.7.0 adds the pity pick and the pity line
+        # (2b49bd3f...9441); 0.7.0 adds the pity pick and the pity line (ae9ed851...ab96);
+        # 0.7.1 is 0.7.0 rebuilt for game 1.93, whose new names moved every number again
         import hashlib
         self.assertEqual(hashlib.sha256(PATCHES[10].read_bytes()).hexdigest(),
-                         "ae9ed851c8d1ea2a13a1bf70f66f16787c88852b06aaafd6d12c00bf6ea9ab96")
+                         "39b8c9938b9877ef2d00283f234cd62eb5869ea52bc888e428d3a3b0ca337b92")
 
     def test_triangle_in_check_lineup_picks_the_pity_decal(self) -> None:
         for n, functions, refs in self.each():

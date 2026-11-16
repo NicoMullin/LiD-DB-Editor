@@ -1195,10 +1195,10 @@ the content has to be a mod in the list to survive.
 
 ### Updates
 
-The manager ships v3.79 as refreshed for game version 1.92 (from S3er0i9ng's
-Mod Manager v1.3.31): 45 of its packages are copies of game files that 1.91 and
-1.92 changed, and the pack's installer also corrects three decal descriptions.
-The manager calls it 3.79.2, so a copy already switched on is updated on the
+The manager ships v3.79 as refreshed for game version 1.93: 45 of its packages
+are copies of game files that 1.91, 1.92 and 1.93 changed (taken from the game
+itself for 1.93), and the pack's installer also corrects three decal descriptions.
+The manager calls it 3.79.3, so a copy already switched on is updated on the
 next save. When the pack gets an update, the manager has to be updated to
 include it — a new release of this program will carry it.
 

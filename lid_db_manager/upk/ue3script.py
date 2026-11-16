@@ -217,6 +217,10 @@ class Dis:
             return f"{a}.sort({f})"
         if t == 0x5A:
             s = self.u16(); return f"editoronly<0x{s:x}>"
+        if t == 0x5B:   # a 64-bit integer constant (LiD's qword times), 8 bytes on disk and in memory
+            v = struct.unpack_from("<q", self.code, self.pos)[0]
+            self.pos += 8; self.mem += 8
+            return f"{v}q"
         if 0x60 <= t <= 0x6F:
             idx = ((t - 0x60) << 8) | self.u8()
             return f"N{idx}({', '.join(self.params())})"

@@ -2,7 +2,7 @@
   "id": "Colored PlayStation Buttons v1.5",
   "name": "Colored PlayStation Buttons v1.5",
   "description": "Replaces UI_ButtonGuide_STM_SF.upk so the button prompts are the coloured PlayStation ones. Needs the game's file check switched off for that package - the game keeps a hash for it and refuses a replacement otherwise.",
-  "version": "1.5",
+  "version": "1.5.1",
   "author": "S3er0i9ng",
   "category": "Visuals",
   "tags": [

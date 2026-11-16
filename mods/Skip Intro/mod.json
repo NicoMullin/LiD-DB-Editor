@@ -2,7 +2,7 @@
   "id": "Skip Intro",
   "name": "Skip Intro",
   "description": "Straight to the title screen: the logo videos and the GungHo, Supertrick and Unreal logo screens at start-up are skipped.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "KSFA",
   "category": "Quality of life",
   "tags": [
@@ -12,9 +12,7 @@
     "movies",
     "game-files"
   ],
-  "game_version": [
-    "5.0.5.0.0 - 1.92"
-  ],
+  "game_version": ["5.0.6.0.0 - 1.93"],
   "requires": [],
   "conflicts_with": [],
   "requires_check_off": [
@@ -38,117 +36,117 @@
           "name": "GungHo logo: fade in",
           "find": [
             {
-              "hex": "bc7c02004a4a4a4a4a4a4a1612205efcffff290000000000001b1b78000000"
+              "hex": "f17c02004a4a4a4a4a4a4a1612205efcffff290000000000001b4677000000"
             }
           ],
           "skip": 22,
           "write": {
             "type": "u8",
-            "value": 23
+            "value": 73
           }
         },
         {
           "name": "GungHo logo: time on screen",
           "find": [
             {
-              "hex": "032d016fa30000142d016fa30000280f010649010000"
+              "hex": "032d016fa30000142d016fa30000280f013849010000"
             }
           ],
           "skip": 0,
           "write": {
             "type": "u8",
-            "value": 23
+            "value": 73
           }
         },
         {
           "name": "GungHo logo: fade out",
           "find": [
             {
-              "hex": "042d016fa30000142d016fa300002812205efcffff290000000000001b1b78"
+              "hex": "042d016fa30000142d016fa300002812205efcffff290000000000001b4677"
             }
           ],
           "skip": 25,
           "write": {
             "type": "u8",
-            "value": 23
+            "value": 73
           }
         },
         {
           "name": "Supertrick logo: fade in",
           "find": [
             {
-              "hex": "bb7c02004a4a4a4a4a4a4a1612205efcffff290000000000001b1b78000000"
+              "hex": "f07c02004a4a4a4a4a4a4a1612205efcffff290000000000001b4677000000"
             }
           ],
           "skip": 22,
           "write": {
             "type": "u8",
-            "value": 23
+            "value": 73
           }
         },
         {
           "name": "Supertrick logo: time on screen",
           "find": [
             {
-              "hex": "052d016fa30000142d016fa30000280f010649010000"
+              "hex": "052d016fa30000142d016fa30000280f013849010000"
             }
           ],
           "skip": 0,
           "write": {
             "type": "u8",
-            "value": 23
+            "value": 73
           }
         },
         {
           "name": "Supertrick logo: fade out",
           "find": [
             {
-              "hex": "062d016fa30000142d016fa300002812205efcffff290000000000001b1b78"
+              "hex": "062d016fa30000142d016fa300002812205efcffff290000000000001b4677"
             }
           ],
           "skip": 25,
           "write": {
             "type": "u8",
-            "value": 23
+            "value": 73
           }
         },
         {
           "name": "Unreal logo: fade in",
           "find": [
             {
-              "hex": "bd7c02004a4a4a4a4a4a4a1612205efcffff290000000000001b1b78000000"
+              "hex": "f27c02004a4a4a4a4a4a4a1612205efcffff290000000000001b4677000000"
             }
           ],
           "skip": 22,
           "write": {
             "type": "u8",
-            "value": 23
+            "value": 73
           }
         },
         {
           "name": "Unreal logo: time on screen",
           "find": [
             {
-              "hex": "072d016fa30000142d016fa30000280f010649010000"
+              "hex": "072d016fa30000142d016fa30000280f013849010000"
             }
           ],
           "skip": 0,
           "write": {
             "type": "u8",
-            "value": 23
+            "value": 73
           }
         },
         {
           "name": "Unreal logo: fade out",
           "find": [
             {
-              "hex": "082d016fa30000142d016fa300002812205efcffff290000000000001b1b78"
+              "hex": "082d016fa30000142d016fa300002812205efcffff290000000000001b4677"
             }
           ],
           "skip": 25,
           "write": {
             "type": "u8",
-            "value": 23
+            "value": 73
           }
         }
       ]

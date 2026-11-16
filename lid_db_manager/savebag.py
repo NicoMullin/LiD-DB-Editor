@@ -260,7 +260,8 @@ class Bag(Container):
                     gear.chosen[hand] = gear.held[hand]
             text = f"{gear.chosen['right']},{gear.chosen['left']}"
             stored = self.save.get(self.chr_path + ("select_arm_slots",))
-            if stored != text and (stored or any(gear.held.get(h) is not None for h in HANDS)):
+            same = self._chosen() == [gear.chosen["right"], gear.chosen["left"]]   # "" reads as 0,0
+            if stored != text and not same and (stored or any(gear.held.get(h) is not None for h in HANDS)):
                 self.save.get(self.chr_path)["select_arm_slots"] = text
         after = self._places(self.gear())
         for place, was in before.items():

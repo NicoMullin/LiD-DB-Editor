@@ -43,6 +43,31 @@ compares it with a clean copy of the same game build, says which mods it can
 already see in there, and offers to take them over. The moment you pick a
 database it also keeps a permanent `masters.db.original` copy.
 
+### What's new in Beta V0.13.7
+
+**Works with game 1.93.** The game update of 16 November changed BrgGame.upk
+again, so every mod that changes it stopped with "the package has 79165 names
+but the patch was made against one with 79186", and the save was undone. All
+of them are rebuilt for 1.93: Quest Limit, Skip Intro, Skip Raid Report,
+Animation Speed, Armor and Weapon Skins and Vending Machine here, and Death
+Metals, Stew Multi Pull, Timers, Better Dustin5 and Class Passives in Get mods
+(get their new releases). Switched on already? The next **Save Mod List**
+updates them.
+
+**Vending Machine 0.4.2.** 1.93 puts a new entry in the vending machine's menu,
+Dismantle Death 'Roids. Refill ammo and Decals now come after it, and each
+entry opens its own screen.
+
+**Crossover Content 3.79.3.** 1.93 changed the same 45 game files again (the
+12 Warpig outfit pieces and the 33 No More Heroes decal icons), so the manager
+had been leaving them out. They are refreshed for 1.93.
+
+**Colored PlayStation Buttons 1.5.1.** Rebuilt on the game's own 1.93 file,
+with only the button artwork swapped for the coloured one.
+
+**Fix: the save editor's bag page could change a save it did not touch.** A
+fighter with no weapon picked was written back as "0,0" instead of left empty.
+
 ### What's new in Beta V0.13.6
 
 **Fix: Storage Limit's price and slots per purchase did nothing.** Storage

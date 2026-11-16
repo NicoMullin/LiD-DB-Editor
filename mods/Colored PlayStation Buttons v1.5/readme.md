@@ -23,3 +23,10 @@ Unticking it puts the game's own file back.
 
 Do not also use the mod's own installer — the manager already does its job, and
 the two would undo each other.
+
+## 1.5.1
+
+Rebuilt for game 1.93, which changed this file again: it is now the game's
+own 1.93 copy with only the button artwork swapped for the coloured one, so
+everything else in it matches the game. Switched on already? The next
+**Save Mod List** updates it.

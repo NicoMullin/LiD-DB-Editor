@@ -2,7 +2,7 @@
   "id": "Animation Speed",
   "name": "Animation Speed",
   "description": "Your fighter eats, kicks chests open, picks things up, puts on gear, catches animals, grills food and whacks vending machines faster. Each one has its own speed. Set it in Configuration.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "KSFA",
   "category": "Quality of life",
   "tags": [
@@ -12,9 +12,7 @@
     "chests",
     "game-files"
   ],
-  "game_version": [
-    "5.0.5.0.0 - 1.92"
-  ],
+  "game_version": ["5.0.6.0.0 - 1.93"],
   "apply": "diff",
   "requires": [],
   "conflicts_with": [],

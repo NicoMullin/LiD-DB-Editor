@@ -32,6 +32,12 @@ Switch it back on and save to get the quests and research back.
 Tick it and click **Save Mod List**. Unticking it puts the database back and
 takes the artwork out of the game.
 
+## 3.79.3
+
+- **The same 45 packages refreshed for game 1.93.** They are copies of the
+  game's own files, and 1.93 changed them again, so on 1.93 the manager had
+  been leaving them out. The database changes are the same as in 3.79.2.
+
 ## 3.79.2
 
 - **The same 45 packages refreshed again for game 1.92**, which changed those

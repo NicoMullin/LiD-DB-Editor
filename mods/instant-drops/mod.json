@@ -2,7 +2,7 @@
   "id": "instant-drops",
   "name": "Instant Drops",
   "description": "Kills drop their reward, and grow their corpse mushroom, after {{tenths}} tenths of a second instead of the usual 20 (two seconds) each.",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": "KSFA",
   "category": "Quality of life",
   "tags": [
@@ -15,7 +15,8 @@
     "5.0.4.1.0 - 1.89",
     "5.0.4.1.0 - 1.89 (Steam 5.0.4.2.0)",
     "5.0.4.4.0 - 1.91",
-    "5.0.5.0.0 - 1.92"
+    "5.0.5.0.0 - 1.92",
+    "5.0.6.0.0 - 1.93"
   ],
   "requires": [],
   "conflicts_with": [],
